@@ -1,4 +1,12 @@
-node_modules
-dist
-.vite
+# Logs
+logs
+*.log
 npm-debug.log*
+
+# Build and dependency output, including the nested tools/apigen package
+node_modules
+**/node_modules
+dist
+dist-ssr
+.vite
+*.local

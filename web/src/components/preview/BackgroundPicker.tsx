@@ -39,7 +39,7 @@ export function BackgroundPicker({ value, onChange, garmentHex }: BackgroundPick
                       ? value.hex
                       : isHexColor(garmentHex)
                         ? garmentHex!.toLowerCase()
-                        : value.hex || '#ff00ff'
+                        : '#ff00ff'
                     : value.hex,
               })
             }
