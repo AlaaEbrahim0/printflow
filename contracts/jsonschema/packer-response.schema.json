@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://printsheet.local/schemas/packer-response.schema.json",
+  "title": "PrintSheet PackerResponse",
+  "description": "Packer placements and generated artifacts. Rendering uses approved full-resolution pixels only; the packer translates and rotates by 90-degree steps without resampling.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "requestId",
+    "sheet",
+    "placements",
+    "integrityReport",
+    "outputs",
+    "stats"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "sheet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["widthPx", "heightPx", "widthCm", "heightCm", "dpi"],
+      "properties": {
+        "widthPx": { "type": "integer", "minimum": 1 },
+        "heightPx": { "type": "integer", "minimum": 1 },
+        "widthCm": { "type": "number", "exclusiveMinimum": 0 },
+        "heightCm": { "type": "number", "exclusiveMinimum": 0 },
+        "dpi": { "type": "integer", "minimum": 72, "maximum": 1200 }
+      }
+    },
+    "placements": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/placement" }
+    },
+    "integrityReport": { "$ref": "integrity-report.schema.json" },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifestPath"],
+      "properties": {
+        "previewPath": { "$ref": "#/$defs/relativePath" },
+        "manifestPath": { "$ref": "#/$defs/relativePath" }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["designCount", "durationMs", "orderingsTried", "seed"],
+      "properties": {
+        "designCount": { "type": "integer", "minimum": 1 },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "orderingsTried": { "type": "integer", "minimum": 0 },
+        "seed": { "type": "integer" },
+        "occupancyRatio": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "details": { "type": "object" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "designId",
+        "versionId",
+        "xCm",
+        "yCm",
+        "widthCm",
+        "heightCm",
+        "widthPx",
+        "heightPx",
+        "rotationDeg"
+      ],
+      "properties": {
+        "designId": { "type": "string", "format": "uuid" },
+        "versionId": { "type": "string", "format": "uuid" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "xCm": { "type": "number", "minimum": 0 },
+        "yCm": { "type": "number", "minimum": 0 },
+        "widthCm": { "type": "number", "exclusiveMinimum": 0 },
+        "heightCm": { "type": "number", "exclusiveMinimum": 0 },
+        "widthPx": { "type": "integer", "minimum": 1 },
+        "heightPx": { "type": "integer", "minimum": 1 },
+        "rotationDeg": { "enum": [0, 90, 180, 270] }
+      }
+    }
+  }
+}

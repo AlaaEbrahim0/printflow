@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0",
+  "jobId": "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
+  "status": "failed",
+  "metadata": {
+    "durationMs": 1502,
+    "engine": "realesrgan-ncnn-vulkan"
+  },
+  "error": {
+    "code": "gpu-out-of-memory",
+    "message": "Tile size 512 exceeded the 4 GB device budget; retry with a smaller tile.",
+    "retryable": true,
+    "details": { "tileSize": 512, "suggestedTileSize": 192 }
+  }
+}

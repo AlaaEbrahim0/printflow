@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "1.0",
+  "reportId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  "generatedAt": "2026-11-05T12:00:00Z",
+  "passed": true,
+  "sheet": {
+    "widthPx": 6850,
+    "heightPx": 2362,
+    "widthCm": 58,
+    "heightCm": 20,
+    "dpi": 300
+  },
+  "checks": [
+    {
+      "id": "visible-pixels-inside-sheet",
+      "blocking": true,
+      "status": "passed",
+      "message": "All visible pixels are inside the sheet bounds.",
+      "details": { "designsChecked": 2 }
+    },
+    {
+      "id": "dilated-masks-no-overlap",
+      "blocking": true,
+      "status": "passed",
+      "message": "No dilated masks overlap.",
+      "details": { "overlaps": 0 }
+    },
+    {
+      "id": "minimum-gap",
+      "blocking": true,
+      "status": "passed",
+      "message": "All visible pixel gaps meet the configured margin.",
+      "details": { "minimumGapMm": 30, "requiredGapMm": 30 }
+    },
+    {
+      "id": "pixel-equality",
+      "blocking": true,
+      "status": "passed",
+      "message": "Rendered regions match the approved source versions exactly.",
+      "details": { "placementsChecked": 2, "mismatchedPixels": 0 }
+    }
+  ],
+  "failures": [],
+  "metrics": {
+    "designCount": 2,
+    "durationMs": 842,
+    "visiblePixelCount": 4186628,
+    "sheetAreaPx": 16179700,
+    "occupancyRatio": 0.2588,
+    "minimumGapMm": 30,
+    "orderingsTried": 30
+  }
+}

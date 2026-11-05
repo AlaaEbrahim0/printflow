@@ -60,7 +60,8 @@ present** in the conversation. The agent working on 2026-11-05 assumed the
 assignment was **Phase 0**, because Phase 0 is explicitly single-agent and
 blocks every other track. That assumption is recorded here.
 
-**Current phase: Phase 0 (in progress).**
+**Current phase: Phase 0 (deliverables complete; Docker verification blocked by
+host permissions).**
 Do **not** start Phase 1 tracks A–D or Phase 2 work without explicit user
 confirmation.
 
@@ -73,19 +74,24 @@ Phase 0 deliverables:
 - [x] Packer package/CLI shell and contract validator
 - [x] Web Vite/React shell with live API health check
 - [x] PSD/PSB spike executed
-- [ ] `ARCHITECTURE.md`
-- [ ] ADRs: stack split, queue choice, PSD limits, packer algorithm, storage
-- [ ] Domain model document
-- [ ] OpenAPI 3.0.3 API contract
-- [ ] JSON Schemas: worker job, worker result, packer request/response,
+- [x] `ARCHITECTURE.md`
+- [x] ADRs: stack split, queue choice, PSD limits, packer algorithm, storage,
+      immutable versioning
+- [x] Domain model document
+- [x] OpenAPI 3.0.3 API contract
+- [x] JSON Schemas: worker job, worker result, packer request/response,
       integrity report
-- [ ] Contract examples + validation script, all green
-- [ ] PSD spike report in `docs/spikes/psd-spike/` (script + results + report)
-- [ ] `/fixtures` realistic sample inputs + manifest (generated, not committed yet)
-- [ ] `docker-compose.yml` + Dockerfiles verified with one command
-- [ ] Native run scripts / Makefile
-- [ ] Root `README.md`
-- [ ] Final Phase 0 verification and handoff summary
+- [x] Contract examples + validation script, all green
+- [x] PSD spike report in `docs/spikes/psd-spike/` (scripts + results + report)
+- [x] `/fixtures` realistic sample inputs + manifest (generated, not committed)
+- [ ] `docker-compose.yml` + Dockerfiles verified with one command — Compose
+      config validates, but the local Docker daemon is inactive and starting it
+      needs a password (`sudo` unavailable to the agent). Native stack smoke
+      test passes. Run `make up` once Docker is available.
+- [x] Native run scripts / Makefile
+- [x] Root `README.md`
+- [x] Final Phase 0 verification and handoff summary (all gates green except the
+      Docker run noted above)
 
 Phase 1 tracks (do not start without confirmation):
 
@@ -107,10 +113,10 @@ settings page, cleanup of old files.
 ```text
 .
 ├── AGENTS.md                    ← this file (keep status current)
-├── README.md                    ← pending
-├── ARCHITECTURE.md              ← pending
-├── docker-compose.yml           ← pending
-├── Makefile                     ← pending
+├── README.md                    ← quick start, contracts, gates, guardrails
+├── ARCHITECTURE.md              ← system design and deployment
+├── docker-compose.yml           ← postgres + api + worker + web
+├── Makefile                     ← setup/up/test/fixtures/clean entry points
 ├── api/                         ← ASP.NET Core 10 LTS, Clean Architecture
 │   ├── PrintSheet.slnx          ← note: .NET 10 uses .slnx, not .sln
 │   ├── src/PrintSheet.Domain/   ← aggregates/value objects; no infrastructure
@@ -121,18 +127,18 @@ settings page, cleanup of old files.
 ├── worker/                      ← Python 3.11+ FastAPI, Phase 0 health only
 ├── packer/                      ← standalone Python, no API/worker dependency
 │   ├── printsheet_packer/
-│   └── spikes/                  ← pending PSD spike script
+│   └── spikes/psd-spike/        ← executable PSD/PSB reproducer
 ├── web/                         ← React 19 + TypeScript + Vite shell
 ├── contracts/
-│   ├── openapi/                 ← pending printsheet-api.yaml
-│   ├── jsonschema/              ← worker/packer/integrity contracts
-│   └── examples/                ← pending validated examples
+│   ├── openapi/                 ← printsheet-api.yaml (3.0.3, v1.0.0)
+│   ├── jsonschema/              ← 5 worker/packer/integrity contracts
+│   └── examples/                ← 14 validated examples
 ├── docs/
-│   ├── domain-model.md          ← pending
-│   ├── adr/                     ← pending ADRs
-│   └── spikes/psd-spike/        ← pending script/results/report
-├── fixtures/                    ← pending realistic sample inputs
-└── scripts/                     ← run/validation/fixture scripts
+│   ├── domain-model.md          ← aggregates, state machines, invariants
+│   ├── adr/                     ← 0001–0006 + index
+│   └── spikes/psd-spike/        ← report + measured JSON results
+├── fixtures/                    ← README + generator; generated/ is ignored
+└── scripts/                     ← run, smoke-test, fixtures, contract validation
 ```
 
 Runtime storage layout (never write outside this shape):
@@ -166,6 +172,12 @@ Verified on the development machine on 2026-11-05:
 | Docker Compose | 5.6.1 | — |
 | ImageMagick | 7.1.2-34 | used only in PSD spike |
 
+Host limitation observed on 2026-11-05: the Docker daemon is installed but
+inactive, `systematic-mess` is not in the `docker` group, and `sudo` requires a
+password the agent does not have. `docker compose config` validates the compose
+file, but `make up` cannot run until a human starts Docker or grants socket
+access. The native API/worker/web stack was smoke-tested instead.
+
 NuGet versions restored by the skeleton:
 
 - `Microsoft.EntityFrameworkCore` 10.0.14
@@ -186,6 +198,9 @@ version or docs first.
 
 - .NET 10 minimal API with Clean Architecture project references.
 - `/healthz` checks PostgreSQL (Compose) or SQLite (Development) through EF Core.
+- In Development the empty SQLite database is created with `EnsureCreated()` at
+  startup; EF's connectivity check treats a missing file as disconnected.
+  Migrations/mappings are Phase 1 A.
 - `/api/v1/info` returns contract version `1.0.0`.
 - `PrintSheetDbContext` is intentionally empty; mappings/migrations are Phase 1 A.
 - `PrintUnits` already implements cm↔px and effective DPI; tested.
@@ -220,7 +235,9 @@ python3.12 -m venv .venv
 
 - Standalone package + CLI; no imports from API/worker.
 - `python -m printsheet_packer version` works.
-- `validate` command validates JSON documents against contracts.
+- `validate` command validates JSON documents against contracts, loading all
+  schemas into a `referencing` registry so the packer response can resolve the
+  integrity-report `$ref`.
 - Phase 0 tests only cover the shell; Phase 1 C owns nesting/integrity/export.
 - Tests:
 
@@ -249,17 +266,23 @@ npm run lint
 
 ## 7. Frozen contracts
 
-Contract version: **1.0.0** (freeze target: 2026-11-05).
+Contract version: **1.0.0** (frozen 2026-11-05).
 
 Canonical files:
 
-- `contracts/openapi/printsheet-api.yaml` — HTTP API (pending completion).
-- `contracts/jsonschema/worker-job.schema.json` — worker request envelope.
-- `contracts/jsonschema/worker-result.schema.json` — worker completion result.
+- `contracts/openapi/printsheet-api.yaml` — HTTP API, OpenAPI 3.0.3, 38 paths,
+  69 schemas.
+- `contracts/jsonschema/worker-job.schema.json` — worker request envelope with
+  per-type parameters.
+- `contracts/jsonschema/worker-result.schema.json` — worker completion result,
+  success/failure and classifier suggestions.
 - `contracts/jsonschema/packer-request.schema.json` — file-based packer input.
-- `contracts/jsonschema/packer-response.schema.json` — placements + outputs.
-- `contracts/jsonschema/integrity-report.schema.json` — completed.
-- `contracts/examples/` — one validated example per schema/important branch.
+- `contracts/jsonschema/packer-response.schema.json` — placements + outputs,
+  referencing the integrity report.
+- `contracts/jsonschema/integrity-report.schema.json` — four blocking checks.
+- `contracts/examples/` — 14 validated examples covering every worker job type
+  and both integrity outcomes.
+- `contracts/CHANGELOG.md`, `contracts/README.md` — change policy.
 
 Contract rules:
 
@@ -284,7 +307,7 @@ Contract rules:
 
 ## 8. Domain decisions already made
 
-These are documented in detail in `docs/domain-model.md` (pending), but agents
+These are documented in detail in `docs/domain-model.md`, but agents
 must not accidentally reverse them:
 
 - `Batch` is the aggregate root; `Design` and `DesignVersion` are entities
@@ -342,39 +365,53 @@ Key facts:
    through `ImageResources`. Use an `ImageResource` with raw bytes
    (`300 << 16`, unit 1 = inches) to embed 300 DPI; ImageMagick then reports
    `Resolution: 300x300 PixelsPerInch`.
-6. A 6850 × 31,000 PSB with one layer took ~0.38 s and ~1.2 GB peak traced
+6. A 6850 × 31,000 PSB with one layer took ~0.63 s and ~1.2 GB peak traced
    memory; the file was 637 MB because `PSDImage.new` defaults to RAW canvas
-   compression. A 6850 × 5900 PSD with 4 layers took ~0.36 s and 231 MB peak.
+   compression. A 6850 × 5900 PSD with 4 layers took ~0.56 s and 231 MB peak.
    Extrapolating to 6850 × 59,000 (~404 MP) is ~2.3 GB peak — not strip-based.
 7. Recommended decision: guarantee flat PNG/TIFF + JSON placements manifest +
    Photoshop `.jsx` rebuild bundle; treat true layered PSD/PSB as optional for
    sheets within validated limits until a strip-based writer exists and
-   Photoshop smoke tests pass. This must be recorded in ADR 0003.
+   Photoshop smoke tests pass. Recorded in
+   `docs/adr/0003-layered-export-format.md`.
 
-Reproducer lives in `packer/spikes/` and `docs/spikes/psd-spike/` (pending copy
-from the executed spike).
+Full method, table and caveats:
+`docs/spikes/psd-spike/README.md`. Raw measurements:
+`docs/spikes/psd-spike/results/*.json`. The executable reproducer lives in
+`packer/spikes/psd-spike/`; its large binary artifacts are git-ignored.
 
 ---
 
 ## 10. Commands and verification gates
 
-Root `Makefile` is pending. Until then:
+Root entry points live in the `Makefile`:
 
 ```bash
-# API
+make help          # list targets
+make setup         # NuGet + worker/packer venvs + npm ci + contract venv
+make up            # Compose build/start, wait for health, smoke test
+make down          # stop, keep volumes
+make reset         # stop and delete database + storage volumes
+make logs          # follow logs
+make smoke         # verify a running stack over HTTP
+make test          # contracts + API + worker + packer + web
+make test-api      # dotnet test PrintSheet.slnx
+make test-worker   # pytest
+make test-packer   # pytest
+make test-web      # tsc build + oxlint
+make test-contracts
+make fixtures      # regenerate fixtures/generated
+make api / worker / web / worker-gpu
+```
+
+Raw commands, if you need them:
+
+```bash
 cd api && dotnet test PrintSheet.slnx
-
-# Worker
-cd worker && .venv/bin/pytest
-
-# Packer
-cd packer && .venv/bin/pytest
-
-# Web
+cd worker && .venv/bin/python -m pytest
+cd packer && .venv/bin/python -m pytest
 cd web && npm run build && npm run lint
-
-# Contracts (pending script)
-python3 scripts/validate_contracts.py
+.venv-contracts/bin/python scripts/validate_contracts.py
 ```
 
 Every logical step should pass its relevant gate before commit. The packer and
@@ -461,34 +498,49 @@ If context is running low, prioritize in this order:
 
 ## 14. Live status
 
-**Last updated:** 2026-11-05 (Phase 0, mid-session)
+**Last updated:** 2026-11-05 (Phase 0 deliverables complete)
 
 **Done and verified:**
 
-- Git repo initialized (`main`), root `.gitignore`/`.editorconfig`/`.env.example`.
+- Git repo initialized (`main`); skeleton commit `d0d44b9`.
 - API Clean Architecture skeleton builds; 10 domain unit tests pass.
-- API `/healthz` wired to EF Core (SQLite dev / Postgres in Compose).
+- API `/healthz` wired to EF Core. Native SQLite dev DB is created at startup
+  (`EnsureCreated`) so the connectivity probe passes; Compose uses PostgreSQL.
 - Worker FastAPI skeleton; 2 tests pass.
-- Packer package/CLI shell; 2 tests pass.
+- Packer package/CLI shell; 2 tests pass; external `$ref` registry works.
 - Web shell builds and lints clean.
-- PSD/PSB spike run; findings captured in section 9.
-- `contracts/jsonschema/integrity-report.schema.json` written and JSON-valid.
+- PSD/PSB spike rerun from the committed reproducer; report and JSON results in
+  `docs/spikes/psd-spike/`.
+- Frozen contracts complete: 5 JSON Schemas, 14 examples, OpenAPI 3.0.3 with 38
+  paths / 69 schemas. `scripts/validate_contracts.py` green.
+- `ARCHITECTURE.md`, `docs/domain-model.md`, ADRs 0001–0006 with index.
+- `scripts/generate_fixtures.py` produces 10 realistic inputs + manifest +
+  contact sheet under `fixtures/generated/` (git-ignored).
+- `docker-compose.yml`, `Makefile`, native run scripts, smoke test, root
+  `README.md`.
+- `make test` green: contracts, 10 API tests, 2 worker tests, 2 packer tests,
+  web build + oxlint.
+- Native end-to-end smoke passed: API `/healthz` + database, `/api/v1/info`,
+  worker `/health` with writable storage, web page.
+- `docker compose config` validates.
 
 **In progress / immediate next:**
 
-1. Write remaining JSON Schemas: worker job, worker result, packer request,
-   packer response.
-2. Write OpenAPI 3.0.3 spec.
-3. Add contract examples and `scripts/validate_contracts.py`; make validation
-   green.
-4. Copy PSD spike script/results into `docs/spikes/psd-spike/` and write report.
-5. Write `ARCHITECTURE.md`, ADRs, `docs/domain-model.md`.
-6. Generate fixtures under `fixtures/` with `scripts/generate_fixtures.py`.
-7. Add `docker-compose.yml`, Makefile, native scripts, root README.
-8. Run `docker compose up --build`, verify API/worker/web/Postgres, then commit
-   Phase 0.
+1. Docker verification is the only open Phase 0 gate. Start Docker and grant
+   socket access, then run:
+   ```bash
+   sudo systemctl start docker
+   sudo usermod -aG docker "$USER"   # then log out/in
+   make up
+   ```
+   If the build surfaces a Dockerfile/compose issue, fix it and rerun
+   `make test` + `make smoke`.
+2. Mark the Docker deliverable complete in section 3, commit Phase 0, and stop.
+3. Do not start Phase 1 A–D without explicit user confirmation.
 
-**Blockers:** none.
+**Blockers:** local Docker daemon is inactive and the agent cannot start it
+(no passwordless sudo, user not in the `docker` group). Everything else is
+green.
 
 **Open assumptions to confirm with user later:**
 
@@ -499,6 +551,10 @@ If context is running low, prioritize in this order:
   “no files in request bodies” rule.
 - A layered export is guaranteed via flat file + manifest + `.jsx` bundle; true
   layered PSB is optional until Photoshop validation.
+- Batch edits after export are allowed and the old export remains history; add
+  an explicit lock command if the shop needs “sent to printer” immutability.
+- The MVP allows one current sheet per batch; very tall batches must be split
+  by excluding designs or accepted as one tall sheet/one export.
 
 ---
 
@@ -506,9 +562,21 @@ If context is running low, prioritize in this order:
 
 Append newest entries at the top. Keep them short and factual.
 
-### 2026-11-05 — Phase 0 mid-session
+### 2026-11-05 — Phase 0 completion (Docker gate open)
 
-- Created and verified service skeletons (API/worker/packer/web).
-- Ran PSD/PSB spike; documented measured limits and workaround hazards.
-- Started frozen contracts; integrity report schema complete.
-- Next agent: continue at “Live status → In progress / immediate next” item 1.
+- Finished all Phase 0 docs, contracts, spike report, fixtures, Compose,
+  Makefile, native scripts and README.
+- `make test` and a native API/worker/web smoke test pass.
+- Fixed native health: SQLite dev database is created at startup.
+- Docker daemon cannot be started by the agent; `docker compose config` is
+  valid, but `make up` still needs a human. Next action is section 14 item 1.
+
+---
+
+## 16. Contract change notifications
+
+Contract version 1.0.0 was frozen on 2026-11-05. No post-freeze changes.
+
+When a contract changes, add a dated entry here naming the schema/operation,
+the version bump, and which tracks must adapt (API A, worker B, packer C,
+web D). Also update `contracts/CHANGELOG.md` and the examples.

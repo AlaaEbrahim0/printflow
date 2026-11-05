@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://printsheet.local/schemas/packer-request.schema.json",
+  "title": "PrintSheet PackerRequest",
+  "description": "File-based packer input. Every path is relative to the shared storage root. All placement coordinates use a top-left origin and centimetres.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "requestId",
+    "rollWidthCm",
+    "marginMm",
+    "edgeMarginMm",
+    "dpi",
+    "alphaThreshold",
+    "cellMm",
+    "randomizedOrderings",
+    "timeBudgetMs",
+    "seed",
+    "noInterlocking",
+    "designs",
+    "output"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "rollWidthCm": { "type": "number", "exclusiveMinimum": 0, "maximum": 500 },
+    "marginMm": { "type": "number", "minimum": 0, "maximum": 500 },
+    "edgeMarginMm": { "type": "number", "minimum": 0, "maximum": 500 },
+    "dpi": { "type": "integer", "minimum": 72, "maximum": 1200 },
+    "alphaThreshold": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 254,
+      "description": "Alpha values greater than this threshold are occupied. Default 5 so faint smoke/mist counts."
+    },
+    "cellMm": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 50,
+      "description": "Occupancy grid cell size. Grid dimensions are rounded up (conservative)."
+    },
+    "randomizedOrderings": { "type": "integer", "minimum": 1, "maximum": 1000 },
+    "timeBudgetMs": { "type": "integer", "minimum": 1000, "maximum": 600000 },
+    "seed": { "type": "integer" },
+    "noInterlocking": {
+      "type": "boolean",
+      "description": "When true, use convex hulls instead of raster masks."
+    },
+    "designs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/design" }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["directory", "manifestPath"],
+      "properties": {
+        "directory": { "$ref": "#/$defs/relativePath" },
+        "previewPath": { "$ref": "#/$defs/relativePath" },
+        "manifestPath": { "$ref": "#/$defs/relativePath" }
+      }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "design": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "designId",
+        "versionId",
+        "filePath",
+        "widthPx",
+        "heightPx",
+        "allowRotation"
+      ],
+      "properties": {
+        "designId": { "type": "string", "format": "uuid" },
+        "versionId": { "type": "string", "format": "uuid" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "filePath": { "$ref": "#/$defs/relativePath" },
+        "widthPx": { "type": "integer", "minimum": 1 },
+        "heightPx": { "type": "integer", "minimum": 1 },
+        "allowRotation": { "type": "boolean" },
+        "targetWidthCm": { "type": "number", "exclusiveMinimum": 0 },
+        "targetHeightCm": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    }
+  }
+}

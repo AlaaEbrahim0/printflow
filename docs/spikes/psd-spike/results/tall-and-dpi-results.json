@@ -1,0 +1,30 @@
+{
+  "path": "tall-6850x31000.psb",
+  "bytes": 637159566,
+  "version": 2,
+  "size": [
+    6850,
+    31000
+  ],
+  "layers": [
+    {
+      "name": "design-a",
+      "bbox": [
+        300,
+        29000,
+        1500,
+        29900
+      ],
+      "size": [
+        1200,
+        900
+      ]
+    }
+  ],
+  "resolution": "<psd_tools.psd.image_resources.ResoulutionInfo object at 0x7f562187b4d0>",
+  "save_seconds": 0.63,
+  "peak_tracemalloc_mb": 1215.1,
+  "composite_readable_by_psd_tools": false,
+  "composite_read_error": "ValueError: Image 6850x31000 exceeds the PSD maximum of 30000 px per axis.",
+  "imagemagick_identify": "6850x31000 300 x 300 PixelsPerInch1200x900 300 x 300 PixelsPerInch"
+}

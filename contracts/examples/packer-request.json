@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "1.0",
+  "requestId": "req-2026-11-05-001",
+  "rollWidthCm": 58,
+  "marginMm": 30,
+  "edgeMarginMm": 0,
+  "dpi": 300,
+  "alphaThreshold": 5,
+  "cellMm": 5,
+  "randomizedOrderings": 30,
+  "timeBudgetMs": 60000,
+  "seed": 20261105,
+  "noInterlocking": false,
+  "designs": [
+    {
+      "designId": "11111111-1111-4111-8111-111111111111",
+      "versionId": "99999999-9999-4999-8999-999999999999",
+      "displayName": "smoke-tee",
+      "filePath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/designs/11111111-1111-4111-8111-111111111111/versions/99999999-9999-4999-8999-999999999999.png",
+      "widthPx": 2362,
+      "heightPx": 1772,
+      "allowRotation": true,
+      "targetWidthCm": 20,
+      "targetHeightCm": 15
+    },
+    {
+      "designId": "22222222-2222-4222-8222-222222222222",
+      "versionId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "displayName": "flat-logo",
+      "filePath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/designs/22222222-2222-4222-8222-222222222222/versions/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.png",
+      "widthPx": 2362,
+      "heightPx": 1772,
+      "allowRotation": true,
+      "targetWidthCm": 20,
+      "targetHeightCm": 15
+    }
+  ],
+  "output": {
+    "directory": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/sheets/11111111-1111-4111-8111-111111111111",
+    "previewPath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/sheets/11111111-1111-4111-8111-111111111111/preview.png",
+    "manifestPath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/sheets/11111111-1111-4111-8111-111111111111/placements.json"
+  }
+}

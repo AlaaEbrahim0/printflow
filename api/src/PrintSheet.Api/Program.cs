@@ -40,6 +40,17 @@ builder.Services
 
 var app = builder.Build();
 
+// SQLite is the native-development provider. EF Core's connectivity check
+// treats a missing SQLite file as "not connected", so create the empty dev
+// database before the first health probe. PostgreSQL is provisioned by Compose
+// and migrations arrive with the Phase 1 domain model.
+if (databaseProvider.Equals("Sqlite", StringComparison.OrdinalIgnoreCase))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<PrintSheetDbContext>();
+    await db.Database.EnsureCreatedAsync();
+}
+
 app.UseExceptionHandler();
 app.UseCors();
 

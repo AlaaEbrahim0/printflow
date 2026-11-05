@@ -1,0 +1,1893 @@
+openapi: 3.0.3
+info:
+  title: PrintSheet Workbench API
+  version: 1.0.0
+  description: |
+    Contract for the PrintSheet Workbench HTTP API.
+
+    Design processing is proposal-driven: every step creates a `proposed`
+    DesignVersion. A human approves or rejects it. Only an approved version can
+    become current. The original version is immutable and always retained.
+
+    File exchange between API, worker and packer uses the shared storage
+    directory and relative paths. Intake is the only multipart upload endpoint.
+    The canonical worker and packer payloads live in `contracts/jsonschema/`;
+    the internal job schemas below mirror their transport envelope.
+
+    Internal endpoints require the `X-Worker-Key` header.
+  contact:
+    name: PrintSheet Engineering
+servers:
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: System
+  - name: Settings
+  - name: Batches
+  - name: Designs
+  - name: Versions
+  - name: Jobs
+  - name: Sheets
+  - name: Exports
+  - name: Internal
+
+paths:
+  /healthz:
+    get:
+      tags: [System]
+      operationId: healthCheck
+      summary: Liveness/readiness including database connectivity
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }
+        '503':
+          description: Degraded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }
+
+  /api/v1/info:
+    get:
+      tags: [System]
+      operationId: getInfo
+      summary: Service and contract version
+      responses:
+        '200':
+          description: Service information
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InfoResponse' }
+
+  /api/v1/settings:
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      summary: Read global settings
+      responses:
+        '200':
+          description: Settings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppSettings' }
+    put:
+      tags: [Settings]
+      operationId: updateSettings
+      summary: Update global settings
+      description: Batch geometry and target sizes are snapshotted per batch. Changing defaults does not rewrite existing batches.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateSettingsRequest' }
+      responses:
+        '200':
+          description: Updated settings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppSettings' }
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/batches:
+    get:
+      tags: [Batches]
+      operationId: listBatches
+      summary: List batches
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/BatchStatus' }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          description: Batch page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchList' }
+    post:
+      tags: [Batches]
+      operationId: createBatch
+      summary: Create a batch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateBatchRequest' }
+      responses:
+        '201':
+          description: Created batch
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchSummary' }
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/batches/{batchId}:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+    get:
+      tags: [Batches]
+      operationId: getBatch
+      summary: Get a batch with designs and sheet
+      responses:
+        '200':
+          description: Batch detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchDetail' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Batches]
+      operationId: updateBatch
+      summary: Update batch geometry or name
+      description: |
+        Any change to roll width, margin or edge margin invalidates an existing
+        sheet and recomputes batch readiness. The working DPI is immutable for
+        an existing batch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateBatchRequest' }
+      responses:
+        '200':
+          description: Updated batch
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchSummary' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/batches/{batchId}/designs:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+    post:
+      tags: [Batches, Designs]
+      operationId: uploadDesign
+      summary: Upload an original design file
+      description: |
+        The only endpoint that accepts file bytes over HTTP. The API stores the
+        upload as an immutable `original` DesignVersion and never modifies it.
+        A classifier suggestion is queued automatically.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PNG, JPEG, WebP or TIFF. Maximum size is configured by the API.
+                name:
+                  type: string
+                  maxLength: 200
+                garmentColorKind:
+                  $ref: '#/components/schemas/GarmentColorKind'
+                garmentColorHex:
+                  type: string
+                  nullable: true
+                  pattern: '^#[0-9A-Fa-f]{6}$'
+                targetWidthCm:
+                  type: number
+                  nullable: true
+                  minimum: 0.01
+                targetHeightCm:
+                  type: number
+                  nullable: true
+                  minimum: 0.01
+      responses:
+        '201':
+          description: Design created with an immutable original version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesignDetail' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          description: Upload too large
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetails' }
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/batches/{batchId}/jobs:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+    get:
+      tags: [Jobs]
+      operationId: listBatchJobs
+      summary: List jobs for a batch
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/JobStatus' }
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/JobType' }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Job page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobList' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/batches/{batchId}/sheet:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+    get:
+      tags: [Sheets]
+      operationId: getSheet
+      summary: Get the current sheet
+      responses:
+        '200':
+          description: Current sheet
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sheet' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/batches/{batchId}/sheet/pack:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+    post:
+      tags: [Sheets]
+      operationId: packSheet
+      summary: Queue an automated pack
+      description: |
+        Requires every non-excluded design to be `ready`. A successful pack
+        replaces the current sheet with a new revision. The packer only
+        translates and rotates by 90-degree steps; it never resamples.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PackSheetRequest' }
+      responses:
+        '202':
+          description: Pack job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/batches/{batchId}/sheet/placements:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+    put:
+      tags: [Sheets]
+      operationId: updatePlacements
+      summary: Manual placement override
+      description: |
+        Replaces all placements. The sheet becomes `unchecked` until the
+        integrity check is run again. The revision is an optimistic concurrency
+        token; a stale revision is rejected with 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlacementsUpdateRequest' }
+      responses:
+        '200':
+          description: Updated sheet, integrity report cleared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sheet' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/batches/{batchId}/sheet/integrity-check:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+    post:
+      tags: [Sheets]
+      operationId: runIntegrityCheck
+      summary: Queue the blocking integrity check
+      responses:
+        '202':
+          description: Integrity check job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/batches/{batchId}/sheet/preview:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+    get:
+      tags: [Sheets]
+      operationId: getSheetPreview
+      summary: Download the latest low-resolution sheet preview
+      responses:
+        '200':
+          description: PNG preview
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/batches/{batchId}/exports:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+    get:
+      tags: [Exports]
+      operationId: listExports
+      summary: List exports for a batch
+      responses:
+        '200':
+          description: Exports
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExportList' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Exports]
+      operationId: createExport
+      summary: Queue an export
+      description: |
+        Export is blocked unless the current sheet has `state=valid` and a
+        passed IntegrityReport for the same revision. If the report is missing,
+        stale or failed, the API returns 409 and does not enqueue a job.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExportRequest' }
+      responses:
+        '202':
+          description: Export job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/designs/{designId}:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    get:
+      tags: [Designs]
+      operationId: getDesign
+      summary: Get a design and all of its versions
+      responses:
+        '200':
+          description: Design detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesignDetail' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Designs]
+      operationId: updateDesign
+      summary: Update design metadata or target size
+      description: Changing target dimensions invalidates readiness and any sheet containing the design.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateDesignRequest' }
+      responses:
+        '200':
+          description: Updated design
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesignDetail' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/designs/{designId}/suggestions:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    get:
+      tags: [Designs]
+      operationId: getDesignSuggestions
+      summary: Get classifier suggestions for the current source
+      responses:
+        '200':
+          description: Suggestions, possibly still pending
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClassifierSuggestions' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/designs/{designId}/versions:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    get:
+      tags: [Versions]
+      operationId: listVersions
+      summary: List immutable versions
+      responses:
+        '200':
+          description: Versions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DesignVersion' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/designs/{designId}/versions/{versionId}/file:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+      - $ref: '#/components/parameters/VersionId'
+    get:
+      tags: [Versions]
+      operationId: downloadVersionFile
+      summary: Download an immutable version file
+      responses:
+        '200':
+          description: PNG file
+          headers:
+            ETag:
+              schema: { type: string }
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/designs/{designId}/versions/{versionId}/approve:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+      - $ref: '#/components/parameters/VersionId'
+    post:
+      tags: [Versions]
+      operationId: approveVersion
+      summary: Approve a proposed version
+      description: |
+        The version must be `proposed` and its parent must still be the current
+        version. Approval moves the current pointer. If the version is the final
+        resize, the design becomes ready.
+      responses:
+        '200':
+          description: Design with the approved current version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesignDetail' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/designs/{designId}/versions/{versionId}/reject:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+      - $ref: '#/components/parameters/VersionId'
+    post:
+      tags: [Versions]
+      operationId: rejectVersion
+      summary: Reject a proposed version
+      description: Returns to the previous current version and offers adjust, manual or skip next actions.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RejectVersionRequest' }
+      responses:
+        '200':
+          description: Design after rejection plus next actions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RejectVersionResponse' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/designs/{designId}/revert:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Versions]
+      operationId: revertVersion
+      summary: Revert the current pointer to an earlier approved version
+      description: Does not create or delete versions. A non-resize target makes the design in-progress again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RevertVersionRequest' }
+      responses:
+        '200':
+          description: Design after revert
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesignDetail' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/designs/{designId}/exclude:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: excludeDesign
+      summary: Exclude a design from the sheet
+      responses:
+        '200':
+          description: Updated design
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesignDetail' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/designs/{designId}/include:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: includeDesign
+      summary: Include an excluded design again
+      responses:
+        '200':
+          description: Updated design
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesignDetail' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/designs/{designId}/request-better-source:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: requestBetterSource
+      summary: Flag that the client must provide a better source
+      responses:
+        '200':
+          description: Updated design
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesignDetail' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/designs/{designId}/resume:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: resumeDesign
+      summary: Clear the needs-better-source flag
+      responses:
+        '200':
+          description: Updated design
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesignDetail' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/designs/{designId}/steps/trim:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: proposeTrim
+      summary: Propose an automatic or manual trim
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TrimStepRequest' }
+      responses:
+        '202':
+          description: Trim job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/designs/{designId}/steps/crop:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: proposeCrop
+      summary: Save a manual crop as a new version
+      description: The job type is `trim` with explicit manual bounds; the resulting version step type is `crop`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CropStepRequest' }
+      responses:
+        '202':
+          description: Crop job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/designs/{designId}/steps/upscale:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: proposeUpscale
+      summary: Propose a Real-ESRGAN upscale
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpscaleStepRequest' }
+      responses:
+        '202':
+          description: Upscale job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/designs/{designId}/steps/vectorize:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: proposeVectorize
+      summary: Propose vectorization with before/after review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VectorizeStepRequest' }
+      responses:
+        '202':
+          description: Vectorize job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/designs/{designId}/steps/background-removal:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: proposeBackgroundRemoval
+      summary: Propose background removal or re-apply the brush mask
+      description: |
+        One of AI cutout, color-to-alpha (unmultiplied, so soft gradients keep
+        correct alpha) or none. Brush operations are stored in version
+        parameters and applied to the same non-destructive mask artifact.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BackgroundRemovalStepRequest' }
+      responses:
+        '202':
+          description: Background-removal job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/designs/{designId}/steps/resize:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: proposeResize
+      summary: Propose the final target-size resize
+      description: |
+        Resamples once with Lanczos to exactly round(cm * dpi / 2.54) pixels.
+        If the parent is a vectorize version, the worker rasterizes the SVG at
+        target size instead of resampling a raster preview. Approving this
+        version makes the design ready.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResizeStepRequest' }
+      responses:
+        '202':
+          description: Resize job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/jobs/{jobId}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [Jobs]
+      operationId: getJob
+      summary: Poll a job
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/jobs/{jobId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      tags: [Jobs]
+      operationId: cancelJob
+      summary: Cancel a queued job
+      responses:
+        '200':
+          description: Cancelled job
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/exports/{exportId}:
+    parameters:
+      - $ref: '#/components/parameters/ExportId'
+    get:
+      tags: [Exports]
+      operationId: getExport
+      summary: Get an export and its integrity report
+      responses:
+        '200':
+          description: Export
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Export' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/exports/{exportId}/download:
+    parameters:
+      - $ref: '#/components/parameters/ExportId'
+      - name: artifact
+        in: query
+        required: true
+        schema: { $ref: '#/components/schemas/ExportArtifactName' }
+    get:
+      tags: [Exports]
+      operationId: downloadExportArtifact
+      summary: Download one export artifact
+      responses:
+        '200':
+          description: Artifact bytes
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/internal/jobs/claim:
+    post:
+      tags: [Internal]
+      operationId: claimJobs
+      summary: Claim the next job for a worker capability
+      security:
+        - WorkerKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClaimJobsRequest' }
+      responses:
+        '200':
+          description: Job assignment
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAssignment' }
+        '204':
+          description: No job available
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/internal/jobs/{jobId}/heartbeat:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      tags: [Internal]
+      operationId: heartbeatJob
+      summary: Extend a job lease
+      security:
+        - WorkerKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HeartbeatRequest' }
+      responses:
+        '204':
+          description: Lease extended
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/internal/jobs/{jobId}/complete:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      tags: [Internal]
+      operationId: completeJob
+      summary: Complete a job with a worker result
+      security:
+        - WorkerKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerCompletion' }
+      responses:
+        '204':
+          description: Result accepted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/internal/jobs/{jobId}/fail:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      tags: [Internal]
+      operationId: failJob
+      summary: Report a failed job
+      security:
+        - WorkerKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JobFailure' }
+      responses:
+        '204':
+          description: Failure accepted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+components:
+  securitySchemes:
+    WorkerKey:
+      type: apiKey
+      in: header
+      name: X-Worker-Key
+
+  parameters:
+    BatchId:
+      name: batchId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    DesignId:
+      name: designId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    VersionId:
+      name: versionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ExportId:
+      name: exportId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    Conflict:
+      description: State transition or optimistic concurrency conflict
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    UnprocessableEntity:
+      description: Validation or domain rule violation
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    Unauthorized:
+      description: Missing or invalid worker key
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+  schemas:
+    ProblemDetails:
+      type: object
+      required: [title, status]
+      properties:
+        type: { type: string, nullable: true }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string, nullable: true }
+        instance: { type: string, nullable: true }
+        code:
+          type: string
+          nullable: true
+          description: Stable machine-readable error code, e.g. stale-proposal, sheet-integrity-failed.
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+
+    BatchStatus:
+      type: string
+      enum: [collecting, ready-to-pack, packed, exported]
+
+    DesignStatus:
+      type: string
+      enum: [received, in-progress, ready, needs-better-source, excluded]
+
+    VersionStatus:
+      type: string
+      enum: [proposed, approved, rejected]
+
+    StepType:
+      type: string
+      enum: [original, trim, crop, upscale, vectorize, background-removal, resize]
+
+    JobStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled]
+
+    JobType:
+      type: string
+      enum:
+        - classify
+        - trim
+        - background-removal
+        - upscale
+        - vectorize
+        - resize
+        - pack-sheet
+        - integrity-check
+        - export
+
+    SheetState:
+      type: string
+      enum: [unchecked, valid, invalid]
+
+    ExportFormat:
+      type: string
+      enum: [flat-png, flat-tiff, layered-psd, layered-psb, psd-bundle]
+
+    ExportStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, blocked]
+
+    ExportArtifactName:
+      type: string
+      enum: [flat, layered, preview, manifest, jsx]
+
+    GarmentColorKind:
+      type: string
+      enum: [light, dark, custom]
+
+    GarmentColor:
+      type: object
+      required: [kind]
+      properties:
+        kind: { $ref: '#/components/schemas/GarmentColorKind' }
+        hex:
+          type: string
+          nullable: true
+          pattern: '^#[0-9A-Fa-f]{6}$'
+          description: Required when kind is custom.
+
+    CropRect:
+      type: object
+      required: [x, y, width, height]
+      properties:
+        x: { type: integer, minimum: 0 }
+        y: { type: integer, minimum: 0 }
+        width: { type: integer, minimum: 1 }
+        height: { type: integer, minimum: 1 }
+
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount: { type: number }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+
+    HealthCheckEntry:
+      type: object
+      required: [name, status, durationMs]
+      properties:
+        name: { type: string }
+        status: { type: string }
+        durationMs: { type: integer, minimum: 0 }
+
+    HealthResponse:
+      type: object
+      required: [status, service]
+      properties:
+        status: { type: string }
+        service: { type: string }
+        checks:
+          type: array
+          items: { $ref: '#/components/schemas/HealthCheckEntry' }
+
+    InfoResponse:
+      type: object
+      required: [service, version, contractVersion, phase]
+      properties:
+        service: { type: string }
+        version: { type: string }
+        contractVersion: { type: string, enum: ['1.0.0'] }
+        phase: { type: integer }
+
+    PackerSettings:
+      type: object
+      required: [alphaThreshold, cellMm, randomizedOrderings, timeBudgetMs]
+      properties:
+        alphaThreshold: { type: integer, minimum: 0, maximum: 254 }
+        cellMm: { type: number, minimum: 0.1, maximum: 50 }
+        randomizedOrderings: { type: integer, minimum: 1, maximum: 1000 }
+        timeBudgetMs: { type: integer, minimum: 1000, maximum: 600000 }
+
+    AppSettings:
+      type: object
+      required:
+        - workingDpi
+        - defaultRollWidthCm
+        - defaultMarginMm
+        - defaultEdgeMarginMm
+        - dpiWarnBelow
+        - dpiStrongWarnBelow
+        - pricePerCm
+        - currency
+        - packer
+      properties:
+        workingDpi: { type: integer, minimum: 72, maximum: 1200 }
+        defaultRollWidthCm: { type: number, minimum: 1, maximum: 500 }
+        defaultMarginMm: { type: number, minimum: 0, maximum: 500 }
+        defaultEdgeMarginMm: { type: number, minimum: 0, maximum: 500 }
+        dpiWarnBelow: { type: integer, minimum: 1 }
+        dpiStrongWarnBelow: { type: integer, minimum: 1 }
+        pricePerCm: { type: number, minimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        packer: { $ref: '#/components/schemas/PackerSettings' }
+
+    UpdateSettingsRequest:
+      $ref: '#/components/schemas/AppSettings'
+
+    CreateBatchRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        rollWidthCm: { type: number, nullable: true, minimum: 1, maximum: 500 }
+        marginMm: { type: number, nullable: true, minimum: 0, maximum: 500 }
+        edgeMarginMm: { type: number, nullable: true, minimum: 0, maximum: 500 }
+        workingDpi: { type: integer, nullable: true, minimum: 72, maximum: 1200 }
+
+    UpdateBatchRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        rollWidthCm: { type: number, minimum: 1, maximum: 500 }
+        marginMm: { type: number, minimum: 0, maximum: 500 }
+        edgeMarginMm: { type: number, minimum: 0, maximum: 500 }
+
+    BatchSummary:
+      type: object
+      required:
+        - id
+        - name
+        - status
+        - rollWidthCm
+        - marginMm
+        - edgeMarginMm
+        - workingDpi
+        - designCount
+        - readyCount
+        - excludedCount
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/BatchStatus' }
+        rollWidthCm: { type: number }
+        marginMm: { type: number }
+        edgeMarginMm: { type: number }
+        workingDpi: { type: integer }
+        designCount: { type: integer, minimum: 0 }
+        readyCount: { type: integer, minimum: 0 }
+        excludedCount: { type: integer, minimum: 0 }
+        sheetHeightCm: { type: number, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    BatchDetail:
+      allOf:
+        - $ref: '#/components/schemas/BatchSummary'
+        - type: object
+          required: [designs]
+          properties:
+            designs:
+              type: array
+              items: { $ref: '#/components/schemas/DesignSummary' }
+            sheet:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/Sheet'
+
+    BatchList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/BatchSummary' }
+        total: { type: integer, minimum: 0 }
+
+    VersionSummary:
+      type: object
+      required:
+        - id
+        - designId
+        - stepType
+        - status
+        - widthPx
+        - heightPx
+        - hasAlpha
+        - createdAt
+        - fileUrl
+      properties:
+        id: { type: string, format: uuid }
+        designId: { type: string, format: uuid }
+        parentId: { type: string, nullable: true, format: uuid }
+        stepType: { $ref: '#/components/schemas/StepType' }
+        status: { $ref: '#/components/schemas/VersionStatus' }
+        widthPx: { type: integer, minimum: 1 }
+        heightPx: { type: integer, minimum: 1 }
+        hasAlpha: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        fileUrl: { type: string }
+
+    VersionArtifacts:
+      type: object
+      properties:
+        maskUrl: { type: string, nullable: true }
+        svgUrl: { type: string, nullable: true }
+
+    DesignVersion:
+      allOf:
+        - $ref: '#/components/schemas/VersionSummary'
+        - type: object
+          required: [parameters, createdAt]
+          properties:
+            parameters:
+              type: object
+              additionalProperties: true
+              description: Exact immutable step parameters, including brush history.
+            artifacts: { $ref: '#/components/schemas/VersionArtifacts' }
+            approvedAt: { type: string, nullable: true, format: date-time }
+            rejectedAt: { type: string, nullable: true, format: date-time }
+
+    DesignSummary:
+      type: object
+      required:
+        - id
+        - batchId
+        - name
+        - status
+        - garmentColor
+        - allowRotation
+        - originalVersionId
+        - currentVersionId
+        - versionCount
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: string, format: uuid }
+        batchId: { type: string, format: uuid }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/DesignStatus' }
+        garmentColor: { $ref: '#/components/schemas/GarmentColor' }
+        allowRotation: { type: boolean }
+        originalVersionId: { type: string, format: uuid }
+        currentVersionId: { type: string, format: uuid }
+        targetWidthCm: { type: number, nullable: true }
+        targetHeightCm: { type: number, nullable: true }
+        effectiveDpi:
+          type: number
+          nullable: true
+          description: Lower of the current version's horizontal and vertical effective DPI at the target size.
+        versionCount: { type: integer, minimum: 1 }
+        currentVersion:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/VersionSummary'
+        pendingVersion:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/VersionSummary'
+        notes: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    DesignDetail:
+      allOf:
+        - $ref: '#/components/schemas/DesignSummary'
+        - type: object
+          required: [versions]
+          properties:
+            versions:
+              type: array
+              items: { $ref: '#/components/schemas/DesignVersion' }
+
+    UpdateDesignRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        garmentColor: { $ref: '#/components/schemas/GarmentColor' }
+        allowRotation: { type: boolean }
+        targetWidthCm: { type: number, nullable: true, minimum: 0.01 }
+        targetHeightCm: { type: number, nullable: true, minimum: 0.01 }
+        notes: { type: string, nullable: true, maxLength: 2000 }
+
+    BrushOp:
+      type: object
+      required: [tool, radiusPx, points]
+      properties:
+        tool: { type: string, enum: [erase, restore] }
+        radiusPx: { type: integer, minimum: 1, maximum: 4096 }
+        points:
+          type: array
+          minItems: 1
+          maxItems: 100000
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: integer, minimum: 0 }
+
+    TrimStepRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode: { type: string, enum: [auto, manual] }
+        paddingPx: { type: integer, minimum: 0, maximum: 10000 }
+        tolerance: { type: integer, minimum: 0, maximum: 255 }
+        cropRect:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/CropRect'
+        backgroundSample:
+          type: object
+          nullable: true
+          properties:
+            kind: { type: string, enum: [transparent, black, white, gray, custom] }
+            hex: { type: string, nullable: true, pattern: '^#[0-9A-Fa-f]{6}$' }
+            alphaThreshold: { type: integer, minimum: 0, maximum: 255 }
+
+    CropStepRequest:
+      type: object
+      required: [rect]
+      properties:
+        rect: { $ref: '#/components/schemas/CropRect' }
+
+    UpscaleStepRequest:
+      type: object
+      required: [model, scale]
+      properties:
+        model:
+          type: string
+          enum: [realesrgan-x4plus, realesrgan-x4plus-anime]
+        scale: { type: integer, enum: [2, 4] }
+        tileSize: { type: integer, minimum: 0, maximum: 8192 }
+        gpu: { type: boolean, default: true }
+
+    VectorizeStepRequest:
+      type: object
+      required: [engine]
+      properties:
+        engine: { type: string, enum: [potrace, vtracer] }
+        mode: { type: string, enum: [binary, color], default: binary }
+        threshold: { type: integer, minimum: 0, maximum: 255 }
+        colorCount: { type: integer, minimum: 2, maximum: 256 }
+        turdsize: { type: integer, minimum: 0 }
+        targetWidthPx: { type: integer, nullable: true, minimum: 1 }
+        targetHeightPx: { type: integer, nullable: true, minimum: 1 }
+
+    BackgroundRemovalStepRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode: { type: string, enum: [ai, color-to-alpha, none] }
+        keyColor: { type: string, nullable: true, pattern: '^#[0-9A-Fa-f]{6}$' }
+        tolerance: { type: integer, minimum: 0, maximum: 255 }
+        edgeSoftness: { type: number, minimum: 0, maximum: 10 }
+        aiModel: { type: string, nullable: true }
+        maskFromVersionId:
+          type: string
+          nullable: true
+          format: uuid
+          description: Reuse this version's mask artifact and apply brushOps only.
+        brushOps:
+          type: array
+          maxItems: 10000
+          items: { $ref: '#/components/schemas/BrushOp' }
+
+    ResizeStepRequest:
+      type: object
+      required: [targetWidthCm, targetHeightCm]
+      properties:
+        targetWidthCm: { type: number, minimum: 0.01 }
+        targetHeightCm: { type: number, minimum: 0.01 }
+        fitMode: { type: string, enum: [width, height, contain], default: contain }
+        dpi: { type: integer, nullable: true, minimum: 72, maximum: 1200 }
+
+    RejectVersionRequest:
+      type: object
+      properties:
+        reason: { type: string, nullable: true, maxLength: 2000 }
+
+    RejectNextAction:
+      type: string
+      enum: [adjust-parameters, manual-tool, skip]
+
+    RejectVersionResponse:
+      type: object
+      required: [design, nextActions]
+      properties:
+        design: { $ref: '#/components/schemas/DesignDetail' }
+        nextActions:
+          type: array
+          items: { $ref: '#/components/schemas/RejectNextAction' }
+
+    RevertVersionRequest:
+      type: object
+      required: [versionId]
+      properties:
+        versionId: { type: string, format: uuid }
+
+    ClassifierSuggestions:
+      type: object
+      required: [designId, status]
+      properties:
+        designId: { type: string, format: uuid }
+        status: { type: string, enum: [pending, ready, failed] }
+        analyzedAt: { type: string, nullable: true, format: date-time }
+        source:
+          type: object
+          nullable: true
+          properties:
+            widthPx: { type: integer }
+            heightPx: { type: integer }
+            effectiveDpiAtTarget: { type: number, nullable: true }
+        features:
+          type: object
+          nullable: true
+          properties:
+            flatColorRatio: { type: number, minimum: 0, maximum: 1 }
+            edgeDensity: { type: number, minimum: 0, maximum: 1 }
+            uniqueColorCount: { type: integer }
+            sampledBackground:
+              type: object
+              properties:
+                kind: { type: string, enum: [transparent, black, white, gray, custom] }
+                hex: { type: string, nullable: true }
+                confidence: { type: number, minimum: 0, maximum: 1 }
+            fullBleed: { type: boolean }
+        suggestions:
+          type: object
+          nullable: true
+          properties:
+            trim:
+              type: object
+              properties:
+                recommended: { type: boolean }
+                reason: { type: string }
+                box:
+                  nullable: true
+                  allOf:
+                    - $ref: '#/components/schemas/CropRect'
+                paddingPx: { type: integer }
+                tolerance: { type: integer }
+            backgroundRemoval:
+              type: object
+              properties:
+                mode: { type: string, enum: [ai, color-to-alpha, none] }
+                keyColor: { type: string, nullable: true }
+                reason: { type: string }
+                confidence: { type: number }
+            upscale:
+              type: object
+              properties:
+                model: { type: string, enum: [realesrgan-x4plus, realesrgan-x4plus-anime] }
+                scale: { type: integer, enum: [2, 4] }
+                reason: { type: string }
+                confidence: { type: number }
+            vectorize:
+              type: object
+              properties:
+                recommended: { type: boolean }
+                reason: { type: string }
+                confidence: { type: number }
+
+    IntegrityCheckResult:
+      type: string
+      enum: [passed, failed, skipped]
+
+    IntegrityCheck:
+      type: object
+      required: [id, blocking, status, message]
+      properties:
+        id:
+          type: string
+          enum:
+            - visible-pixels-inside-sheet
+            - dilated-masks-no-overlap
+            - minimum-gap
+            - pixel-equality
+        blocking: { type: boolean, enum: [true] }
+        status: { $ref: '#/components/schemas/IntegrityCheckResult' }
+        message: { type: string }
+        details: { type: object, additionalProperties: true }
+
+    IntegrityFailure:
+      type: object
+      required: [checkId, message]
+      properties:
+        checkId: { type: string }
+        designId: { type: string, nullable: true, format: uuid }
+        message: { type: string }
+        details: { type: object, additionalProperties: true }
+
+    SheetGeometry:
+      type: object
+      required: [widthPx, heightPx, widthCm, heightCm, dpi]
+      properties:
+        widthPx: { type: integer, minimum: 1 }
+        heightPx: { type: integer, minimum: 1 }
+        widthCm: { type: number, minimum: 0.01 }
+        heightCm: { type: number, minimum: 0.01 }
+        dpi: { type: integer, minimum: 72, maximum: 1200 }
+
+    IntegrityReport:
+      type: object
+      required:
+        - schemaVersion
+        - reportId
+        - generatedAt
+        - passed
+        - sheet
+        - checks
+        - failures
+        - metrics
+      properties:
+        schemaVersion: { type: string, enum: ['1.0'] }
+        reportId: { type: string, format: uuid }
+        generatedAt: { type: string, format: date-time }
+        passed: { type: boolean }
+        sheet: { $ref: '#/components/schemas/SheetGeometry' }
+        checks:
+          type: array
+          minItems: 4
+          items: { $ref: '#/components/schemas/IntegrityCheck' }
+        failures:
+          type: array
+          items: { $ref: '#/components/schemas/IntegrityFailure' }
+        metrics:
+          type: object
+          additionalProperties: true
+
+    Placement:
+      type: object
+      required:
+        - designId
+        - versionId
+        - xCm
+        - yCm
+        - widthCm
+        - heightCm
+        - widthPx
+        - heightPx
+        - rotationDeg
+      properties:
+        designId: { type: string, format: uuid }
+        versionId: { type: string, format: uuid }
+        designName: { type: string }
+        xCm: { type: number, minimum: 0 }
+        yCm: { type: number, minimum: 0 }
+        widthCm: { type: number, minimum: 0.01 }
+        heightCm: { type: number, minimum: 0.01 }
+        widthPx: { type: integer, minimum: 1 }
+        heightPx: { type: integer, minimum: 1 }
+        rotationDeg: { type: integer, enum: [0, 90, 180, 270] }
+
+    ManualPlacement:
+      type: object
+      required: [designId, versionId, xCm, yCm, rotationDeg]
+      properties:
+        designId: { type: string, format: uuid }
+        versionId: { type: string, format: uuid }
+        xCm: { type: number, minimum: 0 }
+        yCm: { type: number, minimum: 0 }
+        rotationDeg: { type: integer, enum: [0, 90, 180, 270] }
+
+    Sheet:
+      type: object
+      required:
+        - id
+        - batchId
+        - revision
+        - state
+        - widthCm
+        - heightCm
+        - widthPx
+        - heightPx
+        - dpi
+        - placements
+        - stale
+        - estimatedCost
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: string, format: uuid }
+        batchId: { type: string, format: uuid }
+        revision: { type: integer, minimum: 1 }
+        state: { $ref: '#/components/schemas/SheetState' }
+        widthCm: { type: number }
+        heightCm: { type: number }
+        widthPx: { type: integer }
+        heightPx: { type: integer }
+        dpi: { type: integer }
+        placements:
+          type: array
+          items: { $ref: '#/components/schemas/Placement' }
+        integrityReport:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/IntegrityReport'
+        stale: { type: boolean }
+        estimatedCost: { $ref: '#/components/schemas/Money' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    PackSheetRequest:
+      type: object
+      properties:
+        seed: { type: integer, nullable: true }
+        randomizedOrderings: { type: integer, nullable: true, minimum: 1, maximum: 1000 }
+        timeBudgetMs: { type: integer, nullable: true, minimum: 1000, maximum: 600000 }
+        noInterlocking: { type: boolean, default: false }
+        alphaThreshold: { type: integer, nullable: true, minimum: 0, maximum: 254 }
+        cellMm: { type: number, nullable: true, minimum: 0.1, maximum: 50 }
+
+    PlacementsUpdateRequest:
+      type: object
+      required: [revision, placements]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        placements:
+          type: array
+          items: { $ref: '#/components/schemas/ManualPlacement' }
+
+    ExportRequest:
+      type: object
+      required: [format]
+      properties:
+        format: { $ref: '#/components/schemas/ExportFormat' }
+        includePreview: { type: boolean, default: true }
+
+    ExportArtifact:
+      type: object
+      required: [name, contentType, sizeBytes, downloadUrl]
+      properties:
+        name: { $ref: '#/components/schemas/ExportArtifactName' }
+        contentType: { type: string }
+        sizeBytes: { type: integer, minimum: 0 }
+        downloadUrl: { type: string }
+
+    Export:
+      type: object
+      required:
+        - id
+        - batchId
+        - sheetRevision
+        - format
+        - status
+        - dpi
+        - artifacts
+        - createdAt
+      properties:
+        id: { type: string, format: uuid }
+        batchId: { type: string, format: uuid }
+        sheetRevision: { type: integer, minimum: 1 }
+        format: { $ref: '#/components/schemas/ExportFormat' }
+        status: { $ref: '#/components/schemas/ExportStatus' }
+        dpi: { type: integer }
+        artifacts:
+          type: array
+          items: { $ref: '#/components/schemas/ExportArtifact' }
+        integrityReport:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/IntegrityReport'
+        blockedReason: { type: string, nullable: true }
+        error: { nullable: true, type: object }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: string, nullable: true, format: date-time }
+
+    ExportList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Export' }
+
+    JobAccepted:
+      type: object
+      required: [jobId, status, pollUrl]
+      properties:
+        jobId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        pollUrl: { type: string }
+
+    JobError:
+      type: object
+      required: [code, message, retryable]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        retryable: { type: boolean }
+        details: { type: object, additionalProperties: true }
+
+    JobResult:
+      type: object
+      properties:
+        outputVersionId: { type: string, nullable: true, format: uuid }
+        outputPath: { type: string, nullable: true }
+        outputArtifacts:
+          type: object
+          additionalProperties:
+            type: string
+        metadata: { type: object, additionalProperties: true }
+        suggestions: { $ref: '#/components/schemas/ClassifierSuggestions' }
+        integrityReport: { $ref: '#/components/schemas/IntegrityReport' }
+        exportId: { type: string, nullable: true, format: uuid }
+
+    Job:
+      type: object
+      required:
+        - id
+        - batchId
+        - type
+        - status
+        - parameters
+        - attempts
+        - createdAt
+      properties:
+        id: { type: string, format: uuid }
+        batchId: { type: string, format: uuid }
+        designId: { type: string, nullable: true, format: uuid }
+        type: { $ref: '#/components/schemas/JobType' }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        parameters: { type: object, additionalProperties: true }
+        result: { nullable: true, allOf: [{ $ref: '#/components/schemas/JobResult' }] }
+        error: { nullable: true, allOf: [{ $ref: '#/components/schemas/JobError' }] }
+        attempts: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: string, nullable: true, format: date-time }
+        completedAt: { type: string, nullable: true, format: date-time }
+        durationMs: { type: integer, nullable: true, minimum: 0 }
+
+    JobList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Job' }
+        total: { type: integer, minimum: 0 }
+
+    WorkerJob:
+      type: object
+      description: Transport envelope. Canonical per-type validation is worker-job.schema.json.
+      required: [schemaVersion, jobId, type, batchId, designId, inputPath, parameters, context]
+      properties:
+        schemaVersion: { type: string, enum: ['1.0'] }
+        jobId: { type: string, format: uuid }
+        type:
+          type: string
+          enum: [classify, trim, background-removal, upscale, vectorize, resize]
+        batchId: { type: string, format: uuid }
+        designId: { type: string, format: uuid }
+        inputPath: { type: string }
+        outputPath: { type: string, nullable: true }
+        inputArtifacts:
+          type: object
+          additionalProperties: { type: string }
+        outputArtifacts:
+          type: object
+          additionalProperties: { type: string }
+        parameters: { type: object, additionalProperties: true }
+        context: { type: object, additionalProperties: true }
+
+    JobAssignment:
+      type: object
+      required: [leaseToken, leaseExpiresAt, job]
+      properties:
+        leaseToken: { type: string }
+        leaseExpiresAt: { type: string, format: date-time }
+        job: { $ref: '#/components/schemas/WorkerJob' }
+
+    ClaimJobsRequest:
+      type: object
+      required: [workerId, capabilities]
+      properties:
+        workerId: { type: string, minLength: 1 }
+        capabilities:
+          type: array
+          minItems: 1
+          items: { type: string }
+        leaseSeconds: { type: integer, minimum: 15, maximum: 900, default: 120 }
+
+    HeartbeatRequest:
+      type: object
+      required: [leaseToken]
+      properties:
+        leaseToken: { type: string }
+        extendSeconds: { type: integer, minimum: 15, maximum: 900, default: 120 }
+
+    WorkerCompletion:
+      type: object
+      required: [leaseToken, result]
+      properties:
+        leaseToken: { type: string }
+        result:
+          type: object
+          description: Canonical envelope is worker-result.schema.json.
+          required: [schemaVersion, jobId, status, metadata]
+          properties:
+            schemaVersion: { type: string, enum: ['1.0'] }
+            jobId: { type: string, format: uuid }
+            status: { type: string, enum: [succeeded, failed] }
+            outputPath: { type: string, nullable: true }
+            outputArtifacts:
+              type: object
+              additionalProperties: { type: string }
+            metadata: { type: object, additionalProperties: true }
+            suggestions: { $ref: '#/components/schemas/ClassifierSuggestions' }
+            error: { nullable: true, allOf: [{ $ref: '#/components/schemas/JobError' }] }
+
+    JobFailure:
+      type: object
+      required: [leaseToken, error]
+      properties:
+        leaseToken: { type: string }
+        error: { $ref: '#/components/schemas/JobError' }

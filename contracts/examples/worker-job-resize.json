@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0",
+  "jobId": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+  "type": "resize",
+  "batchId": "0b6e1f3a-1b2c-4d5e-8f90-1234567890ab",
+  "designId": "11111111-1111-4111-8111-111111111111",
+  "inputPath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/designs/11111111-1111-4111-8111-111111111111/versions/ffffffff-ffff-4fff-8fff-ffffffffffff.png",
+  "outputPath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/designs/11111111-1111-4111-8111-111111111111/versions/99999999-9999-4999-8999-999999999999.png",
+  "parameters": {
+    "targetWidthCm": 20,
+    "targetHeightCm": 15,
+    "targetWidthPx": 2362,
+    "targetHeightPx": 1772,
+    "dpi": 300,
+    "fitMode": "contain",
+    "resample": "lanczos",
+    "rasterizeFromVector": false
+  },
+  "context": {
+    "workingDpi": 300,
+    "targetWidthCm": 20,
+    "targetHeightCm": 15,
+    "sourceVersionId": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+    "garmentColor": { "kind": "light" }
+  }
+}

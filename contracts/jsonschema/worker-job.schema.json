@@ -1,0 +1,371 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://printsheet.local/schemas/worker-job.schema.json",
+  "title": "PrintSheet WorkerJob",
+  "description": "File-based worker request. The API writes inputPath/outputPath under the shared storage root and assigns the job; the worker never receives image bytes in JSON.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "jobId",
+    "type",
+    "batchId",
+    "designId",
+    "inputPath",
+    "parameters",
+    "context"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "jobId": { "type": "string", "format": "uuid" },
+    "type": {
+      "enum": [
+        "classify",
+        "trim",
+        "background-removal",
+        "upscale",
+        "vectorize",
+        "resize"
+      ]
+    },
+    "batchId": { "type": "string", "format": "uuid" },
+    "designId": { "type": "string", "format": "uuid" },
+    "inputPath": { "$ref": "#/$defs/relativePath" },
+    "outputPath": { "$ref": "#/$defs/relativePath" },
+    "inputArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mask": { "$ref": "#/$defs/relativePath" },
+        "svg": { "$ref": "#/$defs/relativePath" }
+      }
+    },
+    "outputArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mask": { "$ref": "#/$defs/relativePath" },
+        "svg": { "$ref": "#/$defs/relativePath" }
+      }
+    },
+    "parameters": { "type": "object" },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workingDpi"],
+      "properties": {
+        "workingDpi": { "type": "integer", "minimum": 72, "maximum": 1200 },
+        "targetWidthCm": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+        "targetHeightCm": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+        "sourceVersionId": { "type": ["string", "null"], "format": "uuid" },
+        "originalPath": { "$ref": "#/$defs/relativePath" },
+        "garmentColor": { "$ref": "#/$defs/garmentColor" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "description": "Every job except classify produces a new raster file.",
+      "if": {
+        "properties": {
+          "type": {
+            "enum": ["trim", "background-removal", "upscale", "vectorize", "resize"]
+          }
+        },
+        "required": ["type"]
+      },
+      "then": { "required": ["outputPath"] }
+    },
+    {
+      "description": "Background removal always exports its non-destructive mask artifact.",
+      "if": {
+        "properties": { "type": { "const": "background-removal" } },
+        "required": ["type"]
+      },
+      "then": {
+        "required": ["outputArtifacts"],
+        "properties": {
+          "outputArtifacts": { "required": ["mask"] }
+        }
+      }
+    },
+    {
+      "description": "Vectorize exports the SVG used for final target-size rasterization.",
+      "if": {
+        "properties": { "type": { "const": "vectorize" } },
+        "required": ["type"]
+      },
+      "then": {
+        "required": ["outputArtifacts"],
+        "properties": {
+          "outputArtifacts": { "required": ["svg"] }
+        }
+      }
+    },
+    {
+      "description": "Brush edits load the mask from the referenced proposed version.",
+      "if": {
+        "properties": {
+          "type": { "const": "background-removal" },
+          "parameters": {
+            "properties": { "maskFromVersionId": { "type": "string" } },
+            "required": ["maskFromVersionId"]
+          }
+        },
+        "required": ["type", "parameters"]
+      },
+      "then": {
+        "required": ["inputArtifacts"],
+        "properties": {
+          "inputArtifacts": { "required": ["mask"] }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "classify" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "parameters": { "$ref": "#/$defs/classifyParameters" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "trim" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "parameters": { "$ref": "#/$defs/trimParameters" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "background-removal" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "parameters": { "$ref": "#/$defs/backgroundRemovalParameters" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "upscale" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "parameters": { "$ref": "#/$defs/upscaleParameters" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "vectorize" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "parameters": { "$ref": "#/$defs/vectorizeParameters" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "resize" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "parameters": { "$ref": "#/$defs/resizeParameters" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "hexColor": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
+    "garmentColor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["light", "dark", "custom"] },
+        "hex": { "$ref": "#/$defs/hexColor" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "custom" } }, "required": ["kind"] },
+          "then": { "required": ["hex"] }
+        }
+      ]
+    },
+    "cropRect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "integer", "minimum": 0 },
+        "y": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "classifyParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "targetWidthCm": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+        "targetHeightCm": { "type": ["number", "null"], "exclusiveMinimum": 0 }
+      }
+    },
+    "trimParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["auto", "manual"] },
+        "paddingPx": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "tolerance": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "cropRect": { "$ref": "#/$defs/cropRect" },
+        "backgroundSample": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["transparent", "black", "white", "gray", "custom"] },
+            "hex": { "$ref": "#/$defs/hexColor" },
+            "alphaThreshold": { "type": "integer", "minimum": 0, "maximum": 255 }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "manual" } }, "required": ["mode"] },
+          "then": { "required": ["cropRect"] }
+        }
+      ]
+    },
+    "brushOp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "radiusPx", "points"],
+      "properties": {
+        "tool": { "enum": ["erase", "restore"] },
+        "radiusPx": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "points": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100000,
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "backgroundRemovalParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["ai", "color-to-alpha", "none"] },
+        "keyColor": { "$ref": "#/$defs/hexColor" },
+        "tolerance": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "edgeSoftness": { "type": "number", "minimum": 0, "maximum": 10 },
+        "aiModel": { "type": "string", "minLength": 1 },
+        "maskFromVersionId": { "type": ["string", "null"], "format": "uuid" },
+        "brushOps": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/brushOp" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "mode": { "const": "color-to-alpha" } },
+            "required": ["mode"]
+          },
+          "then": { "required": ["keyColor"] }
+        },
+        {
+          "if": {
+            "properties": { "mode": { "const": "none" } },
+            "required": ["mode"]
+          },
+          "then": {
+            "properties": {
+              "brushOps": { "maxItems": 0 }
+            }
+          }
+        }
+      ]
+    },
+    "upscaleParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "scale"],
+      "properties": {
+        "model": {
+          "enum": ["realesrgan-x4plus", "realesrgan-x4plus-anime"]
+        },
+        "scale": { "enum": [2, 4] },
+        "tileSize": { "type": "integer", "minimum": 0, "maximum": 8192 },
+        "gpu": { "type": "boolean" }
+      }
+    },
+    "vectorizeParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine"],
+      "properties": {
+        "engine": { "enum": ["potrace", "vtracer"] },
+        "mode": { "enum": ["binary", "color"] },
+        "threshold": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "colorCount": { "type": "integer", "minimum": 2, "maximum": 256 },
+        "turdsize": { "type": "integer", "minimum": 0 },
+        "targetWidthPx": { "type": ["integer", "null"], "minimum": 1 },
+        "targetHeightPx": { "type": ["integer", "null"], "minimum": 1 }
+      }
+    },
+    "resizeParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "targetWidthCm",
+        "targetHeightCm",
+        "targetWidthPx",
+        "targetHeightPx",
+        "dpi",
+        "fitMode"
+      ],
+      "properties": {
+        "targetWidthCm": { "type": "number", "exclusiveMinimum": 0 },
+        "targetHeightCm": { "type": "number", "exclusiveMinimum": 0 },
+        "targetWidthPx": { "type": "integer", "minimum": 1 },
+        "targetHeightPx": { "type": "integer", "minimum": 1 },
+        "dpi": { "type": "integer", "minimum": 72, "maximum": 1200 },
+        "fitMode": { "enum": ["width", "height", "contain"] },
+        "resample": { "const": "lanczos" },
+        "rasterizeFromVector": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "1.0",
+  "jobId": "6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c",
+  "status": "succeeded",
+  "metadata": {
+    "widthPx": 316,
+    "heightPx": 140,
+    "hasAlpha": false,
+    "effectiveDpiAtTarget": 80.264,
+    "durationMs": 42,
+    "engine": "heuristic-v1"
+  },
+  "suggestions": {
+    "source": {
+      "widthPx": 316,
+      "heightPx": 140,
+      "effectiveDpiAtTarget": 80.264
+    },
+    "features": {
+      "flatColorRatio": 0.91,
+      "edgeDensity": 0.04,
+      "uniqueColorCount": 18,
+      "sampledBackground": {
+        "kind": "gray",
+        "hex": "#B8B8B8",
+        "confidence": 0.93
+      },
+      "fullBleed": false
+    },
+    "suggestions": {
+      "trim": {
+        "recommended": true,
+        "reason": "Uniform gray background with wide margins.",
+        "box": { "x": 24, "y": 18, "width": 268, "height": 104 },
+        "paddingPx": 8,
+        "tolerance": 12
+      },
+      "backgroundRemoval": {
+        "mode": "color-to-alpha",
+        "keyColor": "#B8B8B8",
+        "reason": "Screenshot background is a near-uniform gray behind thin dark strokes.",
+        "confidence": 0.94
+      },
+      "upscale": {
+        "model": "realesrgan-x4plus-anime",
+        "scale": 4,
+        "reason": "Low-resolution line art with high flat-color ratio and sparse edges.",
+        "confidence": 0.9
+      },
+      "vectorize": {
+        "recommended": false,
+        "reason": "Thin anti-aliased strokes would need cleanup before tracing.",
+        "confidence": 0.61
+      }
+    }
+  }
+}

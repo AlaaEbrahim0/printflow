@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Sequence
 
 from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
 
 from printsheet_packer import CONTRACT_VERSION, __version__
 
@@ -21,10 +22,19 @@ def _repo_contract(name: str) -> Path:
     return Path(__file__).resolve().parents[2] / "contracts" / "jsonschema" / name
 
 
+def _load_registry(schema_dir: Path) -> Registry:
+    resources = []
+    for path in sorted(schema_dir.glob("*.schema.json")):
+        schema = json.loads(path.read_text(encoding="utf-8"))
+        if "$id" in schema:
+            resources.append((schema["$id"], Resource.from_contents(schema)))
+    return Registry().with_resources(resources)
+
+
 def _validate(schema_path: Path, document_path: Path) -> int:
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     document = json.loads(document_path.read_text(encoding="utf-8"))
-    validator = Draft202012Validator(schema)
+    validator = Draft202012Validator(schema, registry=_load_registry(schema_path.parent))
     errors = sorted(validator.iter_errors(document), key=lambda error: list(error.path))
     if not errors:
         print(f"VALID {document_path} against {schema_path}")

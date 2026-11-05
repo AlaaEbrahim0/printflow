@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "1.0",
+  "requestId": "req-2026-11-05-001",
+  "sheet": {
+    "widthPx": 6850,
+    "heightPx": 2362,
+    "widthCm": 58,
+    "heightCm": 20,
+    "dpi": 300
+  },
+  "placements": [
+    {
+      "designId": "11111111-1111-4111-8111-111111111111",
+      "versionId": "99999999-9999-4999-8999-999999999999",
+      "displayName": "smoke-tee",
+      "xCm": 0,
+      "yCm": 0,
+      "widthCm": 20,
+      "heightCm": 15,
+      "widthPx": 2362,
+      "heightPx": 1772,
+      "rotationDeg": 0
+    },
+    {
+      "designId": "22222222-2222-4222-8222-222222222222",
+      "versionId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "displayName": "flat-logo",
+      "xCm": 23,
+      "yCm": 0,
+      "widthCm": 15,
+      "heightCm": 20,
+      "widthPx": 1772,
+      "heightPx": 2362,
+      "rotationDeg": 90
+    }
+  ],
+  "integrityReport": {
+    "schemaVersion": "1.0",
+    "reportId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    "generatedAt": "2026-11-05T12:00:00Z",
+    "passed": true,
+    "sheet": {
+      "widthPx": 6850,
+      "heightPx": 2362,
+      "widthCm": 58,
+      "heightCm": 20,
+      "dpi": 300
+    },
+    "checks": [
+      {
+        "id": "visible-pixels-inside-sheet",
+        "blocking": true,
+        "status": "passed",
+        "message": "All visible pixels are inside the sheet bounds.",
+        "details": {
+          "designsChecked": 2
+        }
+      },
+      {
+        "id": "dilated-masks-no-overlap",
+        "blocking": true,
+        "status": "passed",
+        "message": "No dilated masks overlap.",
+        "details": {
+          "overlaps": 0
+        }
+      },
+      {
+        "id": "minimum-gap",
+        "blocking": true,
+        "status": "passed",
+        "message": "All visible pixel gaps meet the configured margin.",
+        "details": {
+          "minimumGapMm": 30,
+          "requiredGapMm": 30
+        }
+      },
+      {
+        "id": "pixel-equality",
+        "blocking": true,
+        "status": "passed",
+        "message": "Rendered regions match the approved source versions exactly.",
+        "details": {
+          "placementsChecked": 2,
+          "mismatchedPixels": 0
+        }
+      }
+    ],
+    "failures": [],
+    "metrics": {
+      "designCount": 2,
+      "durationMs": 842,
+      "visiblePixelCount": 4186628,
+      "sheetAreaPx": 16179700,
+      "occupancyRatio": 0.2588,
+      "minimumGapMm": 30,
+      "orderingsTried": 30
+    }
+  },
+  "outputs": {
+    "previewPath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/sheets/11111111-1111-4111-8111-111111111111/preview.png",
+    "manifestPath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/sheets/11111111-1111-4111-8111-111111111111/placements.json"
+  },
+  "stats": {
+    "designCount": 2,
+    "durationMs": 842,
+    "orderingsTried": 30,
+    "seed": 20261105,
+    "occupancyRatio": 0.2588
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "1.0",
+  "reportId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  "generatedAt": "2026-11-05T12:05:00Z",
+  "passed": false,
+  "sheet": {
+    "widthPx": 6850,
+    "heightPx": 2362,
+    "widthCm": 58,
+    "heightCm": 20,
+    "dpi": 300
+  },
+  "checks": [
+    {
+      "id": "visible-pixels-inside-sheet",
+      "blocking": true,
+      "status": "failed",
+      "message": "Design 2 has 14 visible pixels outside the sheet.",
+      "details": { "designId": "22222222-2222-4222-8222-222222222222", "outsidePixels": 14 }
+    },
+    {
+      "id": "dilated-masks-no-overlap",
+      "blocking": true,
+      "status": "passed",
+      "message": "No dilated masks overlap.",
+      "details": { "overlaps": 0 }
+    },
+    {
+      "id": "minimum-gap",
+      "blocking": true,
+      "status": "passed",
+      "message": "All visible pixel gaps meet the configured margin.",
+      "details": { "minimumGapMm": 30, "requiredGapMm": 30 }
+    },
+    {
+      "id": "pixel-equality",
+      "blocking": true,
+      "status": "passed",
+      "message": "Rendered regions match the approved source versions exactly.",
+      "details": { "placementsChecked": 2, "mismatchedPixels": 0 }
+    }
+  ],
+  "failures": [
+    {
+      "checkId": "visible-pixels-inside-sheet",
+      "designId": "22222222-2222-4222-8222-222222222222",
+      "message": "14 visible pixels exceed the right sheet edge.",
+      "details": { "outsidePixels": 14, "side": "right" }
+    }
+  ],
+  "metrics": {
+    "designCount": 2,
+    "durationMs": 861,
+    "visiblePixelCount": 4186628,
+    "sheetAreaPx": 16179700,
+    "minimumGapMm": 30,
+    "orderingsTried": 30
+  }
+}

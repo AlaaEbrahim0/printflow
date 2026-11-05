@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0",
+  "jobId": "6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c",
+  "type": "classify",
+  "batchId": "0b6e1f3a-1b2c-4d5e-8f90-1234567890ab",
+  "designId": "44444444-4444-4444-8444-444444444444",
+  "inputPath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/designs/44444444-4444-4444-8444-444444444444/versions/cccccccc-cccc-4ccc-8ccc-cccccccccccc.png",
+  "parameters": {
+    "targetWidthCm": 10,
+    "targetHeightCm": 4.43
+  },
+  "context": {
+    "workingDpi": 300,
+    "targetWidthCm": 10,
+    "targetHeightCm": 4.43,
+    "sourceVersionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    "garmentColor": { "kind": "light" }
+  }
+}

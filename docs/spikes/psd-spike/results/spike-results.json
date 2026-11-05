@@ -1,0 +1,215 @@
+{
+  "psd_tools_version": "1.26.0",
+  "pillow_version": "13.0.0",
+  "python": "3.14.8",
+  "psd_limit_px": 30000,
+  "results": [
+    {
+      "case": "ordinary-psd-multilayer",
+      "path": "small-psd.psd",
+      "bytes": 2909354,
+      "version": 1,
+      "size": [
+        1200,
+        800
+      ],
+      "layers": [
+        {
+          "name": "red-panel",
+          "bbox": [
+            20,
+            20,
+            320,
+            220
+          ],
+          "size": [
+            300,
+            200
+          ],
+          "kind": "pixel",
+          "roundtrip_ok": true
+        },
+        {
+          "name": "blue-panel",
+          "bbox": [
+            900,
+            450,
+            1100,
+            750
+          ],
+          "size": [
+            200,
+            300
+          ],
+          "kind": "pixel",
+          "roundtrip_ok": true
+        }
+      ],
+      "save_seconds": 0.01,
+      "peak_tracemalloc_mb": 5.5
+    },
+    {
+      "case": "psd-width-30000-boundary",
+      "path": "boundary-30000.psd",
+      "bytes": 5913878,
+      "version": 1,
+      "size": [
+        30000,
+        64
+      ],
+      "layers": [
+        {
+          "name": "stripe",
+          "bbox": [
+            0,
+            0,
+            30000,
+            64
+          ],
+          "size": [
+            30000,
+            64
+          ],
+          "kind": "pixel",
+          "roundtrip_ok": true
+        }
+      ],
+      "save_seconds": 0.03,
+      "peak_tracemalloc_mb": 12.9
+    },
+    {
+      "case": "psb-width-30001",
+      "path": "width-30001.psb",
+      "bytes": 5913958,
+      "version": 2,
+      "size": [
+        30001,
+        64
+      ],
+      "layers": [
+        {
+          "name": "stripe",
+          "bbox": [
+            0,
+            0,
+            30001,
+            64
+          ],
+          "size": [
+            30001,
+            64
+          ],
+          "kind": "pixel",
+          "roundtrip_ok": null,
+          "roundtrip_note": "psd-tools raster read blocked at >30,000 px"
+        }
+      ],
+      "save_seconds": 0.03,
+      "peak_tracemalloc_mb": 12.9
+    },
+    {
+      "case": "psb-height-30001-offset-30000",
+      "path": "tall-64x30001.psb",
+      "bytes": 5760582,
+      "version": 2,
+      "size": [
+        64,
+        30001
+      ],
+      "layers": [
+        {
+          "name": "bottom-marker",
+          "bbox": [
+            0,
+            30000,
+            64,
+            30002
+          ],
+          "size": [
+            64,
+            2
+          ],
+          "kind": "pixel",
+          "roundtrip_ok": null,
+          "roundtrip_note": "psd-tools raster read blocked at >30,000 px"
+        }
+      ],
+      "save_seconds": 0.0,
+      "peak_tracemalloc_mb": 11.0
+    },
+    {
+      "case": "psd-6850x5900-4-layers",
+      "path": "sheet-6850x5900.psd",
+      "bytes": 122731426,
+      "version": 1,
+      "size": [
+        6850,
+        5900
+      ],
+      "layers": [
+        {
+          "name": "design-a",
+          "bbox": [
+            100,
+            100,
+            2100,
+            1600
+          ],
+          "size": [
+            2000,
+            1500
+          ],
+          "kind": "pixel",
+          "roundtrip_ok": true
+        },
+        {
+          "name": "design-b",
+          "bbox": [
+            2300,
+            100,
+            4100,
+            1900
+          ],
+          "size": [
+            1800,
+            1800
+          ],
+          "kind": "pixel",
+          "roundtrip_ok": true
+        },
+        {
+          "name": "design-c",
+          "bbox": [
+            4300,
+            100,
+            5900,
+            2700
+          ],
+          "size": [
+            1600,
+            2600
+          ],
+          "kind": "pixel",
+          "roundtrip_ok": true
+        },
+        {
+          "name": "design-d",
+          "bbox": [
+            100,
+            3000,
+            2500,
+            5000
+          ],
+          "size": [
+            2400,
+            2000
+          ],
+          "kind": "pixel",
+          "roundtrip_ok": true
+        }
+      ],
+      "save_seconds": 0.38,
+      "peak_tracemalloc_mb": 231.3
+    }
+  ]
+}

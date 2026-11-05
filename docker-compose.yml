@@ -1,0 +1,100 @@
+name: printsheet
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-printsheet}
+      POSTGRES_USER: ${POSTGRES_USER:-printsheet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-printsheet_dev_only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      Database__Provider: Postgres
+      ConnectionStrings__PrintSheet: Host=postgres;Port=5432;Database=${POSTGRES_DB:-printsheet};Username=${POSTGRES_USER:-printsheet};Password=${POSTGRES_PASSWORD:-printsheet_dev_only}
+      Storage__Root: /data/storage
+      Worker__Key: ${WORKER_KEY:-dev-worker-key}
+      Cors__AllowedOrigins__0: http://localhost:${WEB_PORT:-5173}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - storage_data:/data/storage
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 12
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./worker
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      PRINTSHEET_API_BASE_URL: http://api:8080
+      PRINTSHEET_STORAGE_ROOT: /data/storage
+      PRINTSHEET_WORKER_KEY: ${WORKER_KEY:-dev-worker-key}
+      PRINTSHEET_WORKER_ID: worker-compose
+      PRINTSHEET_GPU_ENABLED: "false"
+      PRINTSHEET_LOG_LEVEL: INFO
+    ports:
+      - "${WORKER_PORT:-8000}:8000"
+    volumes:
+      - storage_data:/data/storage
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 12
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8080
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5173/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  storage_data:

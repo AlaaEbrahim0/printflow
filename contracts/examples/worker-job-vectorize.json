@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1.0",
+  "jobId": "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a",
+  "type": "vectorize",
+  "batchId": "0b6e1f3a-1b2c-4d5e-8f90-1234567890ab",
+  "designId": "22222222-2222-4222-8222-222222222222",
+  "inputPath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/designs/22222222-2222-4222-8222-222222222222/versions/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.png",
+  "outputPath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/designs/22222222-2222-4222-8222-222222222222/versions/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee.png",
+  "outputArtifacts": {
+    "svg": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/designs/22222222-2222-4222-8222-222222222222/versions/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee/vector.svg"
+  },
+  "parameters": {
+    "engine": "potrace",
+    "mode": "binary",
+    "threshold": 128,
+    "colorCount": 4,
+    "turdsize": 2,
+    "targetWidthPx": 2362,
+    "targetHeightPx": 1476
+  },
+  "context": {
+    "workingDpi": 300,
+    "targetWidthCm": 20,
+    "targetHeightCm": 12.5,
+    "sourceVersionId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "garmentColor": { "kind": "dark" }
+  }
+}

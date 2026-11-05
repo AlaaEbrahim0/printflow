@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0",
+  "jobId": "3c4d5e6f-7a8b-4c9d-8e0f-2a3b4c5d6e7f",
+  "type": "upscale",
+  "batchId": "0b6e1f3a-1b2c-4d5e-8f90-1234567890ab",
+  "designId": "44444444-4444-4444-8444-444444444444",
+  "inputPath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/designs/44444444-4444-4444-8444-444444444444/versions/cccccccc-cccc-4ccc-8ccc-cccccccccccc.png",
+  "outputPath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/designs/44444444-4444-4444-8444-444444444444/versions/dddddddd-dddd-4ddd-8ddd-dddddddddddd.png",
+  "parameters": {
+    "model": "realesrgan-x4plus-anime",
+    "scale": 4,
+    "tileSize": 256,
+    "gpu": true
+  },
+  "context": {
+    "workingDpi": 300,
+    "targetWidthCm": 10,
+    "targetHeightCm": 4.43,
+    "sourceVersionId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    "garmentColor": { "kind": "light" }
+  }
+}

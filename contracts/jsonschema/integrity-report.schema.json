@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://printsheet.local/schemas/integrity-report.schema.json",
+  "title": "PrintSheet IntegrityReport",
+  "description": "Blocking, machine-readable result of the four pre-export integrity checks. A report may only be used for export when passed=true.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reportId",
+    "generatedAt",
+    "passed",
+    "sheet",
+    "checks",
+    "failures",
+    "metrics"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "reportId": { "type": "string", "format": "uuid" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "passed": { "type": "boolean" },
+    "sheet": { "$ref": "#/$defs/sheetGeometry" },
+    "checks": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "failures": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/failure" }
+    },
+    "metrics": {
+      "type": "object",
+      "required": ["designCount", "durationMs"],
+      "properties": {
+        "designCount": { "type": "integer", "minimum": 1 },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "visiblePixelCount": { "type": "integer", "minimum": 0 },
+        "sheetAreaPx": { "type": "integer", "minimum": 1 },
+        "occupancyRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minimumGapMm": { "type": "number", "minimum": 0 },
+        "orderingsTried": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    }
+  },
+  "allOf": [
+    {
+      "description": "Every blocking check must be present exactly once.",
+      "contains": {
+        "type": "object",
+        "properties": { "id": { "const": "visible-pixels-inside-sheet" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "contains": {
+        "type": "object",
+        "properties": { "id": { "const": "dilated-masks-no-overlap" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "contains": {
+        "type": "object",
+        "properties": { "id": { "const": "minimum-gap" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "contains": {
+        "type": "object",
+        "properties": { "id": { "const": "pixel-equality" } },
+        "required": ["id"]
+      }
+    }
+  ],
+  "$defs": {
+    "sheetGeometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["widthPx", "heightPx", "widthCm", "heightCm", "dpi"],
+      "properties": {
+        "widthPx": { "type": "integer", "minimum": 1 },
+        "heightPx": { "type": "integer", "minimum": 1 },
+        "widthCm": { "type": "number", "exclusiveMinimum": 0 },
+        "heightCm": { "type": "number", "exclusiveMinimum": 0 },
+        "dpi": { "type": "integer", "minimum": 1, "maximum": 1200 }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "blocking", "status", "message"],
+      "properties": {
+        "id": {
+          "enum": [
+            "visible-pixels-inside-sheet",
+            "dilated-masks-no-overlap",
+            "minimum-gap",
+            "pixel-equality"
+          ]
+        },
+        "blocking": { "const": true },
+        "status": { "enum": ["passed", "failed", "skipped"] },
+        "message": { "type": "string", "minLength": 1 },
+        "details": { "type": "object" }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checkId", "message"],
+      "properties": {
+        "checkId": {
+          "enum": [
+            "visible-pixels-inside-sheet",
+            "dilated-masks-no-overlap",
+            "minimum-gap",
+            "pixel-equality"
+          ]
+        },
+        "designId": { "type": ["string", "null"], "format": "uuid" },
+        "message": { "type": "string", "minLength": 1 },
+        "details": { "type": "object" }
+      }
+    }
+  }
+}
