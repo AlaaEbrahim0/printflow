@@ -502,7 +502,8 @@ If context is running low, prioritize in this order:
 
 **Done and verified:**
 
-- Git repo initialized (`main`); skeleton commit `d0d44b9`.
+- Git repo initialized (`main`); skeleton commit `d0d44b9`; Phase 0 deliverable
+  commit `9f52d0b`.
 - API Clean Architecture skeleton builds; 10 domain unit tests pass.
 - API `/healthz` wired to EF Core. Native SQLite dev DB is created at startup
   (`EnsureCreated`) so the connectivity probe passes; Compose uses PostgreSQL.
@@ -565,7 +566,7 @@ Append newest entries at the top. Keep them short and factual.
 ### 2026-11-05 — Phase 0 completion (Docker gate open)
 
 - Finished all Phase 0 docs, contracts, spike report, fixtures, Compose,
-  Makefile, native scripts and README.
+  Makefile, native scripts and README. Committed as `9f52d0b`.
 - `make test` and a native API/worker/web smoke test pass.
 - Fixed native health: SQLite dev database is created at startup.
 - Docker daemon cannot be started by the agent; `docker compose config` is
