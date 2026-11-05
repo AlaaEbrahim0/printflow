@@ -1,0 +1,10 @@
+.git
+**/bin
+**/obj
+**/node_modules
+**/.venv
+**/__pycache__
+**/.pytest_cache
+storage
+tmp
+docs/spikes/psd-spike/out

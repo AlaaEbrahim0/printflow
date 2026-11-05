@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "printsheet-packer"
+version = "0.1.0"
+description = "Standalone mask-based nesting and lossless sheet rendering for PrintSheet"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=2,<3",
+  "Pillow>=11,<14",
+  "jsonschema>=4.23,<5",
+]
+
+[project.optional-dependencies]
+geo = ["shapely>=2.0,<3"]
+psd = ["psd-tools==1.26.0"]
+dev = [
+  "pytest>=8.3,<10",
+  "hypothesis>=6.100,<7",
+  "pytest-benchmark>=5,<6",
+  "ruff>=0.8,<1",
+]
+
+[project.scripts]
+printsheet-packer = "printsheet_packer.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["printsheet_packer"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

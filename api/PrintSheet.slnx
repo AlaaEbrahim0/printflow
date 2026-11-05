@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PrintSheet.Api/PrintSheet.Api.csproj" />
+    <Project Path="src/PrintSheet.Application/PrintSheet.Application.csproj" />
+    <Project Path="src/PrintSheet.Domain/PrintSheet.Domain.csproj" />
+    <Project Path="src/PrintSheet.Infrastructure/PrintSheet.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PrintSheet.Domain.Tests/PrintSheet.Domain.Tests.csproj" />
+  </Folder>
+</Solution>
