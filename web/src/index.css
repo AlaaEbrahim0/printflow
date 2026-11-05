@@ -4,12 +4,22 @@
   --paper: #f3efe6;
   --ink: #12100e;
   --panel: #181513;
+  --panel-2: #1f1b18;
   --line: #2c2723;
+  --line-strong: #3d3630;
   --muted: #a79f96;
   --dim: #6e665d;
   --accent: #ff6a3d;
+  --accent-soft: rgb(255 106 61 / 16%);
+  --good: #5fbf7a;
+  --warn: #e2b23c;
+  --bad: #e0574a;
+  --info: #6fb6d8;
   --mono: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --sans: 'Manrope', system-ui, -apple-system, sans-serif;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --gap: 14px;
   background: var(--ink);
   color: var(--paper);
   font-family: var(--sans);
@@ -43,4 +53,9 @@ a {
 ::selection {
   background: var(--accent);
   color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

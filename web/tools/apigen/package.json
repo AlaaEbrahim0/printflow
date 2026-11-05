@@ -1,0 +1,11 @@
+{
+  "name": "printsheet-web-apigen",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Isolated toolchain for openapi-typescript, which needs TypeScript 5 while the app is on TypeScript 7.",
+  "type": "module",
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0",
+    "typescript": "~5.9.3"
+  }
+}
