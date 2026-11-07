@@ -445,11 +445,11 @@ export const handlers = [
     guarded(() => {
       const mock = store()
       const record = mock.exports.get(params.exportId as string)
-      if (!record) throw new MockProblem(404, 'batch-not-found', 'Export not found')
+      if (!record) throw new MockProblem(404, 'export-not-found', 'Export not found')
       const url = new URL(request.url)
       const name = (url.searchParams.get('artifact') ?? 'manifest') as ExportArtifactName
       const artifact = record.artifacts.find((item) => item.name === name)
-      if (!artifact) throw new MockProblem(404, 'batch-not-found', `Artifact "${name}" is not part of this export`)
+      if (!artifact) throw new MockProblem(404, 'export-not-found', `Artifact "${name}" is not part of this export`)
       const { body, contentType } = mock.exportArtifactBody(record, name)
       return new HttpResponse(body, {
         headers: {

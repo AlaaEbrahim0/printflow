@@ -1,6 +1,12 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { ApiError, describeErrorCode, toProblem } from './problem'
-import { api, uploadDesign } from './client'
+import {
+  api,
+  exportArtifactUrl,
+  sheetPreviewUrl,
+  uploadDesign,
+  versionFileUrl,
+} from './client'
 import { stopTestMockApi, startTestMockApi } from '../mocks/server'
 import { MAX_UPLOAD_BYTES } from '../lib/upload'
 
@@ -81,6 +87,55 @@ describe('typed client over the mock network', () => {
     const controller = new AbortController()
     controller.abort()
     await expect(api.batches.list(undefined, { signal: controller.signal })).rejects.toThrow()
+  })
+
+  it('serves the sheet preview and export artifacts by relative download URL', async () => {
+    const batches = await api.batches.list({ limit: 100 })
+    const northgate = batches.items.find((item) => item.name === 'Northgate cafe merch')!
+    const exports = await api.exports.list(northgate.id)
+    const succeeded = exports.items.find((item) => item.status === 'succeeded')!
+    expect(succeeded).toBeTruthy()
+
+    const preview = await fetch(sheetPreviewUrl(northgate.id))
+    expect(preview.status).toBe(200)
+    expect(preview.headers.get('content-type')).toContain('image/svg')
+
+    for (const artifact of succeeded.artifacts) {
+      expect(artifact.downloadUrl).toMatch(
+        /^\/api\/v1\/exports\/[0-9a-f-]+\/download\?artifact=[a-z-]+$/,
+      )
+      const response = await fetch(exportArtifactUrl(succeeded.id, artifact.name))
+      expect(response.status, artifact.name).toBe(200)
+      expect((await response.text()).length).toBeGreaterThan(0)
+    }
+    const missing = await fetch(exportArtifactUrl(succeeded.id, 'layered'))
+    expect(missing.status).toBe(404)
+
+    const fetched = await api.exports.get(succeeded.id)
+    expect(fetched.integrityReport?.passed).toBe(true)
+    expect(fetched.format).toBe('flat-png')
+  })
+
+  it('exposes relative URL builders for every file download', () => {
+    const url = versionFileUrl('design-1', 'version-1')
+    expect(url).toBe('/api/v1/designs/design-1/versions/version-1/file')
+    expect(versionFileUrl('a/b', 'c')).toContain('a%2Fb')
+    expect(sheetPreviewUrl('b1')).toBe('/api/v1/batches/b1/sheet/preview')
+    expect(exportArtifactUrl('e1', 'manifest')).toBe('/api/v1/exports/e1/download?artifact=manifest')
+    expect(api.apiRoot).toBe('/api/v1')
+  })
+
+  it('reads the sheet and its integrity report together', async () => {
+    const batches = await api.batches.list({ limit: 100 })
+    const northgate = batches.items.find((item) => item.name === 'Northgate cafe merch')!
+    const sheet = await api.sheets.get(northgate.id)
+    expect(sheet.state).toBe('valid')
+    expect(sheet.stale).toBe(false)
+    expect(sheet.widthPx).toBe(6850)
+    expect(sheet.integrityReport?.checks).toHaveLength(4)
+    const detail = await api.batches.get(northgate.id)
+    expect(detail.sheet?.revision).toBe(sheet.revision)
+    expect(detail.status).toBe('exported')
   })
 
   it('refuses an oversized upload before sending bytes', async () => {

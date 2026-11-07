@@ -1627,13 +1627,13 @@ export class MockStore {
 
   getJob(jobId: string): Job {
     const job = this.jobs.get(jobId)
-    if (!job) throw new MockProblem(404, 'batch-not-found', 'Job not found')
+    if (!job) throw new MockProblem(404, 'job-not-found', 'Job not found')
     return this.toJob(job)
   }
 
   cancelJob(jobId: string): Job {
     const job = this.jobs.get(jobId)
-    if (!job) throw new MockProblem(404, 'batch-not-found', 'Job not found')
+    if (!job) throw new MockProblem(404, 'job-not-found', 'Job not found')
     if (job.status !== 'queued') {
       throw new MockProblem(409, 'invalid-transition', 'Only a queued job can be cancelled')
     }
@@ -1675,7 +1675,7 @@ export class MockStore {
 
   getExport(exportId: string): Export {
     const record = this.exports.get(exportId)
-    if (!record) throw new MockProblem(404, 'batch-not-found', 'Export not found')
+    if (!record) throw new MockProblem(404, 'export-not-found', 'Export not found')
     return this.toExport(record)
   }
 
