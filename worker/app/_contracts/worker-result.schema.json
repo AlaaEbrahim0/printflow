@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://printsheet.local/schemas/worker-result.schema.json",
+  "title": "PrintSheet WorkerResult",
+  "description": "Result posted by the worker when a job succeeds or fails. Paths are relative to the shared storage root.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId", "status", "metadata"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "jobId": { "type": "string", "format": "uuid" },
+    "status": { "enum": ["succeeded", "failed"] },
+    "outputPath": { "$ref": "#/$defs/relativePath" },
+    "outputArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mask": { "$ref": "#/$defs/relativePath" },
+        "svg": { "$ref": "#/$defs/relativePath" }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["durationMs"],
+      "properties": {
+        "widthPx": { "type": "integer", "minimum": 1 },
+        "heightPx": { "type": "integer", "minimum": 1 },
+        "hasAlpha": { "type": "boolean" },
+        "effectiveDpiAtTarget": { "type": ["number", "null"], "minimum": 0 },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "engine": { "type": "string" },
+        "model": { "type": "string" },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "severity", "message"],
+            "properties": {
+              "code": { "type": "string", "minLength": 1 },
+              "severity": { "enum": ["info", "warning", "error"] },
+              "message": { "type": "string", "minLength": 1 },
+              "details": { "type": "object" }
+            }
+          }
+        }
+      }
+    },
+    "suggestions": { "$ref": "#/$defs/classifierSuggestions" },
+    "error": { "$ref": "#/$defs/jobError" }
+  },
+  "allOf": [
+    {
+      "description": "A successful image job returns a raster; a successful classify job returns suggestions.",
+      "if": {
+        "properties": { "status": { "const": "succeeded" } },
+        "required": ["status"]
+      },
+      "then": {
+        "anyOf": [
+          { "required": ["outputPath"] },
+          { "required": ["suggestions"] }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "failed" } },
+        "required": ["status"]
+      },
+      "then": { "required": ["error"] }
+    }
+  ],
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "hexColor": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
+    "jobError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "retryable": { "type": "boolean" },
+        "details": { "type": "object" }
+      }
+    },
+    "classifierSuggestions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "features", "suggestions"],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["widthPx", "heightPx"],
+          "properties": {
+            "widthPx": { "type": "integer", "minimum": 1 },
+            "heightPx": { "type": "integer", "minimum": 1 },
+            "effectiveDpiAtTarget": { "type": ["number", "null"], "exclusiveMinimum": 0 }
+          }
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "flatColorRatio",
+            "edgeDensity",
+            "uniqueColorCount",
+            "sampledBackground",
+            "fullBleed"
+          ],
+          "properties": {
+            "flatColorRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+            "edgeDensity": { "type": "number", "minimum": 0, "maximum": 1 },
+            "uniqueColorCount": { "type": "integer", "minimum": 1 },
+            "sampledBackground": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "confidence"],
+              "properties": {
+                "kind": { "enum": ["transparent", "black", "white", "gray", "custom"] },
+                "hex": { "$ref": "#/$defs/hexColor" },
+                "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            },
+            "fullBleed": { "type": "boolean" }
+          }
+        },
+        "suggestions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["trim", "backgroundRemoval", "upscale", "vectorize"],
+          "properties": {
+            "trim": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["recommended", "reason", "paddingPx", "tolerance"],
+              "properties": {
+                "recommended": { "type": "boolean" },
+                "reason": { "type": "string", "minLength": 1 },
+                "box": { "$ref": "#/$defs/cropRect" },
+                "paddingPx": { "type": "integer", "minimum": 0 },
+                "tolerance": { "type": "integer", "minimum": 0, "maximum": 255 }
+              }
+            },
+            "backgroundRemoval": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mode", "reason", "confidence"],
+              "properties": {
+                "mode": { "enum": ["ai", "color-to-alpha", "none"] },
+                "keyColor": { "$ref": "#/$defs/hexColor" },
+                "reason": { "type": "string", "minLength": 1 },
+                "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            },
+            "upscale": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["model", "scale", "reason", "confidence"],
+              "properties": {
+                "model": {
+                  "enum": ["realesrgan-x4plus", "realesrgan-x4plus-anime"]
+                },
+                "scale": { "enum": [2, 4] },
+                "reason": { "type": "string", "minLength": 1 },
+                "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            },
+            "vectorize": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["recommended", "reason", "confidence"],
+              "properties": {
+                "recommended": { "type": "boolean" },
+                "reason": { "type": "string", "minLength": 1 },
+                "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "cropRect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "integer", "minimum": 0 },
+        "y": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}
