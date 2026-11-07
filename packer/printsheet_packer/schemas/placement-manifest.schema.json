@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://printsheet.local/packer/schemas/placement-manifest.schema.json",
+  "title": "PrintSheet Packer Placement Manifest",
+  "description": "Internal, packer-owned artifact written by `printsheet-packer pack` and read by `export` and `verify`. The frozen service contracts in contracts/jsonschema do not define an export request, so the packer documents its own manifest here. It carries everything a lossless re-render needs: sheet geometry, the request parameters, and per placement the source file, hash, rotation and geometry in both centimetres and whole pixels.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "requestId",
+    "generatedAt",
+    "sheet",
+    "parameters",
+    "placements",
+    "integrityReport"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "kind": { "const": "printsheet.packer.manifest" },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "sheet": { "$ref": "#/$defs/sheetGeometry" },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rollWidthCm",
+        "marginMm",
+        "edgeMarginMm",
+        "dpi",
+        "alphaThreshold",
+        "cellMm",
+        "cellPx",
+        "seed",
+        "randomizedOrderings",
+        "orderingsTried",
+        "timeBudgetMs",
+        "noInterlocking"
+      ],
+      "properties": {
+        "rollWidthCm": { "type": "number", "exclusiveMinimum": 0, "maximum": 500 },
+        "marginMm": { "type": "number", "minimum": 0, "maximum": 500 },
+        "edgeMarginMm": { "type": "number", "minimum": 0, "maximum": 500 },
+        "dpi": { "type": "integer", "minimum": 72, "maximum": 1200 },
+        "alphaThreshold": { "type": "integer", "minimum": 0, "maximum": 254 },
+        "cellMm": { "type": "number", "exclusiveMinimum": 0, "maximum": 50 },
+        "cellPx": { "type": "integer", "minimum": 1 },
+        "seed": { "type": "integer" },
+        "randomizedOrderings": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "orderingsTried": { "type": "integer", "minimum": 0 },
+        "timeBudgetMs": { "type": "integer", "minimum": 1000, "maximum": 600000 },
+        "noInterlocking": { "type": "boolean" }
+      }
+    },
+    "placements": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/placement" }
+    },
+    "integrityReport": { "type": "object" },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "previewPath": { "$ref": "#/$defs/relativePath" } }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "sheetGeometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["widthPx", "heightPx", "widthCm", "heightCm", "dpi"],
+      "properties": {
+        "widthPx": { "type": "integer", "minimum": 1 },
+        "heightPx": { "type": "integer", "minimum": 1 },
+        "widthCm": { "type": "number", "exclusiveMinimum": 0 },
+        "heightCm": { "type": "number", "exclusiveMinimum": 0 },
+        "dpi": { "type": "integer", "minimum": 72, "maximum": 1200 }
+      }
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "designId",
+        "versionId",
+        "filePath",
+        "sha256",
+        "sourceWidthPx",
+        "sourceHeightPx",
+        "rotationDeg",
+        "xPx",
+        "yPx",
+        "widthPx",
+        "heightPx",
+        "xCm",
+        "yCm",
+        "widthCm",
+        "heightCm",
+        "visibleX0Px",
+        "visibleY0Px",
+        "visibleX1Px",
+        "visibleY1Px"
+      ],
+      "properties": {
+        "designId": { "type": "string", "format": "uuid" },
+        "versionId": { "type": "string", "format": "uuid" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "filePath": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "sourceWidthPx": { "type": "integer", "minimum": 1 },
+        "sourceHeightPx": { "type": "integer", "minimum": 1 },
+        "rotationDeg": { "enum": [0, 90, 180, 270] },
+        "xPx": { "type": "integer", "minimum": 0 },
+        "yPx": { "type": "integer", "minimum": 0 },
+        "widthPx": { "type": "integer", "minimum": 1 },
+        "heightPx": { "type": "integer", "minimum": 1 },
+        "xCm": { "type": "number", "minimum": 0 },
+        "yCm": { "type": "number", "minimum": 0 },
+        "widthCm": { "type": "number", "exclusiveMinimum": 0 },
+        "heightCm": { "type": "number", "exclusiveMinimum": 0 },
+        "visibleX0Px": { "type": "integer", "minimum": 0 },
+        "visibleY0Px": { "type": "integer", "minimum": 0 },
+        "visibleX1Px": { "type": "integer", "minimum": 1 },
+        "visibleY1Px": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}
