@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "requestId": "req-2026-11-05-001",
   "sheet": {
     "widthPx": 6850,
@@ -34,8 +34,9 @@
       "rotationDeg": 90
     }
   ],
+  "unplacedDesigns": [],
   "integrityReport": {
-    "schemaVersion": "1.0",
+    "schemaVersion": "2.0",
     "reportId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
     "generatedAt": "2026-11-05T12:00:00Z",
     "passed": true,
@@ -84,11 +85,24 @@
           "placementsChecked": 2,
           "mismatchedPixels": 0
         }
+      },
+      {
+        "id": "all-designs-placed",
+        "blocking": true,
+        "status": "passed",
+        "message": "All 2 requested design(s) are placed.",
+        "details": {
+          "requestedDesignCount": 2,
+          "placedDesignCount": 2,
+          "unplacedDesigns": []
+        }
       }
     ],
     "failures": [],
     "metrics": {
       "designCount": 2,
+      "requestedDesignCount": 2,
+      "unplacedDesignCount": 0,
       "durationMs": 842,
       "visiblePixelCount": 4186628,
       "sheetAreaPx": 16179700,
@@ -103,6 +117,8 @@
   },
   "stats": {
     "designCount": 2,
+    "requestedDesignCount": 2,
+    "unplacedDesignCount": 0,
     "durationMs": 842,
     "orderingsTried": 30,
     "seed": 20261105,

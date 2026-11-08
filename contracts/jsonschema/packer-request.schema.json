@@ -38,7 +38,7 @@
       "type": "number",
       "exclusiveMinimum": 0,
       "maximum": 50,
-      "description": "Occupancy grid cell size. Grid dimensions are rounded up (conservative)."
+      "description": "Conservative occupancy-metric cell size. Geometry placements use whole pixels."
     },
     "randomizedOrderings": { "type": "integer", "minimum": 1, "maximum": 1000 },
     "timeBudgetMs": { "type": "integer", "minimum": 1000, "maximum": 600000 },
@@ -92,6 +92,10 @@
         "allowRotation": { "type": "boolean" },
         "targetWidthCm": { "type": "number", "exclusiveMinimum": 0 },
         "targetHeightCm": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "dependentRequired": {
+        "targetWidthCm": ["targetHeightCm"],
+        "targetHeightCm": ["targetWidthCm"]
       }
     }
   }

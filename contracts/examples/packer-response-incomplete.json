@@ -1,0 +1,136 @@
+{
+  "schemaVersion": "2.0",
+  "requestId": "req-incomplete-001",
+  "sheet": {
+    "widthPx": 6850,
+    "heightPx": 1,
+    "widthCm": 58,
+    "heightCm": 0.008466666666666667,
+    "dpi": 300
+  },
+  "placements": [],
+  "unplacedDesigns": [
+    {
+      "designId": "11111111-1111-4111-8111-111111111111",
+      "versionId": "99999999-9999-4999-8999-999999999999",
+      "displayName": "too-wide-logo",
+      "reason": "exceeds-roll",
+      "details": {
+        "requiredWidthPx": 7200,
+        "usableWidthPx": 6850,
+        "rotationsTried": [0]
+      }
+    }
+  ],
+  "integrityReport": {
+    "schemaVersion": "2.0",
+    "reportId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    "generatedAt": "2026-11-08T12:00:00Z",
+    "passed": false,
+    "sheet": {
+      "widthPx": 6850,
+      "heightPx": 1,
+      "widthCm": 58,
+      "heightCm": 0.008466666666666667,
+      "dpi": 300
+    },
+    "checks": [
+      {
+        "id": "visible-pixels-inside-sheet",
+        "blocking": true,
+        "status": "passed",
+        "message": "All visible pixels are inside the sheet bounds.",
+        "details": { "designsChecked": 0, "outsidePixels": 0, "byDesign": {} }
+      },
+      {
+        "id": "dilated-masks-no-overlap",
+        "blocking": true,
+        "status": "passed",
+        "message": "No dilated masks overlap.",
+        "details": { "overlaps": 0, "dilationRadiusPx": 12, "pairs": [] }
+      },
+      {
+        "id": "minimum-gap",
+        "blocking": true,
+        "status": "passed",
+        "message": "No placed design violates the configured clearance.",
+        "details": {
+          "requiredGapMm": 30,
+          "requiredEdgeMarginMm": 0,
+          "pairsMeasured": 0,
+          "pairsBeyondProbe": 0,
+          "violations": []
+        }
+      },
+      {
+        "id": "pixel-equality",
+        "blocking": true,
+        "status": "skipped",
+        "message": "No placement was available to render for comparison.",
+        "details": { "placementsChecked": 0, "mismatchedPixels": 0 }
+      },
+      {
+        "id": "all-designs-placed",
+        "blocking": true,
+        "status": "failed",
+        "message": "0 of 1 requested design(s) are placed; 1 remain unplaced.",
+        "details": {
+          "requestedDesignCount": 1,
+          "placedDesignCount": 0,
+          "unplacedDesigns": [
+            {
+              "designId": "11111111-1111-4111-8111-111111111111",
+              "versionId": "99999999-9999-4999-8999-999999999999",
+              "displayName": "too-wide-logo",
+              "reason": "exceeds-roll",
+              "details": {
+                "requiredWidthPx": 7200,
+                "usableWidthPx": 6850,
+                "rotationsTried": [0]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "failures": [
+      {
+        "checkId": "pixel-equality",
+        "message": "pixel-equality was skipped."
+      },
+      {
+        "checkId": "all-designs-placed",
+        "designId": "11111111-1111-4111-8111-111111111111",
+        "message": "Design 11111111-1111-4111-8111-111111111111 is unplaced: exceeds-roll.",
+        "details": {
+          "requiredWidthPx": 7200,
+          "usableWidthPx": 6850,
+          "rotationsTried": [0]
+        }
+      }
+    ],
+    "metrics": {
+      "designCount": 0,
+      "requestedDesignCount": 1,
+      "unplacedDesignCount": 1,
+      "durationMs": 15,
+      "visiblePixelCount": 0,
+      "sheetAreaPx": 6850,
+      "occupancyRatio": 0,
+      "orderingsTried": 1
+    }
+  },
+  "outputs": {
+    "previewPath": "batches/00000000-0000-4000-8000-000000000001/sheets/00000000-0000-4000-8000-000000000002/preview.png",
+    "manifestPath": "batches/00000000-0000-4000-8000-000000000001/sheets/00000000-0000-4000-8000-000000000002/placements.json"
+  },
+  "stats": {
+    "designCount": 0,
+    "requestedDesignCount": 1,
+    "unplacedDesignCount": 1,
+    "durationMs": 15,
+    "orderingsTried": 1,
+    "seed": 1,
+    "occupancyRatio": 0
+  }
+}

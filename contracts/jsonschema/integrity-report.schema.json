@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://printsheet.local/schemas/integrity-report.schema.json",
   "title": "PrintSheet IntegrityReport",
-  "description": "Blocking, machine-readable result of the four pre-export integrity checks. A report may only be used for export when passed=true.",
+  "description": "Blocking, machine-readable pre-export integrity report. A report may only be used for export when passed=true.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,7 +16,7 @@
     "metrics"
   ],
   "properties": {
-    "schemaVersion": { "const": "1.0" },
+    "schemaVersion": { "enum": ["1.0", "2.0"] },
     "reportId": { "type": "string", "format": "uuid" },
     "generatedAt": { "type": "string", "format": "date-time" },
     "passed": { "type": "boolean" },
@@ -24,7 +24,7 @@
     "checks": {
       "type": "array",
       "minItems": 4,
-      "maxItems": 4,
+      "maxItems": 5,
       "items": { "$ref": "#/$defs/check" }
     },
     "failures": {
@@ -35,7 +35,9 @@
       "type": "object",
       "required": ["designCount", "durationMs"],
       "properties": {
-        "designCount": { "type": "integer", "minimum": 1 },
+        "designCount": { "type": "integer", "minimum": 0 },
+        "requestedDesignCount": { "type": "integer", "minimum": 1 },
+        "unplacedDesignCount": { "type": "integer", "minimum": 0 },
         "durationMs": { "type": "integer", "minimum": 0 },
         "visiblePixelCount": { "type": "integer", "minimum": 0 },
         "sheetAreaPx": { "type": "integer", "minimum": 1 },
@@ -75,6 +77,29 @@
         "properties": { "id": { "const": "pixel-equality" } },
         "required": ["id"]
       }
+    },
+    {
+      "if": {
+        "properties": { "schemaVersion": { "const": "1.0" } },
+        "required": ["schemaVersion"]
+      },
+      "then": {
+        "properties": { "checks": { "maxItems": 4 } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "schemaVersion": { "const": "2.0" } },
+        "required": ["schemaVersion"]
+      },
+      "then": {
+        "properties": { "checks": { "minItems": 5, "maxItems": 5 } },
+        "contains": {
+          "type": "object",
+          "properties": { "id": { "const": "all-designs-placed" } },
+          "required": ["id"]
+        }
+      }
     }
   ],
   "$defs": {
@@ -100,7 +125,8 @@
             "visible-pixels-inside-sheet",
             "dilated-masks-no-overlap",
             "minimum-gap",
-            "pixel-equality"
+            "pixel-equality",
+            "all-designs-placed"
           ]
         },
         "blocking": { "const": true },
@@ -119,7 +145,8 @@
             "visible-pixels-inside-sheet",
             "dilated-masks-no-overlap",
             "minimum-gap",
-            "pixel-equality"
+            "pixel-equality",
+            "all-designs-placed"
           ]
         },
         "designId": { "type": ["string", "null"], "format": "uuid" },

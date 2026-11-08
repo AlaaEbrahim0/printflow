@@ -5,6 +5,7 @@
   "batchId": "0b6e1f3a-1b2c-4d5e-8f90-1234567890ab",
   "designId": "44444444-4444-4444-8444-444444444444",
   "inputPath": "batches/0b6e1f3a-1b2c-4d5e-8f90-1234567890ab/designs/44444444-4444-4444-8444-444444444444/versions/cccccccc-cccc-4ccc-8ccc-cccccccccccc.png",
+  "outputPath": null,
   "parameters": {
     "targetWidthCm": 10,
     "targetHeightCm": 4.43

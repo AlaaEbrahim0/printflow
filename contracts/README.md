@@ -1,8 +1,13 @@
-# PrintSheet Contracts — v1.0.0
+# PrintSheet Contracts — v2.0.0
 
-These files are the frozen interface between API, worker, packer and web.
+These files define the interface between API, worker, packer and web.
 Contract changes are not free: update the schema, its examples, the changelog,
 and notify every track in the handoff summary.
+
+The API contract is v2.0.0. Historical background-removal/vectorization job
+types and artifact fields remain in the worker schemas and persisted models so
+existing records stay readable; the API no longer accepts new proposals for
+those operations.
 
 ## Files
 
@@ -46,21 +51,31 @@ cd packer
 - Worker jobs never carry image bytes.
 - Packer placements use top-left origin and centimetres; rotation is exactly
   `0 | 90 | 180 | 270`.
-- The packer never resamples. Width/height in a response are the post-rotation
-  dimensions.
-- The four blocking integrity checks are fixed IDs:
+- The packer renders approved source pixels at an operator-selected physical
+  target size; absent an explicit target, it preserves source resolution.
+- The five blocking integrity checks are fixed IDs:
   `visible-pixels-inside-sheet`, `dilated-masks-no-overlap`,
-  `minimum-gap`, `pixel-equality`.
+  `minimum-gap`, `pixel-equality`, `all-designs-placed`. Reports use
+  `schemaVersion` `2.0`; old `1.0` reports remain valid documents with four
+  checks.
 - An export is only allowed when `IntegrityReport.passed == true` for the same
   sheet revision.
-- `IntegrityReport.passed` is false if any check is `failed` or `skipped`.
+- `IntegrityReport.passed` is false if any check is `failed` or `skipped`, or if
+  any requested design is unplaced. A subset `designIds` pack reports omitted
+  designs as `not-selected` and therefore cannot pass export.
+- New worker jobs support `classify`, `trim`, `upscale` and `resize`.
+  `background-removal` and `vectorize` remain in the schema only for historical
+  readability; the worker rejects them as `retired`.
+- Classify jobs have no raster output and may carry `outputPath: null`; every
+  other worker job must provide a relative output path.
 
 ## Change policy
 
 1. Update the schema and all affected examples.
 2. Run `scripts/validate_contracts.py`.
-3. Bump `info.version` / `schemaVersion` for breaking changes; additive changes
-   still require a changelog entry.
+3. Bump the OpenAPI `info.version` for breaking API changes. Worker and packer
+   `schemaVersion` values version their respective envelopes independently.
+   Additive changes still require a changelog entry.
 4. Add a note in `AGENTS.md` under “Contract change notifications” and in the
    phase summary.
 5. Phase 1 tracks may not invent fields that are not in these contracts without
@@ -68,7 +83,7 @@ cd packer
 
 ## Examples
 
-- `worker-job-*.json`: every job type, including classify (no output path).
+- `worker-job-*.json`: every job type, including classify (nullable output path).
 - `worker-result-*.json`: success with raster, success with mask artifact,
   classify suggestions, retryable failure.
 - `packer-request.json` / `packer-response.json`: two placements, one rotated.

@@ -10,12 +10,13 @@
     "requestId",
     "sheet",
     "placements",
+    "unplacedDesigns",
     "integrityReport",
     "outputs",
     "stats"
   ],
   "properties": {
-    "schemaVersion": { "const": "1.0" },
+    "schemaVersion": { "const": "2.0" },
     "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
     "sheet": {
       "type": "object",
@@ -31,8 +32,12 @@
     },
     "placements": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "items": { "$ref": "#/$defs/placement" }
+    },
+    "unplacedDesigns": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/unplacedDesign" }
     },
     "integrityReport": { "$ref": "integrity-report.schema.json" },
     "outputs": {
@@ -47,9 +52,18 @@
     "stats": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["designCount", "durationMs", "orderingsTried", "seed"],
+      "required": [
+        "designCount",
+        "requestedDesignCount",
+        "unplacedDesignCount",
+        "durationMs",
+        "orderingsTried",
+        "seed"
+      ],
       "properties": {
-        "designCount": { "type": "integer", "minimum": 1 },
+        "designCount": { "type": "integer", "minimum": 0 },
+        "requestedDesignCount": { "type": "integer", "minimum": 1 },
+        "unplacedDesignCount": { "type": "integer", "minimum": 0 },
         "durationMs": { "type": "integer", "minimum": 0 },
         "orderingsTried": { "type": "integer", "minimum": 0 },
         "seed": { "type": "integer" },
@@ -102,6 +116,18 @@
         "widthPx": { "type": "integer", "minimum": 1 },
         "heightPx": { "type": "integer", "minimum": 1 },
         "rotationDeg": { "enum": [0, 90, 180, 270] }
+      }
+    },
+    "unplacedDesign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["designId", "versionId", "reason", "details"],
+      "properties": {
+        "designId": { "type": "string", "format": "uuid" },
+        "versionId": { "type": "string", "format": "uuid" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "reason": { "enum": ["exceeds-roll", "no-feasible-rotation", "no-legal-placement"] },
+        "details": { "type": "object" }
       }
     }
   }

@@ -31,7 +31,12 @@
     "batchId": { "type": "string", "format": "uuid" },
     "designId": { "type": "string", "format": "uuid" },
     "inputPath": { "$ref": "#/$defs/relativePath" },
-    "outputPath": { "$ref": "#/$defs/relativePath" },
+    "outputPath": {
+      "anyOf": [
+        { "$ref": "#/$defs/relativePath" },
+        { "type": "null" }
+      ]
+    },
     "inputArtifacts": {
       "type": "object",
       "additionalProperties": false,
@@ -74,7 +79,12 @@
         },
         "required": ["type"]
       },
-      "then": { "required": ["outputPath"] }
+      "then": {
+        "required": ["outputPath"],
+        "properties": {
+          "outputPath": { "$ref": "#/$defs/relativePath" }
+        }
+      }
     },
     {
       "description": "Background removal always exports its non-destructive mask artifact.",
@@ -308,7 +318,11 @@
         {
           "if": {
             "properties": { "mode": { "const": "none" } },
-            "required": ["mode"]
+            "required": ["mode"],
+            "not": {
+              "properties": { "maskFromVersionId": { "type": "string" } },
+              "required": ["maskFromVersionId"]
+            }
           },
           "then": {
             "properties": {

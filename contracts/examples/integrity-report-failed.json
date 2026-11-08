@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "reportId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
   "generatedAt": "2026-11-05T12:05:00Z",
   "passed": false,
@@ -38,6 +38,17 @@
       "status": "passed",
       "message": "Rendered regions match the approved source versions exactly.",
       "details": { "placementsChecked": 2, "mismatchedPixels": 0 }
+    },
+    {
+      "id": "all-designs-placed",
+      "blocking": true,
+      "status": "passed",
+      "message": "All 2 requested design(s) are placed.",
+      "details": {
+        "requestedDesignCount": 2,
+        "placedDesignCount": 2,
+        "unplacedDesigns": []
+      }
     }
   ],
   "failures": [
@@ -50,6 +61,8 @@
   ],
   "metrics": {
     "designCount": 2,
+    "requestedDesignCount": 2,
+    "unplacedDesignCount": 0,
     "durationMs": 861,
     "visiblePixelCount": 4186628,
     "sheetAreaPx": 16179700,

@@ -106,8 +106,8 @@ def validate_openapi() -> list[str]:
     if duplicates:
         errors.append(f"duplicate operationIds: {', '.join(sorted(duplicates))}")
 
-    if spec.get("info", {}).get("version") != "1.0.0":
-        errors.append("OpenAPI info.version must be 1.0.0 for the frozen contract")
+    if spec.get("info", {}).get("version") != "2.0.0":
+        errors.append("OpenAPI info.version must be 2.0.0 for the current contract")
 
     return errors
 
@@ -128,7 +128,7 @@ def main() -> int:
     example_count = len(list(EXAMPLE_DIR.glob("*.json")))
     print(
         f"Contracts valid: {len(schemas)} JSON Schemas, {example_count} examples, "
-        f"1 OpenAPI spec (v1.0.0)."
+        f"1 OpenAPI spec (v2.0.0)."
     )
     return 0
 
