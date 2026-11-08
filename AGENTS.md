@@ -662,8 +662,8 @@ If context is running low, prioritize in this order:
    generated photos and one provided line-art sample have been reviewed.
 4. Keep enhancement a reviewable proposal and the final Photoshop review/update
    human-led; measure operator time saved, not unattended automation.
-5. The worktree still contains the large uncommitted Phase 1–3 change set.
-   Commit it in logical slices before starting further feature work.
+5. The Phase 1–3 worktree is committed in logical slices on `main` (contracts,
+   API, worker, packer, web, runtime, docs); keep feature work on top of it.
 
 **Open assumptions to confirm with user later:**
 
@@ -687,6 +687,16 @@ If context is running low, prioritize in this order:
 ## 15. Handoff log
 
 Append newest entries at the top. Keep them short and factual.
+
+### 2026-11-08 — Phase 1–3 worktree committed
+
+- Re-ran the full gates before committing: contracts, API (11 + 5), worker
+  (195), packer (159), web build/lint and 109 Vitest tests all pass.
+- Committed the uncommitted Phase 1–3 work in seven slices on `main`:
+  contracts v2.0.0, API workflow implementation, worker processors, packer
+  nesting/runner, web workbench, runtime/Compose/E2E wiring, and docs.
+- Host is still discharging on battery, so the AC-powered GPU re-measurement
+  and representative shop-sample quality review remain open.
 
 ### 2026-11-08 — Contract v2.0.0 alignment and green gates
 
