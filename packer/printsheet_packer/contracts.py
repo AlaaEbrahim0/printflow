@@ -125,6 +125,8 @@ class DesignInput:
     display_name: str | None = None
     target_width_cm: float | None = None
     target_height_cm: float | None = None
+    source_width_px: int | None = None
+    source_height_px: int | None = None
 
     @property
     def label(self) -> str:

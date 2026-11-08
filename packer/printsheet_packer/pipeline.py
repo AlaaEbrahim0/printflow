@@ -44,13 +44,13 @@ from printsheet_packer.integrity import (
 from printsheet_packer.masks import (
     DesignMask,
     build_design_mask,
+    fit_rgba_to_target,
     load_rgba,
     required_margin_px,
 )
 from printsheet_packer.nesting import Layout, Packer
 from printsheet_packer.render import RenderPlacement, SheetRenderer, preview_from_renderer
 from printsheet_packer.storage import StorageRoot
-from printsheet_packer.units import pixels_for_centimeters
 
 
 @dataclass
@@ -77,8 +77,11 @@ def load_masks(
     for design in request.designs:
         payload = root.read_bytes(design.file_path)
         rgba = load_rgba(payload)
-        masks[design.design_id] = build_design_mask(design, rgba, request.alpha_threshold)
-        images[design.design_id] = rgba
+        prepared_design, prepared_rgba = fit_rgba_to_target(design, rgba, request.dpi)
+        masks[design.design_id] = build_design_mask(
+            prepared_design, prepared_rgba, request.alpha_threshold
+        )
+        images[design.design_id] = prepared_rgba
     return masks, images
 
 
@@ -159,35 +162,34 @@ def _placement_record(placed: Any) -> dict[str, Any]:
     }
 
 
-def target_size_warnings(request: PackRequest) -> list[dict[str, Any]]:
-    """Flag designs whose declared target cm does not match their pixels at the DPI."""
+def target_size_warnings(
+    request: PackRequest, masks: dict[str, DesignMask]
+) -> list[dict[str, Any]]:
+    """Report source files resampled to an explicitly chosen target box."""
     warnings = []
     for design in request.designs:
-        for label, target_cm, size_px in (
-            ("width", design.target_width_cm, design.width_px),
-            ("height", design.target_height_cm, design.height_px),
-        ):
-            if target_cm is None:
-                continue
-            expected = pixels_for_centimeters(target_cm, request.dpi)
-            if expected != size_px:
-                warnings.append(
-                    {
-                        "code": "target-size-mismatch",
-                        "message": (
-                            f"Design {design.label} declares {target_cm} cm {label} but its "
-                            f"approved file is {size_px} px at {request.dpi} DPI "
-                            f"({expected} px expected)"
-                        ),
-                        "details": {
-                            "designId": design.design_id,
-                            "side": label,
-                            "targetCm": target_cm,
-                            "widthPx": size_px,
-                            "expectedPx": expected,
-                        },
-                    }
-                )
+        prepared = masks[design.design_id].design
+        if prepared.width_px == design.width_px and prepared.height_px == design.height_px:
+            continue
+        warnings.append(
+            {
+                "code": "target-resampled",
+                "message": (
+                    f"{design.label} was Lanczos-resampled into the operator-selected "
+                    f"{design.target_width_cm} × {design.target_height_cm} cm target box "
+                    "while preserving aspect ratio."
+                ),
+                "details": {
+                    "designId": design.design_id,
+                    "sourceWidthPx": design.width_px,
+                    "sourceHeightPx": design.height_px,
+                    "outputWidthPx": prepared.width_px,
+                    "outputHeightPx": prepared.height_px,
+                    "targetWidthCm": design.target_width_cm,
+                    "targetHeightCm": design.target_height_cm,
+                },
+            }
+        )
     return warnings
 
 
@@ -199,14 +201,17 @@ def build_response(
     warnings: list[dict[str, Any]],
 ) -> dict[str, Any]:
     response: dict[str, Any] = {
-        "schemaVersion": "1.0",
+        "schemaVersion": "2.0",
         "requestId": request.request_id,
         "sheet": sheet_geometry(layout.sheet_width_px, layout.sheet_height_px, request.dpi),
         "placements": [placement.to_json(request.dpi) for placement in layout.placements],
+        "unplacedDesigns": [item.to_json() for item in layout.unplaced],
         "integrityReport": report,
         "outputs": outputs,
         "stats": {
             "designCount": len(layout.placed),
+            "requestedDesignCount": len(request.designs),
+            "unplacedDesignCount": len(layout.unplaced),
             "durationMs": layout.duration_ms,
             "orderingsTried": layout.orderings_tried,
             "seed": request.seed,
@@ -241,10 +246,12 @@ def run_pack(
         duration_ms=layout.duration_ms,
         occupancy_ratio=layout.occupancy_ratio,
         orderings_tried=layout.orderings_tried,
+        requested_design_count=len(request.designs),
+        unplaced_designs=tuple(item.to_json() for item in layout.unplaced),
     )
     report = build_report(measured, context, report_id=report_id or new_report_id())
 
-    warnings = target_size_warnings(request)
+    warnings = target_size_warnings(request, masks)
     if measured.clipped_placements:
         warnings.append(
             {
@@ -324,7 +331,7 @@ def _not_runnable_report(manifest: dict[str, Any]) -> dict[str, Any]:
         for check_id in CHECK_ORDER
     ]
     return {
-        "schemaVersion": "1.0",
+        "schemaVersion": "2.0",
         "reportId": new_report_id(),
         "generatedAt": utc_timestamp(),
         "passed": False,
@@ -336,6 +343,10 @@ def _not_runnable_report(manifest: dict[str, Any]) -> dict[str, Any]:
         ],
         "metrics": {
             "designCount": len(manifest["placements"]),
+            "requestedDesignCount": len(
+                manifest.get("requestedDesigns", manifest["placements"])
+            ),
+            "unplacedDesignCount": len(manifest.get("unplacedDesigns", [])),
             "durationMs": 0,
         },
     }
@@ -358,7 +369,7 @@ def verify_manifest(
     *,
     report_id: str | None = None,
 ) -> VerifyOutcome:
-    """Re-run the four blocking checks against a manifest's placements."""
+    """Re-run the blocking checks against a manifest's placements."""
     root = storage_root if isinstance(storage_root, StorageRoot) else StorageRoot(storage_root)
     if isinstance(manifest, (str, Path)):
         document = read_manifest(manifest)
@@ -414,6 +425,10 @@ def verify_manifest(
         duration_ms=0,
         occupancy_ratio=visible / (sheet["widthPx"] * sheet["heightPx"]),
         orderings_tried=parameters["orderingsTried"],
+        requested_design_count=len(
+            document.get("requestedDesigns", document["placements"])
+        ),
+        unplaced_designs=tuple(document.get("unplacedDesigns", [])),
     )
     report = build_report(measured, context, report_id=report_id or new_report_id())
     return VerifyOutcome(report=report, source_problems=[], manifest=document)

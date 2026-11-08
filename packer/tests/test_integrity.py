@@ -218,12 +218,41 @@ def test_a_tall_design_is_measured_against_the_bottom_edge() -> None:
     measured, document = sheet.report(1)
     assert measured.min_edge_clearance_px == 1
     assert document["passed"] is True
-
     cramped = Sheet(200, 910)
     cramped.add("banner", banner, 30, 20)
     _cramped_measured, cramped_document = cramped.report(1)
     assert status(cramped_document, 0) == "failed"
     assert cramped_document["failures"][0]["details"]["sides"] == ["bottom"]
+
+
+def test_clipping_transparent_source_padding_fails_pixel_equality() -> None:
+    source = np.zeros((100, 50, 4), dtype=np.uint8)
+    source[10:80, 5:45] = (120, 80, 40, 255)
+    sheet = Sheet(60, 80)
+    sheet.add("padded", source, 0, 0)
+
+    measured, document = sheet.report(0)
+
+    assert measured.total_outside == 0
+    assert measured.clipped_placements == 1
+    assert status(document, 0) == "passed"
+    assert status(document, 3) == "failed"
+    assert document["passed"] is False
+    assert document["failures"][-1]["designId"] == "padded"
+
+
+def test_clipping_transparent_source_padding_at_sheet_origin_fails() -> None:
+    source = np.zeros((40, 50, 4), dtype=np.uint8)
+    source[:, 10:40] = (120, 80, 40, 255)
+    sheet = Sheet(50, 40)
+    sheet.add("left-padded", source, -10, 0)
+
+    measured, document = sheet.report(0)
+
+    assert measured.total_outside == 0
+    assert measured.clipped_placements == 1
+    assert measured.mismatched_pixels == 0
+    assert status(document, 3) == "failed"
 
 
 def test_a_deliberate_overlap_is_reported_with_both_designs() -> None:

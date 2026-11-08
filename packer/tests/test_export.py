@@ -33,7 +33,7 @@ from printsheet_packer.export import (
     write_flat_tiff,
     write_psd_bundle,
 )
-from printsheet_packer.pipeline import run_pack
+from printsheet_packer.pipeline import run_pack, verify_manifest
 from printsheet_packer.storage import StorageRoot
 
 DPI = 300
@@ -79,11 +79,38 @@ def test_manifest_round_trips_and_validates_on_read(packed) -> None:
         "heightCm",
         "sourceWidthPx",
         "sourceHeightPx",
+        "workingWidthPx",
+        "workingHeightPx",
     } <= set(manifest["placements"][0])
     assert ContractStore().validate("integrity-report", manifest["integrityReport"]) == []
     spec = SheetSpec.from_manifest(manifest)
     assert spec.dpi == DPI
     assert len(spec.placements) == len(manifest["placements"])
+
+
+def test_explicit_target_resamples_for_packing_and_export_without_mutating_source(tmp_path) -> None:
+    source = solid(100, 50)
+    designs = specs([source])
+    document = request_document(
+        designs,
+        rollWidthCm=2,
+        dpi=100,
+        marginMm=0,
+        edgeMarginMm=0,
+    )
+    document["designs"][0]["targetWidthCm"] = 1
+    document["designs"][0]["targetHeightCm"] = 1
+    root = StorageRoot(write_storage(tmp_path, designs))
+    original_bytes = root.read_bytes(designs[0].path)
+
+    outcome = run_pack(parse_pack_request(document), root, preview=False)
+    placement = outcome.manifest["placements"][0]
+
+    assert (placement["workingWidthPx"], placement["workingHeightPx"]) == (39, 20)
+    assert (placement["sourceWidthPx"], placement["sourceHeightPx"]) == (100, 50)
+    assert outcome.warnings[0]["code"] == "target-resampled"
+    assert verify_manifest(outcome.manifest, root).passed
+    assert root.read_bytes(designs[0].path) == original_bytes
 
 
 @pytest.mark.parametrize(
@@ -112,7 +139,7 @@ def test_a_rotated_placement_keeps_the_source_dimensions(packed) -> None:
         turned = entry["rotationDeg"] in (90, 270)
         assert entry["widthPx"] == (entry["sourceHeightPx"] if turned else entry["sourceWidthPx"])
         assert entry["heightPx"] == (entry["sourceWidthPx"] if turned else entry["sourceHeightPx"])
-        assert entry["xPx"] % manifest["parameters"]["cellPx"] == 0
+        assert isinstance(entry["xPx"], int) and isinstance(entry["yPx"], int)
 
 
 def test_flat_png_is_readable_at_the_right_size_and_dpi(packed, tmp_path) -> None:

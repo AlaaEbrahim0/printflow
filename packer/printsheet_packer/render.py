@@ -131,11 +131,15 @@ class SheetRenderer:
                 f"approved file rotates to {source.shape[1]}x{source.shape[0]} px",
                 designId=placement.design_id,
             )
-        visible_cols = min(width, self.sheet_width_px - left)
-        if visible_cols <= 0:
+        source_column_start = max(0, -left)
+        source_column_end = min(width, self.sheet_width_px - left)
+        if source_column_end <= source_column_start:
             return
-        incoming = source[row_from:row_to, :visible_cols]
-        target = band[row_from + top - y0 : row_to + top - y0, left : left + visible_cols]
+        incoming = source[row_from:row_to, source_column_start:source_column_end]
+        target = band[
+            row_from + top - y0 : row_to + top - y0,
+            left + source_column_start : left + source_column_end,
+        ]
         painted = incoming[..., 3] > 0
         np.copyto(target, incoming, where=painted[..., None])
 

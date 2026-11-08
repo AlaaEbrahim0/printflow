@@ -1,4 +1,4 @@
-"""The four blocking integrity checks.
+"""The blocking integrity checks.
 
 Every number in the report is measured against the full-resolution approved
 pixels of the placed designs. Where a measurement is impossible — a pair of
@@ -30,8 +30,15 @@ CHECK_VISIBLE_INSIDE = "visible-pixels-inside-sheet"
 CHECK_NO_OVERLAP = "dilated-masks-no-overlap"
 CHECK_MINIMUM_GAP = "minimum-gap"
 CHECK_PIXEL_EQUALITY = "pixel-equality"
+CHECK_ALL_PLACED = "all-designs-placed"
 
-CHECK_ORDER = (CHECK_VISIBLE_INSIDE, CHECK_NO_OVERLAP, CHECK_MINIMUM_GAP, CHECK_PIXEL_EQUALITY)
+CHECK_ORDER = (
+    CHECK_VISIBLE_INSIDE,
+    CHECK_NO_OVERLAP,
+    CHECK_MINIMUM_GAP,
+    CHECK_PIXEL_EQUALITY,
+    CHECK_ALL_PLACED,
+)
 
 
 @dataclass(frozen=True)
@@ -137,6 +144,7 @@ class Verification:
     pairs_beyond_probe: int = 0
     edge_clearances: dict[str, int] = field(default_factory=dict)
     pixel_mismatches: dict[str, int] = field(default_factory=dict)
+    clipped_designs: set[str] = field(default_factory=set)
     gap_probe_px: int = 0
     clipped_placements: int = 0
     pixels_compared: int = 0
@@ -311,6 +319,8 @@ def verify_layout(
             mismatches, clipped, compared = _pixel_mismatch(design, renderer)
             result.pixel_mismatches[design.design_id] = mismatches
             result.clipped_placements += clipped
+            if clipped:
+                result.clipped_designs.add(design.design_id)
             result.pixels_compared += compared
 
     return result
@@ -361,14 +371,21 @@ def _pixel_mismatch(design: PlacedMask, renderer: SheetRenderer) -> tuple[int, i
     source = renderer.rotated_source(design.design_id, design.rotation_deg)
     if source.shape[0] != design.image_height_px or source.shape[1] != design.image_width_px:
         return int(source.shape[0] * source.shape[1]), 0, 0
+    source_left = max(0, -design.x_px)
+    source_top = max(0, -design.y_px)
     left = max(0, design.x_px)
     top = max(0, design.y_px)
-    columns = min(design.image_width_px, renderer.sheet_width_px - left)
-    rows = min(design.image_height_px, renderer.sheet_height_px - top)
-    clipped = int(columns < design.image_width_px or rows < design.image_height_px)
+    columns = min(source.shape[1] - source_left, renderer.sheet_width_px - left)
+    rows = min(source.shape[0] - source_top, renderer.sheet_height_px - top)
+    clipped = int(
+        design.x_px < 0
+        or design.y_px < 0
+        or design.x_px + design.image_width_px > renderer.sheet_width_px
+        or design.y_px + design.image_height_px > renderer.sheet_height_px
+    )
     if columns <= 0 or rows <= 0:
         return 0, clipped, 0
-    expected = source[:rows, :columns]
+    expected = source[source_top : source_top + rows, source_left : source_left + columns]
     rendered = renderer.render_strip(top, top + rows, only=design.design_id)[
         :, left : left + columns
     ]
@@ -391,6 +408,8 @@ class ReportContext:
     duration_ms: int
     occupancy_ratio: float
     orderings_tried: int
+    requested_design_count: int | None = None
+    unplaced_designs: tuple[dict[str, Any], ...] = ()
 
 
 def build_report(
@@ -422,7 +441,21 @@ def build_report(
         if status == "skipped":
             failures.append({"checkId": check_id, "message": f"{check_id} was skipped."})
         elif status == "failed":
-            failures.extend(_failures_for(check_id, measured))
+            if check_id == CHECK_ALL_PLACED:
+                failures.extend(
+                    {
+                        "checkId": check_id,
+                        "designId": design.get("designId"),
+                        "message": (
+                            f"Design {design.get('designId')} is unplaced: "
+                            f"{design.get('reason', 'no-feasible-placement')}."
+                        ),
+                        "details": design.get("details", {}),
+                    }
+                    for design in context.unplaced_designs
+                )
+            else:
+                failures.extend(_failures_for(check_id, measured))
 
     outside_total = measured.total_outside
     inside = outside_total == 0
@@ -473,7 +506,7 @@ def build_report(
 
     mismatched = measured.mismatched_pixels
     not_measured = CHECK_PIXEL_EQUALITY in skipped_ids
-    equality_ok = mismatched == 0 and not not_measured
+    equality_ok = mismatched == 0 and measured.clipped_placements == 0 and not not_measured
     add(
         CHECK_PIXEL_EQUALITY,
         equality_ok,
@@ -481,7 +514,10 @@ def build_report(
         if not_measured
         else "Rendered regions match the approved source versions exactly."
         if equality_ok
-        else f"{mismatched} pixel(s) differ from the approved source.",
+        else (
+            f"{mismatched} pixel(s) differ from the approved source and "
+            f"{measured.clipped_placements} placement(s) extend beyond the sheet."
+        ),
         {
             "placementsChecked": measured.placements_checked,
             "mismatchedPixels": mismatched,
@@ -495,8 +531,28 @@ def build_report(
         },
     )
 
+    requested = context.requested_design_count or context.design_count
+    complete = not context.unplaced_designs and context.design_count == requested
+    add(
+        CHECK_ALL_PLACED,
+        complete,
+        f"All {requested} requested design(s) are placed."
+        if complete
+        else (
+            f"{context.design_count} of {requested} requested design(s) are placed; "
+            f"{requested - context.design_count} remain unplaced."
+        ),
+        {
+            "requestedDesignCount": requested,
+            "placedDesignCount": context.design_count,
+            "unplacedDesigns": list(context.unplaced_designs),
+        },
+    )
+
     metrics: dict[str, Any] = {
         "designCount": context.design_count,
+        "requestedDesignCount": requested,
+        "unplacedDesignCount": len(context.unplaced_designs),
         "durationMs": context.duration_ms,
         "visiblePixelCount": measured.visible_pixel_count,
         "sheetAreaPx": context.sheet_width_px * context.sheet_height_px,
@@ -512,7 +568,7 @@ def build_report(
 
     passed = all(check["status"] == "passed" for check in checks)
     return {
-        "schemaVersion": "1.0",
+        "schemaVersion": "2.0",
         "reportId": report_id or new_report_id(),
         "generatedAt": generated_at or utc_timestamp(),
         "passed": passed,
@@ -634,11 +690,18 @@ def _failures_for(check_id: str, measured: Verification) -> list[dict[str, Any]]
             {
                 "checkId": check_id,
                 "designId": design_id,
-                "message": f"Rendered layer differs from the approved source in {pixels} px.",
-                "details": {"mismatchedPixels": pixels},
+                "message": (
+                    f"Rendered layer differs from the approved source in {pixels} px."
+                    if pixels
+                    else "The full approved source raster extends beyond the sheet."
+                ),
+                "details": {
+                    "mismatchedPixels": pixels,
+                    "clipped": design_id in measured.clipped_designs,
+                },
             }
             for design_id, pixels in sorted(measured.pixel_mismatches.items())
-            if pixels
+            if pixels or design_id in measured.clipped_designs
         ]
     return []
 
@@ -649,6 +712,7 @@ def dilation_radius_px(margin_px: int) -> int:
 
 
 __all__ = [
+    "CHECK_ALL_PLACED",
     "CHECK_MINIMUM_GAP",
     "CHECK_NO_OVERLAP",
     "CHECK_ORDER",

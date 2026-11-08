@@ -11,10 +11,10 @@ dependencies = [
   "numpy>=2,<3",
   "Pillow>=11,<14",
   "jsonschema>=4.23,<5",
+  "shapely>=2.1,<3",
 ]
 
 [project.optional-dependencies]
-geo = ["shapely>=2.0,<3"]
 psd = ["psd-tools==1.26.0"]
 dev = [
   "pytest>=8.3,<10",
@@ -25,6 +25,7 @@ dev = [
 
 [project.scripts]
 printsheet-packer = "printsheet_packer.cli:main"
+printsheet-packer-runner = "printsheet_packer.runner:runner_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["printsheet_packer"]

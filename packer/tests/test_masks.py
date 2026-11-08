@@ -191,7 +191,10 @@ def test_footprint_rotation_uses_rotated_geometry() -> None:
     mask = build_design_mask(design(60, 24), solid(60, 24))
     straight = build_footprint(mask, 0, 6, 12)
     turned = build_footprint(mask, 90, 6, 12)
+    turned_back = build_footprint(mask, 270, 6, 12)
     assert (turned.image_width_px, turned.image_height_px) == (24, 60)
+    assert turned.geometry.bounds == (0.0, 0.0, 24.0, 60.0)
+    assert turned_back.geometry.bounds == (0.0, 0.0, 24.0, 60.0)
     assert turned.grid.shape == straight.grid.shape[::-1]
     assert turned.visible_pixels == straight.visible_pixels
 

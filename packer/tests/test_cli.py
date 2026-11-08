@@ -89,6 +89,7 @@ def test_pack_writes_a_valid_response_manifest_and_preview(batch, capsys) -> Non
         "dilated-masks-no-overlap",
         "minimum-gap",
         "pixel-equality",
+        "all-designs-placed",
     ]
     manifest_path = storage / response["outputs"]["manifestPath"]
     preview_path = storage / response["outputs"]["previewPath"]
@@ -114,7 +115,7 @@ def test_verify_passes_a_fresh_sheet(batch, capsys) -> None:
     report = json.loads(capsys.readouterr().out)
     assert code == 0
     assert report["passed"] is True
-    assert [check["status"] for check in report["checks"]] == ["passed"] * 4
+    assert [check["status"] for check in report["checks"]] == ["passed"] * 5
 
 
 def test_verify_fails_when_a_placement_is_moved_into_a_collision(batch, capsys) -> None:
@@ -220,8 +221,10 @@ def test_pack_reports_a_design_wider_than_the_roll(batch, capsys) -> None:
 
     assert main(["pack", "--request", str(request_path), "--storage-root", str(storage)]) == 1
     captured = capsys.readouterr()
-    assert "design-exceeds-roll" in captured.err
-    assert json.loads(captured.err.split("\n", 1)[1])["code"] == "design-exceeds-roll"
+    response = json.loads(captured.out)
+    assert response["unplacedDesigns"][0]["reason"] == "exceeds-roll"
+    assert response["integrityReport"]["passed"] is False
+    assert "all-designs-placed" in captured.err
 
 
 def test_pack_rejects_a_request_that_violates_the_contract(tmp_path: Path, storage, capsys) -> None:

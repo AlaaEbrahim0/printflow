@@ -9,16 +9,22 @@ underestimated. Nothing in this module resamples pixels.
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from PIL import Image
+from shapely import affinity
+from shapely.geometry import GeometryCollection, Polygon, box
+from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 
 from printsheet_packer.contracts import DesignInput
 from printsheet_packer.errors import PackerError, SourceDimensionError
 from printsheet_packer.units import (
     ceil_pixels_for_millimeters,
+    pixels_for_centimeters,
     pixels_for_millimeters,
+    round_half_away_from_zero,
 )
 
 DEFAULT_ALPHA_THRESHOLD = 5
@@ -52,6 +58,7 @@ class DesignMask:
 
     design: DesignInput
     occupied: np.ndarray  # cropped to ``bbox``
+    geometry: BaseGeometry  # exact alpha silhouette in full-image pixel coordinates
     bbox: BoundingBox
     image_width_px: int
     image_height_px: int
@@ -64,16 +71,17 @@ class DesignMask:
 
 @dataclass(frozen=True)
 class Footprint:
-    """One design in one rotation, expressed on the shared occupancy grid.
+    """One design in one rotation, represented by exact pixel geometry.
 
-    ``grid`` is aligned to the rotated *image* origin: grid cell ``c`` covers
-    source pixels ``[c*cell_px, (c+1)*cell_px)``, so a cell coordinate always
-    maps back to an exact pixel coordinate.
+    The grid is retained for conservative occupancy metrics and legacy
+    diagnostics; placement collision checks use the alpha-derived polygons.
     """
 
     rotation_deg: int
     grid: np.ndarray
     block: np.ndarray
+    geometry: BaseGeometry
+    collision_geometry: BaseGeometry
     bbox: BoundingBox
     image_width_px: int
     image_height_px: int
@@ -95,6 +103,51 @@ def load_rgba(path_or_bytes: io.IOBase | str | bytes) -> np.ndarray:
         image.load()
         rgba = image if image.mode == "RGBA" else image.convert("RGBA")
         return np.array(rgba, dtype=np.uint8, copy=True)
+
+
+def fit_rgba_to_target(
+    design: DesignInput, rgba: np.ndarray, dpi: int
+) -> tuple[DesignInput, np.ndarray]:
+    """Fit pixels inside the operator's physical target box, preserving aspect ratio."""
+    target_width = design.target_width_cm
+    target_height = design.target_height_cm
+    if target_width is None and target_height is None:
+        return design, rgba
+    if target_width is None or target_height is None:
+        raise PackerError(
+            f"Design {design.design_id} must specify both target dimensions or neither",
+            designId=design.design_id,
+        )
+
+    box_width = pixels_for_centimeters(target_width, dpi)
+    box_height = pixels_for_centimeters(target_height, dpi)
+    scale = min(box_width / design.width_px, box_height / design.height_px)
+    width = max(1, round_half_away_from_zero(design.width_px * scale))
+    height = max(1, round_half_away_from_zero(design.height_px * scale))
+    if (width, height) == (design.width_px, design.height_px):
+        return design, rgba
+
+    resized = resize_rgba(rgba, width, height)
+    return (
+        replace(
+            design,
+            width_px=width,
+            height_px=height,
+            source_width_px=design.source_width_px or design.width_px,
+            source_height_px=design.source_height_px or design.height_px,
+        ),
+        resized,
+    )
+
+
+def resize_rgba(rgba: np.ndarray, width: int, height: int) -> np.ndarray:
+    if width < 1 or height < 1:
+        raise PackerError("Resized dimensions must be at least one pixel")
+    resized = np.asarray(
+        Image.fromarray(rgba).resize((width, height), resample=Image.Resampling.LANCZOS),
+        dtype=np.uint8,
+    )
+    return resized
 
 
 def occupancy_from_alpha(alpha: np.ndarray, threshold: int = DEFAULT_ALPHA_THRESHOLD) -> np.ndarray:
@@ -142,10 +195,46 @@ def build_design_mask(
     return DesignMask(
         design=design,
         occupied=occupied[bbox.y0 : bbox.y1, bbox.x0 : bbox.x1],
+        geometry=affinity.translate(
+            _mask_geometry(occupied[bbox.y0 : bbox.y1, bbox.x0 : bbox.x1]),
+            xoff=bbox.x0,
+            yoff=bbox.y0,
+        ),
         bbox=bbox,
         image_width_px=width,
         image_height_px=height,
     )
+
+
+def _mask_geometry(occupied: np.ndarray) -> BaseGeometry:
+    """Convert occupied pixel cells to polygonal geometry, preserving holes."""
+    rectangles: list[Polygon] = []
+    active: dict[tuple[int, int], int] = {}
+
+    def row_runs(row: np.ndarray) -> set[tuple[int, int]]:
+        padded = np.pad(row, (1, 1), constant_values=False).astype(np.int8)
+        changes = np.diff(padded)
+        starts = np.flatnonzero(changes == 1)
+        ends = np.flatnonzero(changes == -1)
+        return {(int(start), int(end)) for start, end in zip(starts, ends, strict=True)}
+
+    for y, row in enumerate(occupied):
+        runs = row_runs(row)
+        for interval in active.keys() - runs:
+            start_y = active.pop(interval)
+            rectangles.append(box(interval[0], start_y, interval[1], y))
+        for interval in runs - active.keys():
+            active[interval] = y
+    end_y = occupied.shape[0]
+    for (x0, x1), start_y in active.items():
+        rectangles.append(box(x0, start_y, x1, end_y))
+
+    if not rectangles:
+        return GeometryCollection()
+    geometry = unary_union(rectangles)
+    if not geometry.is_valid:
+        geometry = geometry.buffer(0)
+    return geometry
 
 
 # ----------------------------------------------------------------------
@@ -348,11 +437,11 @@ def _convex_hull_cells(grid: np.ndarray) -> np.ndarray | None:
     out = np.zeros_like(grid)
     bounds = hull.bounds
     row_lo = max(0, int(np.floor(bounds[1])))
-    row_hi = min(grid.shape[0] - 1, int(np.ceil(bounds[3])))
+    row_hi = min(grid.shape[0], int(np.ceil(bounds[3])))
     col_lo = max(0, int(np.floor(bounds[0])))
-    col_hi = min(grid.shape[1] - 1, int(np.ceil(bounds[2])))
-    for row in range(row_lo, row_hi + 1):
-        for column in range(col_lo, col_hi + 1):
+    col_hi = min(grid.shape[1], int(np.ceil(bounds[2])))
+    for row in range(row_lo, row_hi):
+        for column in range(col_lo, col_hi):
             if hull.intersects(box(column, row, column + 1, row + 1)):
                 out[row, column] = True
     return out
@@ -380,17 +469,31 @@ def build_footprint(
             rotation_deg,
         )
 
+    geometry = _rotate_geometry(
+        design_mask.geometry,
+        design_mask.image_width_px,
+        design_mask.image_height_px,
+        rotation_deg,
+    )
+    if not interlocking:
+        geometry = geometry.convex_hull
+
     grid = _aligned_image_grid(occupied, bbox, image_width, image_height, cell_px)
 
     if not interlocking:
-        mode = "hull" if _shapely_available() else "bbox"
-        grid = simple_footprint(grid, mode)
+        grid = simple_footprint(grid, "hull")
 
     radius = block_radius_cells(margin_px, cell_px)
+    # The extra pixel makes continuous polygon buffers conservative for discrete masks.
+    collision_geometry = (
+        geometry.buffer(margin_px / 2 + 1, join_style="mitre") if margin_px else geometry
+    )
     return Footprint(
         rotation_deg=rotation_deg,
         grid=grid,
         block=dilate_block(grid, radius),
+        geometry=geometry,
+        collision_geometry=collision_geometry,
         bbox=bbox,
         image_width_px=image_width,
         image_height_px=image_height,
@@ -400,12 +503,23 @@ def build_footprint(
     )
 
 
-def _shapely_available() -> bool:
+def _rotate_geometry(
+    geometry: BaseGeometry,
+    image_width_px: int,
+    image_height_px: int,
+    rotation_deg: int,
+) -> BaseGeometry:
+    transforms = {
+        0: (1, 0, 0, 1, 0, 0),
+        90: (0, -1, 1, 0, image_height_px, 0),
+        180: (-1, 0, 0, -1, image_width_px, image_height_px),
+        270: (0, 1, -1, 0, 0, image_width_px),
+    }
     try:
-        import shapely  # noqa: F401
-    except ImportError:
-        return False
-    return True
+        transform = transforms[rotation_deg]
+    except KeyError as exc:
+        raise PackerError(f"rotationDeg must be 0/90/180/270, got {rotation_deg}") from exc
+    return affinity.affine_transform(geometry, transform)
 
 
 __all__ = [
@@ -418,11 +532,13 @@ __all__ = [
     "cell_size_px",
     "dilate_block",
     "dilate_square",
+    "fit_rgba_to_target",
     "grid_extent",
     "image_grid",
     "load_rgba",
     "occupancy_from_alpha",
     "required_margin_px",
+    "resize_rgba",
     "rotate_bbox",
     "rotate_degrees",
     "rotate_rgba",

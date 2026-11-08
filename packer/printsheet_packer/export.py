@@ -36,7 +36,7 @@ from printsheet_packer.errors import (
     MissingSourceError,
     PackerError,
 )
-from printsheet_packer.masks import load_rgba
+from printsheet_packer.masks import load_rgba, resize_rgba
 from printsheet_packer.nesting import Layout
 from printsheet_packer.render import RenderPlacement, SheetRenderer
 from printsheet_packer.storage import StorageRoot, atomic_write_binary
@@ -95,8 +95,10 @@ def build_manifest(
             "versionId": design.version_id,
             "filePath": file_path,
             "sha256": digest,
-            "sourceWidthPx": design.width_px,
-            "sourceHeightPx": design.height_px,
+            "sourceWidthPx": design.source_width_px or design.width_px,
+            "sourceHeightPx": design.source_height_px or design.height_px,
+            "workingWidthPx": design.width_px,
+            "workingHeightPx": design.height_px,
             "rotationDeg": placed.rotation_deg,
             "xPx": placed.x_px,
             "yPx": placed.y_px,
@@ -135,6 +137,11 @@ def build_manifest(
             "timeBudgetMs": request.time_budget_ms,
             "noInterlocking": request.no_interlocking,
         },
+        "requestedDesigns": [
+            {"designId": design.design_id, "versionId": design.version_id}
+            for design in request.designs
+        ],
+        "unplacedDesigns": [item.to_json() for item in layout.unplaced],
         "placements": placements,
         "integrityReport": report,
     }
@@ -590,7 +597,12 @@ def source_loader(root: StorageRoot, manifest: dict[str, Any]) -> Callable[[str]
         entry = entries.get(design_id)
         if entry is None:
             raise PackerError(f"Design {design_id} is not in this manifest")
-        return load_rgba(root.open_read(entry["filePath"]))
+        rgba = load_rgba(root.open_read(entry["filePath"]))
+        width = entry.get("workingWidthPx", entry["sourceWidthPx"])
+        height = entry.get("workingHeightPx", entry["sourceHeightPx"])
+        if (width, height) != (rgba.shape[1], rgba.shape[0]):
+            rgba = resize_rgba(rgba, width, height)
+        return rgba
 
     return load
 

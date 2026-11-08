@@ -7,8 +7,8 @@ import pytest
 from helpers import circle, request_document, ring, solid, specs, write_storage
 
 from printsheet_packer.contracts import PackRequest, parse_pack_request
-from printsheet_packer.errors import DesignExceedsRollError, PackerError
-from printsheet_packer.masks import cell_size_px, required_margin_px
+from printsheet_packer.errors import PackerError
+from printsheet_packer.masks import required_margin_px
 from printsheet_packer.nesting import Packer
 from printsheet_packer.pipeline import load_masks
 from printsheet_packer.storage import StorageRoot
@@ -44,7 +44,35 @@ def test_single_design_lands_inside_the_sheet_and_sizes_the_height(tmp_path) -> 
     assert box.x0 >= edge
     assert box.x1 <= layout.sheet_width_px - edge
     assert box.y0 >= edge
-    assert layout.sheet_height_px == box.y1 + edge
+    assert layout.sheet_height_px == placed.y_px + placed.footprint.image_height_px
+
+
+def test_transparent_padding_remains_inside_the_sheet(tmp_path) -> None:
+    padded = np.pad(circle(20, 40), ((10, 10), (5, 5), (0, 0)))
+    layout = pack(tmp_path, [padded], rollWidthCm=2)
+    placed = layout.placed[0]
+
+    assert placed.x_px >= 0
+    assert placed.x_px + placed.footprint.image_width_px <= layout.sheet_width_px
+    assert placed.y_px >= 0
+    assert placed.y_px + placed.footprint.image_height_px <= layout.sheet_height_px
+
+
+def test_full_source_width_must_fit_the_roll_even_with_transparent_padding(tmp_path) -> None:
+    padded = np.pad(solid(20, 20), ((0, 0), (50, 50), (0, 0)))
+
+    _request, packer = build_packer(
+        tmp_path,
+        [padded],
+        allow_rotation=False,
+        rollWidthCm=0.8,
+        marginMm=0,
+        edgeMarginMm=0,
+    )
+    layout = packer.run()
+    assert layout.placed == []
+    assert layout.unplaced[0].reason == "exceeds-roll"
+    assert layout.unplaced[0].details["requiredWidthPx"] == 120
 
 
 def test_largest_visible_area_is_placed_first(tmp_path) -> None:
@@ -65,10 +93,10 @@ def test_rotations_are_only_tried_when_the_design_allows_them(tmp_path) -> None:
     rotations = [option.footprint.rotation_deg for option in packer.candidates[0].options]
     assert rotations == [0, 90, 180, 270]
 
-    with pytest.raises(DesignExceedsRollError) as excinfo:
-        build_packer(tmp_path, [wide], allow_rotation=False, rollWidthCm=2)
-    assert excinfo.value.code == "design-exceeds-roll"
-    assert excinfo.value.details["rotationsTried"] == [0]
+    _request, packer = build_packer(tmp_path, [wide], allow_rotation=False, rollWidthCm=2)
+    layout = packer.run()
+    assert layout.unplaced[0].reason == "exceeds-roll"
+    assert layout.unplaced[0].details["rotationsTried"] == [0]
 
 
 def test_a_wide_design_is_turned_not_resampled(tmp_path) -> None:
@@ -78,15 +106,13 @@ def test_a_wide_design_is_turned_not_resampled(tmp_path) -> None:
     assert (placed.footprint.image_width_px, placed.footprint.image_height_px) == (40, 3000)
 
 
-def test_over_width_error_carries_structured_details(tmp_path) -> None:
+def test_over_width_design_has_structured_unplaced_details(tmp_path) -> None:
     designs = specs([solid(4000, 20)], allow_rotation=False)
     request = parse_pack_request(request_document(designs, rollWidthCm=10, edgeMarginMm=1))
     masks, _ = load_masks(request, StorageRoot(write_storage(tmp_path, designs)))
-    with pytest.raises(DesignExceedsRollError) as excinfo:
-        Packer(request, masks)
-    details = excinfo.value.details
+    layout = Packer(request, masks).run()
+    details = layout.unplaced[0].details
     assert details["usableWidthPx"] == request.sheet_width_px - 2 * required_margin_px(1, 300)
-    assert details["designId"] == request.designs[0].design_id
     assert details["requiredWidthPx"] == 4000
 
 
@@ -130,6 +156,25 @@ def test_no_interlocking_mode_keeps_boxes_apart(tmp_path) -> None:
         assert grid[rows[0] : rows[-1] + 1, columns[0] : columns[-1] + 1].all()
 
 
+def test_polygon_nesting_places_a_design_inside_another_design_hole(tmp_path) -> None:
+    frame = solid(100, 100)
+    frame[20:80, 20:80, 3] = 0
+    layout = pack(
+        tmp_path,
+        [frame, solid(40, 40)],
+        rollWidthCm=3.53,
+        dpi=72,
+        marginMm=0,
+        edgeMarginMm=0,
+    )
+    by_shape = {item.candidate.mask.image_width_px: item for item in layout.placed}
+    outer = by_shape[100]
+    inner = by_shape[40]
+    assert 20 <= inner.x_px - outer.x_px <= 40
+    assert 20 <= inner.y_px - outer.y_px <= 40
+    assert layout.sheet_height_px <= 100
+
+
 def test_placements_record_the_rotated_footprint(tmp_path) -> None:
     layout = pack(tmp_path, [circle(130, 40)], rollWidthCm=3)
     placed = layout.placed[0]
@@ -140,13 +185,12 @@ def test_placements_record_the_rotated_footprint(tmp_path) -> None:
     assert payload["xCm"] == pytest.approx(placed.x_px * 2.54 / 300)
 
 
-def test_positions_are_whole_grid_cells(tmp_path) -> None:
-    request, packer = build_packer(tmp_path, [circle(77, 53), ring(61, 41)], rollWidthCm=5)
+def test_positions_are_whole_pixels_not_grid_quantized(tmp_path) -> None:
+    _request, packer = build_packer(tmp_path, [circle(77, 53), ring(61, 41)], rollWidthCm=5)
     layout = packer.run()
-    cell = cell_size_px(request.cell_mm, request.dpi)
     for placed in layout.placed:
-        assert placed.x_px % cell == 0
-        assert placed.y_px % cell == 0
+        assert isinstance(placed.x_px, int)
+        assert isinstance(placed.y_px, int)
 
 
 def test_randomised_orderings_never_beat_the_deterministic_one_by_accident(tmp_path) -> None:

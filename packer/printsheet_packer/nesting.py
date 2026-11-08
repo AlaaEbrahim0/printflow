@@ -11,19 +11,19 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from math import ceil, floor
 
 import numpy as np
+from shapely import affinity
 
 from printsheet_packer.contracts import DesignInput, PackRequest, Placement
-from printsheet_packer.errors import DesignExceedsRollError, PackerError
+from printsheet_packer.errors import PackerError
 from printsheet_packer.masks import (
     BoundingBox,
     DesignMask,
     Footprint,
-    block_radius_cells,
     build_footprint,
     cell_size_px,
-    grid_extent,
     required_margin_px,
 )
 
@@ -32,20 +32,9 @@ ROTATIONS = (0, 90, 180, 270)
 
 @dataclass
 class Option:
-    """One design in one allowed rotation, prepared for the grid search."""
+    """One design in one allowed rotation."""
 
     footprint: Footprint
-    gx_min: int
-    gx_max: int
-    gy_min: int
-    origin_row_shift: int
-    origin_col_shift: int
-    block_uint8: np.ndarray
-    block_columns: tuple[np.ndarray, np.ndarray]
-
-    @property
-    def block(self) -> np.ndarray:
-        return self.footprint.block
 
 
 @dataclass
@@ -55,10 +44,32 @@ class Candidate:
     design: DesignInput
     mask: DesignMask
     options: tuple[Option, ...]
+    unplaced_reason: str | None = None
+    unplaced_details: dict | None = None
 
     @property
     def design_id(self) -> str:
         return self.design.design_id
+
+
+@dataclass(frozen=True)
+class UnplacedDesign:
+    design_id: str
+    version_id: str
+    reason: str
+    display_name: str | None
+    details: dict
+
+    def to_json(self) -> dict:
+        result = {
+            "designId": self.design_id,
+            "versionId": self.version_id,
+            "reason": self.reason,
+            "details": self.details,
+        }
+        if self.display_name:
+            result["displayName"] = self.display_name
+        return result
 
 
 @dataclass
@@ -112,6 +123,7 @@ class PlacedDesign:
 class Layout:
     request: PackRequest
     placed: list[PlacedDesign]
+    unplaced: list[UnplacedDesign]
     sheet_width_px: int
     sheet_height_px: int
     cell_px: int
@@ -141,37 +153,11 @@ class Layout:
         """Objective: shortest sheet, then fewest occupied cells, then earliest."""
         positions = sorted((placed.y_px, placed.x_px, placed.design_id) for placed in self.placed)
         return (
+            len(self.unplaced),
             self.sheet_height_px,
             sum(placed.occupied_cells for placed in self.placed),
             positions,
         )
-
-
-class _Canvas:
-    """Padded occupancy grid reused across ordering attempts."""
-
-    def __init__(self, columns: int, rows: int, pad: int) -> None:
-        self.pad = pad
-        self.occupied = np.zeros((rows, columns + 2 * pad), dtype=bool)
-
-    @property
-    def columns(self) -> int:
-        return self.occupied.shape[1]
-
-    def reset(self) -> None:
-        self.occupied[:] = False
-
-    def grow_rows(self, rows: int) -> None:
-        missing = rows - self.occupied.shape[0]
-        if missing > 0:
-            extra = max(missing, self.occupied.shape[0])
-            self.occupied = np.vstack(
-                [self.occupied, np.zeros((extra, self.columns), dtype=bool)]
-            )
-
-    def used_rows(self) -> int:
-        rows = np.nonzero(self.occupied.any(axis=1))[0]
-        return int(rows[-1]) + 1 if rows.size else 0
 
 
 class Packer:
@@ -185,24 +171,7 @@ class Packer:
         self.margin_px = required_margin_px(request.margin_mm, request.dpi)
         self.edge_margin_px = required_margin_px(request.edge_margin_mm, request.dpi)
         self.sheet_width_px = request.sheet_width_px
-        self.sheet_columns = grid_extent(self.sheet_width_px, self.cell_px)
-        self.radius_cells = block_radius_cells(self.margin_px, self.cell_px)
-        self.pad = self.radius_cells + 1
         self.candidates = [self._prepare(_lookup(masks, design)) for design in request.designs]
-        right_extent = max(
-            option.gx_max + option.origin_col_shift + option.block.shape[1]
-            for candidate in self.candidates
-            for option in candidate.options
-        )
-        row_extent = sum(
-            max(option.block.shape[0] for option in candidate.options)
-            for candidate in self.candidates
-        )
-        self.canvas = _Canvas(
-            columns=max(self.sheet_columns, right_extent - self.pad),
-            rows=max(8, row_extent + 2 * self.pad + 2),
-            pad=self.pad,
-        )
 
     # ------------------------------------------------------------------
     # preparation
@@ -220,41 +189,28 @@ class Packer:
                 interlocking=not self.request.no_interlocking,
             )
             bbox = footprint.bbox
-            gx_min = _ceil_div(self.edge_margin_px - bbox.x0, self.cell_px)
-            gx_max = (
-                self.sheet_width_px - self.edge_margin_px - bbox.x0 - bbox.width
-            ) // self.cell_px
-            gy_min = _ceil_div(self.edge_margin_px - bbox.y0, self.cell_px)
-            if gx_max < max(gx_min, 0):
+            if (
+                footprint.image_width_px > self.sheet_width_px
+                or bbox.width > self.sheet_width_px - 2 * self.edge_margin_px
+            ):
                 continue
-            options.append(
-                Option(
-                    footprint=footprint,
-                    gx_min=max(gx_min, 0),
-                    gx_max=gx_max,
-                    gy_min=max(gy_min, 0),
-                    origin_row_shift=self.pad - footprint.radius_cells,
-                    origin_col_shift=self.pad - footprint.radius_cells,
-                    block_uint8=footprint.block.astype(np.uint8),
-                    block_columns=(
-                        np.flatnonzero(footprint.block.any(axis=0)),
-                        np.flatnonzero(footprint.block.any(axis=1)),
-                    ),
-                )
-            )
+            options.append(Option(footprint=footprint))
         if not options:
             usable_px = self.sheet_width_px - 2 * self.edge_margin_px
-            raise DesignExceedsRollError(
-                f"Design {design.label} is {mask.bbox.width} px wide at "
-                f"{self.request.roll_width_cm} cm / {self.request.dpi} DPI; only {usable_px} px "
-                f"are usable after {self.request.edge_margin_mm} mm edge margins"
-                + ("" if design.allow_rotation else " (rotation is not allowed)"),
-                designId=design.design_id,
-                versionId=design.version_id,
-                displayName=design.display_name,
-                requiredWidthPx=mask.bbox.width,
-                usableWidthPx=usable_px,
-                rotationsTried=list(rotations),
+            required_width_px = min(
+                mask.image_width_px if rotation in (0, 180) else mask.image_height_px
+                for rotation in rotations
+            )
+            return Candidate(
+                design=design,
+                mask=mask,
+                options=(),
+                unplaced_reason="exceeds-roll",
+                unplaced_details={
+                    "requiredWidthPx": required_width_px,
+                    "usableWidthPx": usable_px,
+                    "rotationsTried": list(rotations),
+                },
             )
         return Candidate(design=design, mask=mask, options=tuple(options))
 
@@ -274,108 +230,149 @@ class Packer:
             ),
         )
 
-    def place(self, ordering: Sequence[Candidate]) -> Layout | None:
-        self.canvas.reset()
+    def place(self, ordering: Sequence[Candidate]) -> Layout:
         placed: list[PlacedDesign] = []
+        unplaced: list[UnplacedDesign] = []
         bottom = 0
         for candidate in ordering:
-            placement = self._place_one(candidate)
+            if not candidate.options:
+                unplaced.append(
+                    UnplacedDesign(
+                        candidate.design_id,
+                        candidate.design.version_id,
+                        candidate.unplaced_reason or "no-feasible-rotation",
+                        candidate.design.display_name,
+                        candidate.unplaced_details or {},
+                    )
+                )
+                continue
+            placement = self._place_one(candidate, placed)
             if placement is None:
-                return None
+                unplaced.append(
+                    UnplacedDesign(
+                        candidate.design_id,
+                        candidate.design.version_id,
+                        "no-legal-placement",
+                        candidate.design.display_name,
+                        {"reason": "No valid polygon contact was found within the roll bounds."},
+                    )
+                )
+                continue
             placed.append(placement)
-            self._commit(placement)
             bottom = max(bottom, placement.visible_bbox_px.y1)
+        full_raster_bottom = max(
+            (
+                placement.y_px + placement.footprint.image_height_px
+                for placement in placed
+            ),
+            default=0,
+        )
         return Layout(
             request=self.request,
             placed=placed,
+            unplaced=unplaced,
             sheet_width_px=self.sheet_width_px,
-            sheet_height_px=max(1, bottom + self.edge_margin_px),
+            sheet_height_px=max(1, bottom + self.edge_margin_px, full_raster_bottom),
             cell_px=self.cell_px,
             margin_px=self.margin_px,
             edge_margin_px=self.edge_margin_px,
         )
 
-    def _place_one(self, candidate: Candidate) -> PlacedDesign | None:
-        """Lowest feasible y then lowest x, over every allowed rotation."""
-        limit = self.canvas.used_rows() + 2 * self.pad + 1
+    def _place_one(
+        self, candidate: Candidate, placed: Sequence[PlacedDesign]
+    ) -> PlacedDesign | None:
+        """Place by integer-pixel polygon contacts, preferring bottom-left."""
         best: PlacedDesign | None = None
         for option in candidate.options:
-            # A later rotation only matters if it can beat what we already have.
-            ceiling = None
-            if best is not None:
-                ceiling = (best.y_px // self.cell_px, best.x_px // self.cell_px)
-            found = self._scan(candidate, option, limit, ceiling)
-            if found is not None and (best is None or found.rank < best.rank):
-                best = found
+            footprint = option.footprint
+            box = footprint.bbox
+            x_min = max(0, self.edge_margin_px - box.x0)
+            x_max = min(
+                self.sheet_width_px - footprint.image_width_px,
+                self.sheet_width_px - self.edge_margin_px - box.x1,
+            )
+            y_min = max(0, self.edge_margin_px - box.y0)
+            if x_max < x_min:
+                continue
+
+            for x_px, y_px in self._position_candidates(
+                option, placed, x_min, x_max, y_min
+            ):
+                if best is not None and (y_px, x_px, footprint.rotation_deg) >= best.rank:
+                    break
+                moved = affinity.translate(
+                    footprint.collision_geometry, xoff=x_px, yoff=y_px
+                )
+                if any(
+                    moved.intersection(
+                        affinity.translate(
+                            other.footprint.collision_geometry,
+                            xoff=other.x_px,
+                            yoff=other.y_px,
+                        )
+                    ).area > 1e-9
+                    for other in placed
+                ):
+                    continue
+                best = PlacedDesign(candidate, option, x_px, y_px)
+                break
         return best
 
-    def _scan(
+    def _position_candidates(
         self,
-        candidate: Candidate,
         option: Option,
-        gy_limit: int,
-        ceiling: tuple[int, int] | None = None,
-    ) -> PlacedDesign | None:
-        """First feasible (gy, gx) in ascending order, or ``None``.
+        placed: Sequence[PlacedDesign],
+        x_min: int,
+        x_max: int,
+        y_min: int,
+    ) -> list[tuple[int, int]]:
+        """Generate bounded contact positions from polygon bounds, holes and vertices."""
+        target = option.footprint.collision_geometry
+        target_bounds = target.bounds
+        x_values = {x_min}
+        y_values = {y_min}
+        if placed:
+            y_values.add(
+                max(item.y_px + item.footprint.image_height_px for item in placed)
+                + self.margin_px
+            )
 
-        ``ceiling`` is the best rank found so far by another rotation; scanning
-        past it cannot improve the layout, so the search stops there.
-        """
-        block = option.block
-        block_rows, block_width = block.shape
-        block_uint8 = option.block_uint8
-        occupied_columns = option.block_columns[0]
-        if ceiling is not None:
-            gy_limit = min(gy_limit, ceiling[0])
+        vertex_contacts: set[tuple[int, int]] = set()
+        target_vertices = _geometry_vertices(target)
+        for item in placed:
+            obstacle = affinity.translate(
+                item.footprint.collision_geometry,
+                xoff=item.x_px,
+                yoff=item.y_px,
+            )
+            bounds = obstacle.bounds
+            for value in (bounds[2] - target_bounds[0], bounds[0] - target_bounds[2]):
+                x_values.update(_integer_neighbors(value))
+            for value in (bounds[3] - target_bounds[1], bounds[1] - target_bounds[3]):
+                y_values.update(_integer_neighbors(value))
 
-        # Rolling per-column occupancy of the band under the block: advancing gy
-        # by one row only adds and removes a single row, so each step is O(cols).
-        last_gy = max(gy_limit, option.gy_min)
-        first_row = option.gy_min + option.origin_row_shift
-        self.canvas.grow_rows(first_row + block_rows + (last_gy - option.gy_min) + 1)
-        rows = self.canvas.occupied
-        counts = rows[first_row : first_row + block_rows].sum(axis=0, dtype=np.int32)
+            for hole in _hole_bounds(obstacle):
+                for value in (hole[0] - target_bounds[0], hole[2] - target_bounds[2]):
+                    x_values.update(_integer_neighbors(value))
+                for value in (hole[1] - target_bounds[1], hole[3] - target_bounds[3]):
+                    y_values.update(_integer_neighbors(value))
 
-        for gy in range(option.gy_min, max(gy_limit, option.gy_min) + 1):
-            if gy > option.gy_min:
-                leaving = gy - 1 + option.origin_row_shift
-                entering = leaving + block_rows
-                counts -= rows[leaving]
-                counts += rows[entering]
-            hit = np.flatnonzero(counts)
-            allowed = np.ones(option.gx_max + 1, dtype=bool)
-            allowed[: option.gx_min] = False
-            if hit.size:
-                blocked = np.subtract.outer(hit, occupied_columns) - option.origin_col_shift
-                blocked = blocked[(blocked >= 0) & (blocked <= option.gx_max)]
-                if blocked.size:
-                    allowed[blocked] = False
-            if ceiling is not None and gy == ceiling[0]:
-                allowed[min(ceiling[1], option.gx_max + 1) :] = False
-            for gx in np.flatnonzero(allowed):
-                column0 = int(gx) + option.origin_col_shift
-                row0 = gy + option.origin_row_shift
-                window = rows[row0 : row0 + block_rows, column0 : column0 + block_width]
-                if not np.any(window & block_uint8):
-                    return PlacedDesign(
-                        candidate=candidate,
-                        option=option,
-                        x_px=int(gx) * self.cell_px,
-                        y_px=gy * self.cell_px,
+            obstacle_vertices = _geometry_vertices(obstacle)
+            for target_x, target_y in target_vertices:
+                for obstacle_x, obstacle_y in obstacle_vertices:
+                    vertex_contacts.add(
+                        (round(obstacle_x - target_x), round(obstacle_y - target_y))
                     )
-        return None
 
-    def _commit(self, placement: PlacedDesign) -> None:
-        option = placement.option
-        block = option.block
-        gy = placement.y_px // self.cell_px
-        gx = placement.x_px // self.cell_px
-        row0 = gy + option.origin_row_shift
-        column0 = gx + option.origin_col_shift
-        self.canvas.grow_rows(row0 + block.shape[0])
-        rows = slice(row0, row0 + block.shape[0])
-        columns = slice(column0, column0 + block.shape[1])
-        self.canvas.occupied[rows, columns] |= block
+        x_values = {x for x in x_values if x_min <= x <= x_max}
+        y_values = {y for y in y_values if y >= y_min}
+        candidates = {(x, y) for x in x_values for y in y_values}
+        candidates.update(
+            (x, y)
+            for x, y in vertex_contacts
+            if x_min <= x <= x_max and y >= y_min
+        )
+        return sorted(candidates, key=lambda position: (position[1], position[0]))
 
     # ------------------------------------------------------------------
     # orderings
@@ -401,15 +398,13 @@ class Packer:
                 break
             layout = self.place(ordering)
             tried += 1
-            if layout is None:  # pragma: no cover - preparation rules this out
-                continue
             if best is None or layout.key() < best.key():
                 best = layout
             if on_ordering is not None:
                 on_ordering(tried, layout)
 
-        if best is None:  # pragma: no cover - place() succeeds for prepared designs
-            raise PackerError("No feasible layout was found for these designs")
+        if best is None:  # pragma: no cover - at least the deterministic ordering exists
+            raise PackerError("No layout was evaluated")
         best.orderings_tried = tried
         best.duration_ms = max(1, round((time.perf_counter() - started) * 1000))
         return best
@@ -422,8 +417,38 @@ def _lookup(masks: Mapping[str, DesignMask], design: DesignInput) -> DesignMask:
         raise PackerError(f"No mask was built for design {design.design_id}") from exc
 
 
-def _ceil_div(value: int, divisor: int) -> int:
-    return -(-value // divisor)
+def _integer_neighbors(value: float) -> set[int]:
+    return {floor(value), ceil(value), round(value)}
+
+
+def _geometry_vertices(geometry, limit: int = 32) -> list[tuple[float, float]]:
+    simplified = geometry.simplify(1.0, preserve_topology=True)
+    polygons = (
+        list(simplified.geoms)
+        if hasattr(simplified, "geoms")
+        else [simplified]
+    )
+    coordinates: list[tuple[float, float]] = []
+    for polygon in polygons:
+        if not hasattr(polygon, "exterior"):
+            continue
+        rings = [polygon.exterior, *polygon.interiors]
+        for ring in rings:
+            coordinates.extend((float(x), float(y)) for x, y in list(ring.coords)[:-1])
+    if len(coordinates) <= limit:
+        return coordinates
+    step = len(coordinates) / limit
+    return [coordinates[int(index * step)] for index in range(limit)]
+
+
+def _hole_bounds(geometry) -> list[tuple[float, float, float, float]]:
+    polygons = list(geometry.geoms) if hasattr(geometry, "geoms") else [geometry]
+    return [
+        tuple(float(value) for value in ring.bounds)
+        for polygon in polygons
+        if hasattr(polygon, "interiors")
+        for ring in polygon.interiors
+    ]
 
 
 __all__ = ["Candidate", "Layout", "Option", "Packer", "PlacedDesign", "ROTATIONS"]

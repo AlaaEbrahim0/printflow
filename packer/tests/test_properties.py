@@ -147,11 +147,15 @@ def test_every_pack_result_is_inside_apart_and_reproducible(
     response = first.response
     assert ContractStore().validate("packer-response", response) == []
     assert response["integrityReport"]["passed"] is True
-    assert [check["status"] for check in response["integrityReport"]["checks"]] == ["passed"] * 4
+    assert [check["status"] for check in response["integrityReport"]["checks"]] == ["passed"] * 5
     assert response["sheet"]["widthPx"] == first.layout.sheet_width_px
     assert response["placements"] == second.response["placements"]
     assert response["sheet"] == second.response["sheet"]
-    assert response["integrityReport"]["metrics"] == second.response["integrityReport"]["metrics"]
+    first_metrics = response["integrityReport"]["metrics"].copy()
+    second_metrics = second.response["integrityReport"]["metrics"].copy()
+    first_metrics.pop("durationMs")
+    second_metrics.pop("durationMs")
+    assert first_metrics == second_metrics
 
     height = response["sheet"]["heightPx"]
     edge = required_margin_px(request.edge_margin_mm, request.dpi)

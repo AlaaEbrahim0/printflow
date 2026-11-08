@@ -55,8 +55,16 @@
     },
     "placements": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "items": { "$ref": "#/$defs/placement" }
+    },
+    "requestedDesigns": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/requestedDesign" }
+    },
+    "unplacedDesigns": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/unplacedDesign" }
     },
     "integrityReport": { "type": "object" },
     "outputs": {
@@ -116,6 +124,8 @@
         "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "sourceWidthPx": { "type": "integer", "minimum": 1 },
         "sourceHeightPx": { "type": "integer", "minimum": 1 },
+        "workingWidthPx": { "type": "integer", "minimum": 1 },
+        "workingHeightPx": { "type": "integer", "minimum": 1 },
         "rotationDeg": { "enum": [0, 90, 180, 270] },
         "xPx": { "type": "integer", "minimum": 0 },
         "yPx": { "type": "integer", "minimum": 0 },
@@ -129,6 +139,31 @@
         "visibleY0Px": { "type": "integer", "minimum": 0 },
         "visibleX1Px": { "type": "integer", "minimum": 1 },
         "visibleY1Px": { "type": "integer", "minimum": 1 }
+      },
+      "dependentRequired": {
+        "workingWidthPx": ["workingHeightPx"],
+        "workingHeightPx": ["workingWidthPx"]
+      }
+    },
+    "requestedDesign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["designId", "versionId"],
+      "properties": {
+        "designId": { "type": "string", "format": "uuid" },
+        "versionId": { "type": "string", "format": "uuid" }
+      }
+    },
+    "unplacedDesign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["designId", "versionId", "reason", "details"],
+      "properties": {
+        "designId": { "type": "string", "format": "uuid" },
+        "versionId": { "type": "string", "format": "uuid" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "reason": { "enum": ["exceeds-roll", "no-feasible-rotation", "no-legal-placement"] },
+        "details": { "type": "object" }
       }
     }
   }
