@@ -46,6 +46,7 @@ storage/
 tmp/
 *.tmp
 *.part
+.tools/
 docs/spikes/psd-spike/out/
 fixtures/**/contact-sheet.png
 

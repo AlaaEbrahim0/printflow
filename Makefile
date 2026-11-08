@@ -11,7 +11,7 @@ PYTHON ?= python3
 
 .PHONY: help setup api-setup worker-setup packer-setup web-setup contracts-setup
 .PHONY: up down reset ps logs smoke verify test test-api test-worker test-packer test-web test-contracts
-.PHONY: build fixtures api worker worker-gpu web clean distclean
+.PHONY: build fixtures e2e-fixtures api worker worker-gpu worker-gpu-setup web clean distclean
 
 help: ## Show the available targets
 	@awk 'BEGIN {FS = ":.*##"; printf "PrintSheet Workbench\n\nUsage: make <target>\n\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -105,6 +105,9 @@ build: ## Build API and web (worker/packer are installed editable)
 fixtures: packer-setup ## Regenerate realistic fixtures under fixtures/generated
 	packer/.venv/bin/python scripts/generate_fixtures.py --clean
 
+e2e-fixtures: fixtures ## Exercise intake, resize, pack, integrity and export against a running stack
+	$(PYTHON) scripts/e2e_fixture_flow.py
+
 # ---------------------------------------------------------------------------
 # Native development (SQLite + local storage)
 # ---------------------------------------------------------------------------
@@ -117,6 +120,9 @@ worker: ## Run the worker natively on :8000
 
 worker-gpu: ## Run the worker with GPU enabled
 	./scripts/run-worker-gpu.sh
+
+worker-gpu-setup: ## Download the pinned Real-ESRGAN Linux binary and models
+	./scripts/install-realesrgan-linux.sh
 
 web: ## Run the Vite dev server on :5173
 	./scripts/run-web.sh

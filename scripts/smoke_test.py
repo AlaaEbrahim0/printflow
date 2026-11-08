@@ -3,7 +3,7 @@
 
 Checks:
 - API /healthz is Healthy and the database check is Healthy;
-- API /api/v1/info reports contract 1.0.0;
+- API /api/v1/info reports contract 2.0.0;
 - worker /health reports ok, writable shared storage and maxGpuJobs = 1;
 - web / serves an HTML page containing "PrintSheet".
 
@@ -72,9 +72,9 @@ def check_api_info() -> None:
     status, payload = fetch_json(f"{API_URL}/api/v1/info")
     assert status == 200, f"expected 200, got {status}"
     assert isinstance(payload, dict), "expected a JSON object"
-    assert payload.get("contractVersion") == "1.0.0", payload
+    assert payload.get("contractVersion") == "2.0.0", payload
     assert payload.get("service") == "printsheet-api", payload
-    assert payload.get("phase") == 0, payload
+    assert payload.get("phase") == 2, payload
 
 
 def check_worker() -> None:
