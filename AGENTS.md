@@ -574,8 +574,33 @@ If context is running low, prioritize in this order:
   passing tests. Full source rasters remain inside sheet bounds, integrity
   rejects clipped source padding, and `all-designs-placed` blocks export when a
   selected design is unplaced.
+- **Known defect: the packer's gap certificate is too weak on diagonals.** The
+  search accepts a placement when
+  `geometry.buffer(margin_px / 2 + 1, join_style="mitre")` copies do not
+  intersect — a *radial* offset — while the blocking `minimum-gap` check
+  requires a *Chebyshev* gap. A radial buffer of `r` only certifies
+  `2r / sqrt(2)` in Chebyshev terms, so it needs `r >= margin_px / sqrt(2)`;
+  production uses `r = margin_px / 2 + 1`, which is ~29% short. Consequence:
+  the packer can emit a layout its own gate rejects, leaving the operator
+  unable to export (`sheet-integrity-failed`) without hand-editing placements.
+  Reproduced on the `synthetic-12` case: a pair accepted at 363 px Euclidean is
+  only 273 px Chebyshev against a 354 px requirement. Verified with the packer's
+  own `verify_layout`, not just the external referee. Fixing the radius to
+  `margin_px / sqrt(2)` closes the gap exactly (measured at 60 px and 354 px).
+  Not yet fixed in production; `packer-optimization-kit/BRIEF.md` §3 and §6.1
+  document the measurement and the required correctness bar.
+- **Scale of the gap defect:** the production packer certifies a radial (Euclidean)
+  buffer gap while its own integrity gate requires a Chebyshev gap. A radial
+  buffer of `r` certifies a Chebyshev gap of only `2r / sqrt(2)` on a diagonal,
+  so it needs `r >= margin_px / sqrt(2)`. Production uses `r = margin_px / 2 + 1`,
+  which is ~29% short. This means the search can emit a layout its own gate then
+  rejects — the operator cannot export (`sheet-integrity-failed`) without
+  hand-editing placements. Confirmed on `synthetic-12`: a pair accepted at 363 px
+  Euclidean is only 273 px Chebyshev against a 354 px requirement. All six
+  production results in `results/production.json` record the outcomes. Fix radius
+  to `margin_px / sqrt(2)` closes the gap exactly (verified at 60 px and 354 px).
 - Web workflow routes (including partial-selection packing previews) are
-  implemented. `npm test`: 109 passed across 8 files. `npm run build` succeeds;
+  implemented. `npm test`: 200 passed across 16 files. `npm run build` succeeds;
   `npm run lint` exits successfully with existing React-hook/fast-refresh
   warnings.
 - PSD/PSB spike rerun from the committed reproducer; report and JSON results in
@@ -614,6 +639,11 @@ If context is running low, prioritize in this order:
 - A live API GPU job on 2026-11-08 routed to the native worker and produced
   1440 × 960 from the low-res fixture in 33.1 s, correctly retaining the
   91.0 DPI `very-low-effective-dpi` warning.
+- Re-measured on 2026-11-08 with AC connected: the same 360 × 240 → 1440 × 960
+  ×4 job took **12.7 s in the worker** (15.1 s end to end including queueing)
+  with the GPU boosting to 1935 MHz, versus 33.1 s at 300 MHz on battery. The
+  ~2.6× speedup is the power profile, not a code change — always state which
+  one a timing came from.
 - Upscale DPI warnings now use the source dimensions, so AI-created pixels do
   not erase a low-resolution warning; the 2× signature remains flagged at
   121.9 DPI. Visual review of the photo fixture saw detail recovery but also
