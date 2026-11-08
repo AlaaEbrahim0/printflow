@@ -1,0 +1,5 @@
+# The kit deliberately mirrors the production packer's numeric stack so a
+# winning solver can be ported back with no surprises.
+numpy>=2,<3
+Pillow>=11,<14
+shapely>=2.1,<3

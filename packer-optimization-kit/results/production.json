@@ -1,0 +1,51 @@
+{
+  "summary": {
+    "solver": "production-packer",
+    "params": {
+      "cellMm": 2.0,
+      "randomizedOrderings": 40,
+      "timeBudgetMs": 5000
+    },
+    "cases": 4,
+    "feasible": 3,
+    "totalSheetHeightPx": 19875,
+    "meanElapsedMs": 107154.2
+  },
+  "results": [
+    {
+      "case": "shop-ten",
+      "feasible": true,
+      "sheetHeightPx": 8548,
+      "density": 0.508051,
+      "elapsedMs": 50763.1,
+      "reasons": []
+    },
+    {
+      "case": "synthetic-04",
+      "feasible": true,
+      "sheetHeightPx": 4754,
+      "density": 0.331574,
+      "elapsedMs": 20937.2,
+      "reasons": []
+    },
+    {
+      "case": "synthetic-08",
+      "feasible": true,
+      "sheetHeightPx": 6573,
+      "density": 0.376909,
+      "elapsedMs": 102802.0,
+      "reasons": []
+    },
+    {
+      "case": "synthetic-12",
+      "feasible": false,
+      "sheetHeightPx": 9925,
+      "density": 0.448418,
+      "elapsedMs": 254114.6,
+      "reasons": [
+        "designs 'blob-10' and 'blob-05' are 315 px apart, below the required 355 px",
+        "designs 'blob-03' and 'blob-05' are 262 px apart, below the required 355 px"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "summary": {
+    "solver": "printsheet_nest.baseline:solve",
+    "cases": 6,
+    "feasible": 6,
+    "totalSheetHeightPx": 64769,
+    "meanElapsedMs": 21174.6,
+    "worstCase": 21497
+  },
+  "results": [
+    {
+      "case": "shop-ten",
+      "solver": "printsheet_nest.baseline:solve",
+      "feasible": true,
+      "sheetHeightPx": 8238,
+      "score": 8238,
+      "elapsedMs": 13980.8,
+      "reasons": [],
+      "details": {
+        "marginPx": 355,
+        "edgeMarginPx": 119,
+        "pairsBeyondProbe": 45,
+        "probePx": 359,
+        "placedCount": 10,
+        "requestedCount": 10
+      }
+    },
+    {
+      "case": "synthetic-04",
+      "solver": "printsheet_nest.baseline:solve",
+      "feasible": true,
+      "sheetHeightPx": 3846,
+      "score": 3846,
+      "elapsedMs": 3485.3,
+      "reasons": [],
+      "details": {
+        "marginPx": 355,
+        "edgeMarginPx": 119,
+        "pairsBeyondProbe": 6,
+        "probePx": 359,
+        "placedCount": 4,
+        "requestedCount": 4
+      }
+    },
+    {
+      "case": "synthetic-08",
+      "solver": "printsheet_nest.baseline:solve",
+      "feasible": true,
+      "sheetHeightPx": 6755,
+      "score": 6755,
+      "elapsedMs": 9791.8,
+      "reasons": [],
+      "details": {
+        "marginPx": 355,
+        "edgeMarginPx": 119,
+        "pairsBeyondProbe": 28,
+        "probePx": 359,
+        "placedCount": 8,
+        "requestedCount": 8
+      }
+    },
+    {
+      "case": "synthetic-12",
+      "solver": "printsheet_nest.baseline:solve",
+      "feasible": true,
+      "sheetHeightPx": 9710,
+      "score": 9710,
+      "elapsedMs": 17282.8,
+      "reasons": [],
+      "details": {
+        "marginPx": 355,
+        "edgeMarginPx": 119,
+        "pairsBeyondProbe": 66,
+        "probePx": 359,
+        "placedCount": 12,
+        "requestedCount": 12
+      }
+    },
+    {
+      "case": "synthetic-20",
+      "solver": "printsheet_nest.baseline:solve",
+      "feasible": true,
+      "sheetHeightPx": 14723,
+      "score": 14723,
+      "elapsedMs": 33004.5,
+      "reasons": [],
+      "details": {
+        "marginPx": 355,
+        "edgeMarginPx": 119,
+        "pairsBeyondProbe": 190,
+        "probePx": 359,
+        "placedCount": 20,
+        "requestedCount": 20
+      }
+    },
+    {
+      "case": "synthetic-30",
+      "solver": "printsheet_nest.baseline:solve",
+      "feasible": true,
+      "sheetHeightPx": 21497,
+      "score": 21497,
+      "elapsedMs": 49502.6,
+      "reasons": [],
+      "details": {
+        "marginPx": 355,
+        "edgeMarginPx": 119,
+        "pairsBeyondProbe": 435,
+        "probePx": 359,
+        "placedCount": 30,
+        "requestedCount": 30
+      }
+    }
+  ]
+}

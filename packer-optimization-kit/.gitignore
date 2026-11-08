@@ -1,0 +1,10 @@
+# Cases are deterministic: `python -m printsheet_nest.cli build` regenerates them
+# from the repo fixtures. 42 MB of derived PNGs does not belong in history.
+cases/
+
+# Scratch space for solver experiments.
+.benchmarks/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/

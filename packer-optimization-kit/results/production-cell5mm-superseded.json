@@ -1,0 +1,73 @@
+{
+  "summary": {
+    "solver": "production-packer",
+    "cases": 6,
+    "feasible": 3,
+    "totalSheetHeightPx": 19484,
+    "meanElapsedMs": 617394.6
+  },
+  "results": [
+    {
+      "case": "shop-ten",
+      "feasible": true,
+      "sheetHeightPx": 8157,
+      "density": 0.532404,
+      "elapsedMs": 104338.1,
+      "reasons": []
+    },
+    {
+      "case": "synthetic-04",
+      "feasible": true,
+      "sheetHeightPx": 4754,
+      "density": 0.331574,
+      "elapsedMs": 82537.0,
+      "reasons": []
+    },
+    {
+      "case": "synthetic-08",
+      "feasible": true,
+      "sheetHeightPx": 6573,
+      "density": 0.376909,
+      "elapsedMs": 141153.3,
+      "reasons": []
+    },
+    {
+      "case": "synthetic-12",
+      "feasible": false,
+      "sheetHeightPx": 9925,
+      "density": 0.448418,
+      "elapsedMs": 227978.0,
+      "reasons": [
+        "designs 'blob-10' and 'blob-05' are 315 px apart, below the required 355 px",
+        "designs 'blob-03' and 'blob-05' are 262 px apart, below the required 355 px"
+      ]
+    },
+    {
+      "case": "synthetic-20",
+      "feasible": false,
+      "sheetHeightPx": 15393,
+      "density": 0.431844,
+      "elapsedMs": 773039.4,
+      "reasons": [
+        "designs 'blob-17' and 'blob-12' are 269 px apart, below the required 355 px",
+        "designs 'blob-07' and 'blob-19' are 315 px apart, below the required 355 px",
+        "designs 'blob-08' and 'blob-19' are 294 px apart, below the required 355 px",
+        "designs 'blob-09' and 'blob-03' are 285 px apart, below the required 355 px",
+        "designs 'blob-19' and 'blob-18' are 316 px apart, below the required 355 px"
+      ]
+    },
+    {
+      "case": "synthetic-30",
+      "feasible": false,
+      "sheetHeightPx": 20816,
+      "density": 0.458013,
+      "elapsedMs": 2375321.9,
+      "reasons": [
+        "designs 'blob-06' and 'blob-08' are 283 px apart, below the required 355 px",
+        "designs 'blob-16' and 'blob-00' are 271 px apart, below the required 355 px",
+        "designs 'blob-14' and 'blob-21' are 308 px apart, below the required 355 px",
+        "designs 'blob-15' and 'blob-28' are 281 px apart, below the required 355 px"
+      ]
+    }
+  ]
+}

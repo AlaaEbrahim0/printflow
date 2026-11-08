@@ -211,3 +211,57 @@ def test_no_interlocking_uses_the_bounding_box_or_the_hull() -> None:
     assert np.array_equal(simple_footprint(grid, "none"), grid)
     with pytest.raises(PackerError):
         simple_footprint(grid, "wat")
+
+
+@pytest.mark.xfail(
+    reason=(
+        "Known defect: collision_geometry is a radial (mitre) buffer, so it only "
+        "certifies a Chebyshev gap of 2r/sqrt(2) on a diagonal. Production uses "
+        "r = margin_px/2 + 1, ~29% short of the margin_px/sqrt(2) the gate needs. "
+        "Fixing it changes packing output, so it is tracked separately."
+    ),
+    strict=True,
+)
+def test_collision_buffer_certifies_the_chebyshev_gap_on_a_diagonal() -> None:
+    """The packer must not accept a pair its own integrity gate rejects.
+
+    ``build_footprint`` certifies clearance by buffering the silhouette and
+    rejecting intersections. That buffer is radial (Euclidean), while the
+    blocking ``minimum-gap`` check measures Chebyshev distance. The two agree
+    on axis-aligned separations and differ by up to sqrt(2) on a diagonal, so
+    the search can emit a layout the gate then refuses to export.
+
+    This test slides a second identical shape diagonally until the packer would
+    accept it, then measures the real Chebyshev gap. It is expected to fail
+    until the buffer radius becomes ``margin_px / sqrt(2)``.
+    """
+    from shapely import affinity
+    from shapely.geometry import Point
+
+    for margin_px in (60, 354):
+        radius = margin_px / 2 + 1
+        shape = Point(0, 0).buffer(50, quad_segs=8)
+        buffered = shape.buffer(radius, join_style="mitre")
+
+        # Binary search the diagonal offset at which the buffers stop touching:
+        # that is the tightest pair the packer will accept.
+        low, high = 0.0, 4 * (50 + margin_px)
+        for _ in range(50):
+            middle = (low + high) / 2
+            if affinity.translate(buffered, xoff=middle, yoff=middle).intersects(buffered):
+                low = middle
+            else:
+                high = middle
+
+        moved = affinity.translate(shape, xoff=high, yoff=high)
+        a = np.array(shape.boundary.coords)
+        b = np.array(moved.boundary.coords)
+        dx = np.abs(a[:, None, 0] - b[None, :, 0])
+        dy = np.abs(a[:, None, 1] - b[None, :, 1])
+        chebyshev = float(np.maximum(dx, dy).min())
+
+        assert chebyshev >= margin_px, (
+            f"margin {margin_px}px: the packer accepts a diagonal pair only "
+            f"{chebyshev:.1f}px apart under Chebyshev, but the integrity gate "
+            f"requires {margin_px}px and will block export"
+        )
