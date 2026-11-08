@@ -1,0 +1,128 @@
+.job-progress {
+  display: grid;
+  gap: 8px;
+}
+
+.job-progress .card-heading {
+  margin-bottom: 0;
+}
+
+.job-progress-message,
+.job-progress .hint {
+  margin: 0;
+}
+
+.warn-text {
+  color: var(--warn);
+}
+
+.error-text {
+  color: var(--bad);
+}
+
+.progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--panel-2);
+}
+
+.progress-indicator {
+  display: block;
+  width: 36%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: processing-indeterminate 1.4s ease-in-out infinite;
+}
+
+@keyframes processing-indeterminate {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(290%); }
+}
+
+.pipeline {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pipeline-step {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.pipeline-step summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.pipeline-step summary::-webkit-details-marker,
+.compact-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.pipeline-step summary::after {
+  content: '+';
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 1.15rem;
+}
+
+.pipeline-step details[open] > summary::after {
+  content: '−';
+}
+
+.pipeline-number {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  color: var(--accent);
+  font-family: var(--mono);
+}
+
+.pipeline-step summary strong,
+.pipeline-step summary small {
+  display: block;
+}
+
+.pipeline-step summary small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.pipeline-content {
+  padding: 0 12px 14px 54px;
+}
+
+.pipeline-content > .row {
+  align-items: end;
+}
+
+.compact-details > summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.compact-details[open] > summary {
+  margin-bottom: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-indicator {
+    animation: none;
+    transform: translateX(90%);
+  }
+}

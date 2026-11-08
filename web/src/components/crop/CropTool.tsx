@@ -49,7 +49,6 @@ import {
 } from '../../lib/crop'
 import { Chip } from '../ui/Chip'
 import { NumberField } from '../ui/Field'
-import '../styles/ui.css'
 import './crop.css'
 
 export interface CropToolProps {

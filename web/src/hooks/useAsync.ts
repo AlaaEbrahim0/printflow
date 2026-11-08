@@ -54,12 +54,14 @@ export interface JobPollerResult {
   job: Job | null
   error: unknown
   settled: boolean
+  observedAt: number
 }
 
-/** Polls a job until it reaches a terminal state, then stops. */
-export function useJobPoller(jobId: string | null, intervalMs = 400): JobPollerResult {
+/** Polls a job until it reaches a terminal state, retrying transient read failures. */
+export function useJobPoller(jobId: string | null, intervalMs = 1000): JobPollerResult {
   const [job, setJob] = useState<Job | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [observedAt, setObservedAt] = useState(0)
 
   useEffect(() => {
     setJob(null)
@@ -73,10 +75,15 @@ export function useJobPoller(jobId: string | null, intervalMs = 400): JobPollerR
         const next = await api.jobs.get(jobId)
         if (cancelled) return
         setJob(next)
+        setObservedAt(Date.now())
         setError(null)
         if (!TERMINAL.includes(next.status)) timer = setTimeout(tick, intervalMs)
       } catch (caught) {
-        if (!cancelled) setError(caught)
+        if (!cancelled) {
+          setObservedAt(Date.now())
+          setError(caught)
+          timer = setTimeout(tick, intervalMs)
+        }
       }
     }
 
@@ -87,5 +94,5 @@ export function useJobPoller(jobId: string | null, intervalMs = 400): JobPollerR
     }
   }, [jobId, intervalMs])
 
-  return { job, error, settled: job !== null && TERMINAL.includes(job.status) }
+  return { job, error, settled: job !== null && TERMINAL.includes(job.status), observedAt }
 }

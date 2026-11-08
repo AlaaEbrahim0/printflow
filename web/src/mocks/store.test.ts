@@ -244,21 +244,6 @@ describe('jobs, proposals and step semantics', () => {
     expect(error.code).toBe('invalid-target-size')
   })
 
-  it('brush operations ride along in the version parameters', () => {
-    const acme = batchByName('ACME summer drop 01')
-    const logo = designByName(acme.id, 'APEX logo')
-    const ops = [{ tool: 'erase' as const, radiusPx: 18, points: [[40, 60], [44, 66]] }]
-    const job = store().proposeStep(logo.id, 'background-removal', {
-      mode: 'color-to-alpha',
-      keyColor: '#0b0b0b',
-      brushOps: ops,
-    })
-    store().settleJob(job.jobId)
-    const pendingId = store().designs.get(logo.id)!.pendingVersionId!
-    expect(store().versions.get(pendingId)!.hasMask).toBe(true)
-    expect(store().versions.get(pendingId)!.parameters.brushOps).toEqual(ops)
-  })
-
   it('excluded and better-source designs cannot be processed', () => {
     const acme = batchByName('ACME summer drop 01')
     const proof = designByName(acme.id, 'Supplier proof (excluded)')
@@ -340,6 +325,7 @@ describe('packing, integrity and export', () => {
       'dilated-masks-no-overlap',
       'minimum-gap',
       'pixel-equality',
+      'all-designs-placed',
     ])
     expect(store().batches.get(riverside.id)!.status).toBe('packed')
   })

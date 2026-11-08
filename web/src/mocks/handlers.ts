@@ -410,21 +410,6 @@ export const handlers = [
     ),
   ),
 
-  http.post(`${V1}/designs/:designId/steps/vectorize`, async ({ request, params }) =>
-    guarded(async () =>
-      jsonBody(store().proposeStep(params.designId as string, 'vectorize', await readJson(request)), 202),
-    ),
-  ),
-
-  http.post(`${V1}/designs/:designId/steps/background-removal`, async ({ request, params }) =>
-    guarded(async () =>
-      jsonBody(
-        store().proposeStep(params.designId as string, 'background-removal', await readJson(request)),
-        202,
-      ),
-    ),
-  ),
-
   http.post(`${V1}/designs/:designId/steps/resize`, async ({ request, params }) =>
     guarded(async () =>
       jsonBody(store().proposeStep(params.designId as string, 'resize', await readJson(request)), 202),

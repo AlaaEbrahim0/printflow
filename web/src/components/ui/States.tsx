@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import { ErrorBanner } from './Banner'
-import '../styles/ui.css'
 
 export function Loading({ label = 'Loading…', rows = 3 }: { label?: string; rows?: number }) {
   return (

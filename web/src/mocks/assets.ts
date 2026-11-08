@@ -5,7 +5,7 @@
  * Each asset is split into a background layer and an artwork layer so the mock
  * can honestly serve three variants of the same design:
  *   - `with-bg`   — what the customer sent (opaque or keyed background);
- *   - `transparent` — artwork only, after background removal;
+ *   - `transparent` — artwork with existing alpha;
  *   - `mask`      — white-on-black coverage, the non-destructive mask artifact.
  *
  * Because the artwork layer keeps semi-transparent halo pixels, fringes and

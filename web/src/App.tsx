@@ -7,6 +7,7 @@ import SheetPage from './routes/SheetPage'
 import { SettingsProvider } from './state/SettingsContext'
 import { HealthDot } from './components/ui/HealthDot'
 import './styles/shell.css'
+import './styles/ui.css'
 
 export function WorkbenchRoutes() {
   return (

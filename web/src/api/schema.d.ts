@@ -178,8 +178,12 @@ export interface paths {
         /**
          * Queue an automated pack
          * @description Requires every non-excluded design to be `ready`. A successful pack
-         *     replaces the current sheet with a new revision. The packer only
-         *     translates and rotates by 90-degree steps; it never resamples.
+         *     replaces the current sheet with a new revision. `designIds` optionally
+         *     limits the layout to a selected subset; omitted means all non-excluded
+         *     designs. Unplaced designs are reported and block integrity/export.
+         *     The packer translates and rotates by 90-degree steps, and only
+         *     resamples within explicitly selected target dimensions while preserving
+         *     aspect ratio.
          */
         post: operations["packSheet"];
         delete?: never;
@@ -562,49 +566,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/designs/{designId}/steps/vectorize": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                designId: components["parameters"]["DesignId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Propose vectorization with before/after review */
-        post: operations["proposeVectorize"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/designs/{designId}/steps/background-removal": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                designId: components["parameters"]["DesignId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Propose background removal or re-apply the brush mask
-         * @description One of AI cutout, color-to-alpha (unmultiplied, so soft gradients keep
-         *     correct alpha) or none. Brush operations are stored in version
-         *     parameters and applied to the same non-destructive mask artifact.
-         */
-        post: operations["proposeBackgroundRemoval"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/designs/{designId}/steps/resize": {
         parameters: {
             query?: never;
@@ -619,9 +580,7 @@ export interface paths {
         /**
          * Propose the final target-size resize
          * @description Resamples once with Lanczos to exactly round(cm * dpi / 2.54) pixels.
-         *     If the parent is a vectorize version, the worker rasterizes the SVG at
-         *     target size instead of resampling a raster preview. Approving this
-         *     version makes the design ready.
+         *     Approving this version makes the design ready.
          */
         post: operations["proposeResize"];
         delete?: never;
@@ -849,7 +808,7 @@ export interface components {
             service: string;
             version: string;
             /** @enum {string} */
-            contractVersion: "1.0.0";
+            contractVersion: "2.0.0";
             phase: number;
         };
         PackerSettings: {
@@ -977,12 +936,6 @@ export interface components {
             targetHeightCm?: number | null;
             notes?: string | null;
         };
-        BrushOp: {
-            /** @enum {string} */
-            tool: "erase" | "restore";
-            radiusPx: number;
-            points: number[][];
-        };
         TrimStepRequest: {
             /** @enum {string} */
             mode: "auto" | "manual";
@@ -1007,34 +960,6 @@ export interface components {
             tileSize?: number;
             /** @default true */
             gpu: boolean;
-        };
-        VectorizeStepRequest: {
-            /** @enum {string} */
-            engine: "potrace" | "vtracer";
-            /**
-             * @default binary
-             * @enum {string}
-             */
-            mode: "binary" | "color";
-            threshold?: number;
-            colorCount?: number;
-            turdsize?: number;
-            targetWidthPx?: number | null;
-            targetHeightPx?: number | null;
-        };
-        BackgroundRemovalStepRequest: {
-            /** @enum {string} */
-            mode: "ai" | "color-to-alpha" | "none";
-            keyColor?: string | null;
-            tolerance?: number;
-            edgeSoftness?: number;
-            aiModel?: string | null;
-            /**
-             * Format: uuid
-             * @description Reuse this version's mask artifact and apply brushOps only.
-             */
-            maskFromVersionId?: string | null;
-            brushOps?: components["schemas"]["BrushOp"][];
         };
         ResizeStepRequest: {
             targetWidthCm: number;
@@ -1117,7 +1042,7 @@ export interface components {
         IntegrityCheckResult: "passed" | "failed" | "skipped";
         IntegrityCheck: {
             /** @enum {string} */
-            id: "visible-pixels-inside-sheet" | "dilated-masks-no-overlap" | "minimum-gap" | "pixel-equality";
+            id: "visible-pixels-inside-sheet" | "dilated-masks-no-overlap" | "minimum-gap" | "pixel-equality" | "all-designs-placed";
             /** @enum {boolean} */
             blocking: true;
             status: components["schemas"]["IntegrityCheckResult"];
@@ -1127,7 +1052,8 @@ export interface components {
             };
         };
         IntegrityFailure: {
-            checkId: string;
+            /** @enum {string} */
+            checkId: "visible-pixels-inside-sheet" | "dilated-masks-no-overlap" | "minimum-gap" | "pixel-equality" | "all-designs-placed";
             /** Format: uuid */
             designId?: string | null;
             message: string;
@@ -1144,7 +1070,7 @@ export interface components {
         };
         IntegrityReport: {
             /** @enum {string} */
-            schemaVersion: "1.0";
+            schemaVersion: "1.0" | "2.0";
             /** Format: uuid */
             reportId: string;
             /** Format: date-time */
@@ -1204,6 +1130,7 @@ export interface components {
             updatedAt: string;
         };
         PackSheetRequest: {
+            designIds?: string[];
             seed?: number | null;
             randomizedOrderings?: number | null;
             timeBudgetMs?: number | null;
@@ -2250,64 +2177,6 @@ export interface operations {
         };
         responses: {
             /** @description Upscale job accepted */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobAccepted"];
-                };
-            };
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["UnprocessableEntity"];
-        };
-    };
-    proposeVectorize: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                designId: components["parameters"]["DesignId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["VectorizeStepRequest"];
-            };
-        };
-        responses: {
-            /** @description Vectorize job accepted */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobAccepted"];
-                };
-            };
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["UnprocessableEntity"];
-        };
-    };
-    proposeBackgroundRemoval: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                designId: components["parameters"]["DesignId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BackgroundRemovalStepRequest"];
-            };
-        };
-        responses: {
-            /** @description Background-removal job accepted */
             202: {
                 headers: {
                     [name: string]: unknown;

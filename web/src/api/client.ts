@@ -30,7 +30,6 @@ export type ClassifierSuggestions = components['schemas']['ClassifierSuggestions
 export type GarmentColor = components['schemas']['GarmentColor']
 export type GarmentColorKind = components['schemas']['GarmentColorKind']
 export type CropRect = components['schemas']['CropRect']
-export type BrushOp = components['schemas']['BrushOp']
 export type StepType = components['schemas']['StepType']
 export type VersionStatus = components['schemas']['VersionStatus']
 export type JobAccepted = components['schemas']['JobAccepted']
@@ -62,8 +61,6 @@ export type ExportRequest = components['schemas']['ExportRequest']
 export type TrimStepRequest = components['schemas']['TrimStepRequest']
 export type CropStepRequest = components['schemas']['CropStepRequest']
 export type UpscaleStepRequest = components['schemas']['UpscaleStepRequest']
-export type VectorizeStepRequest = components['schemas']['VectorizeStepRequest']
-export type BackgroundRemovalStepRequest = components['schemas']['BackgroundRemovalStepRequest']
 export type ResizeStepRequest = components['schemas']['ResizeStepRequest']
 export type RejectVersionRequest = components['schemas']['RejectVersionRequest']
 export type RejectVersionResponse = components['schemas']['RejectVersionResponse']
@@ -72,7 +69,6 @@ export type RevertVersionRequest = components['schemas']['RevertVersionRequest']
 
 export type PackInput = Partial<PackSheetRequest>
 export type UpscaleInput = Pick<UpscaleStepRequest, 'model' | 'scale'> & Partial<UpscaleStepRequest>
-export type VectorizeInput = Pick<VectorizeStepRequest, 'engine'> & Partial<VectorizeStepRequest>
 export type ExportInput = Pick<ExportRequest, 'format'> & Partial<ExportRequest>
 
 export interface RequestOptions {
@@ -402,22 +398,6 @@ export const api = {
       post<JobAccepted>(
         `${API_ROOT}/designs/${encoded(designId)}/steps/upscale`,
         { gpu: true, ...body },
-        options,
-      ),
-    vectorize: (designId: string, body: VectorizeInput, options?: RequestOptions) =>
-      post<JobAccepted>(
-        `${API_ROOT}/designs/${encoded(designId)}/steps/vectorize`,
-        { mode: 'binary', ...body },
-        options,
-      ),
-    backgroundRemoval: (
-      designId: string,
-      body: BackgroundRemovalStepRequest,
-      options?: RequestOptions,
-    ) =>
-      post<JobAccepted>(
-        `${API_ROOT}/designs/${encoded(designId)}/steps/background-removal`,
-        body,
         options,
       ),
     resize: (designId: string, body: ResizeStepRequest, options?: RequestOptions) =>

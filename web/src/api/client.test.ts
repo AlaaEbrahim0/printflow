@@ -132,7 +132,7 @@ describe('typed client over the mock network', () => {
     expect(sheet.state).toBe('valid')
     expect(sheet.stale).toBe(false)
     expect(sheet.widthPx).toBe(6850)
-    expect(sheet.integrityReport?.checks).toHaveLength(4)
+    expect(sheet.integrityReport?.checks).toHaveLength(5)
     const detail = await api.batches.get(northgate.id)
     expect(detail.sheet?.revision).toBe(sheet.revision)
     expect(detail.status).toBe('exported')

@@ -218,7 +218,7 @@ export class MockStore {
   /** Public entry point used by the step handlers. */
   proposeStep(
     designId: string,
-    type: 'trim' | 'upscale' | 'vectorize' | 'background-removal' | 'resize',
+    type: 'trim' | 'upscale' | 'resize',
     parameters: Record<string, unknown>,
   ): JobAccepted {
     const stepType: StepType =
@@ -502,9 +502,10 @@ export class MockStore {
       }
       case 'background-removal': {
         const mode = String(parameters.mode ?? 'ai')
-        version.variant = mode === 'none' ? 'with-bg' : 'transparent'
-        version.hasAlpha = mode !== 'none'
-        version.hasMask = mode !== 'none'
+        const reusesMask = typeof parameters.maskFromVersionId === 'string'
+        version.variant = mode === 'none' && !reusesMask ? 'with-bg' : 'transparent'
+        version.hasAlpha = mode !== 'none' || reusesMask
+        version.hasMask = mode !== 'none' || reusesMask
         break
       }
       case 'resize': {
@@ -780,16 +781,6 @@ export class MockStore {
           paddingPx: 12,
           tolerance: 24,
         },
-        backgroundRemoval: {
-          mode: current.hasAlpha ? 'none' : flat ? 'color-to-alpha' : 'ai',
-          keyColor: flat ? '#0b0b0b' : null,
-          reason: current.hasAlpha
-            ? 'The source already carries alpha; only brush cleanup is needed.'
-            : flat
-              ? 'A single flat key color borders the artwork on all sides.'
-              : 'Soft smoke gradients need an AI cutout rather than a color key.',
-          confidence: current.hasAlpha ? 0.42 : 0.81,
-        },
         upscale: {
           model: flat ? 'realesrgan-x4plus-anime' : 'realesrgan-x4plus',
           scale: (dpi ?? 300) < 120 ? 4 : 2,
@@ -798,13 +789,6 @@ export class MockStore {
               ? `Effective DPI at the target size is ${Math.round(dpi)}.`
               : 'Resolution already meets the working DPI.',
           confidence: dpi !== null && dpi < 150 ? 0.9 : 0.35,
-        },
-        vectorize: {
-          recommended: flat,
-          reason: flat
-            ? 'High flat-color ratio and few unique colors make this a good vector candidate.'
-            : 'Continuous-tone artwork would not vectorize faithfully.',
-          confidence: flat ? 0.88 : 0.22,
         },
       },
     }
@@ -1957,11 +1941,22 @@ export function integrityReportFor(
       message: 'Mock packer renders each placement from the approved version file, untranslated and unresampled.',
       details: { rotations: sheet.placements.map((item) => item.rotationDeg) },
     },
+    {
+      id: 'all-designs-placed',
+      blocking: true,
+      status: 'passed',
+      message: `All ${sheet.placements.length} requested design(s) are placed.`,
+      details: {
+        requestedDesignCount: sheet.placements.length,
+        placedDesignCount: sheet.placements.length,
+        unplacedDesigns: [],
+      },
+    },
   ]
 
   const passed = checks.every((check) => check.status === 'passed')
   return {
-    schemaVersion: '1.0',
+    schemaVersion: '2.0',
     reportId: uuid(),
     generatedAt: isoNow(),
     passed,

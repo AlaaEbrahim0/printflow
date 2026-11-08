@@ -48,7 +48,7 @@ function check(id: IntegrityCheck['id'], status: IntegrityCheck['status']): Inte
 
 function report(checks: IntegrityCheck[], passed = checks.every((c) => c.status === 'passed')): IntegrityReport {
   return {
-    schemaVersion: '1.0',
+    schemaVersion: '2.0',
     reportId: 'report-1',
     generatedAt: '2026-11-05T00:00:00Z',
     passed,
@@ -76,6 +76,7 @@ function sheetFor(overrides: Partial<Sheet> = {}): Sheet {
       check('dilated-masks-no-overlap', 'passed'),
       check('minimum-gap', 'passed'),
       check('pixel-equality', 'passed'),
+      check('all-designs-placed', 'passed'),
     ]),
     stale: false,
     estimatedCost: { amount: 34, currency: 'EUR' },
@@ -236,6 +237,7 @@ describe('canExport', () => {
         check('dilated-masks-no-overlap', 'passed'),
         check('minimum-gap', 'skipped'),
         check('pixel-equality', 'passed'),
+        check('all-designs-placed', 'passed'),
       ]),
     })
     expect(canExport(blocked).reason).toBe('failed')
@@ -247,21 +249,22 @@ describe('integritySummary', () => {
     const summary = integritySummary(null)
     expect(summary.status).toBe('none')
     expect(summary.passed).toBe(false)
-    expect(summary.skippedChecks).toHaveLength(4)
+    expect(summary.skippedChecks).toHaveLength(5)
   })
 
-  it('maps all four checks and passes when every one passes', () => {
+  it('maps all five checks and passes when every one passes', () => {
     const summary = integritySummary(
       report([
         check('visible-pixels-inside-sheet', 'passed'),
         check('dilated-masks-no-overlap', 'passed'),
         check('minimum-gap', 'passed'),
         check('pixel-equality', 'passed'),
+        check('all-designs-placed', 'passed'),
       ]),
     )
     expect(summary.status).toBe('passed')
     expect(summary.passed).toBe(true)
-    expect(Object.keys(summary.checks)).toHaveLength(4)
+    expect(Object.keys(summary.checks)).toHaveLength(5)
   })
 
   it('treats a skipped blocking check as NOT passed', () => {
@@ -271,6 +274,7 @@ describe('integritySummary', () => {
         check('dilated-masks-no-overlap', 'passed'),
         check('minimum-gap', 'skipped'),
         check('pixel-equality', 'passed'),
+        check('all-designs-placed', 'passed'),
       ]),
     )
     expect(summary.status).toBe('skipped')
@@ -285,6 +289,7 @@ describe('integritySummary', () => {
         check('dilated-masks-no-overlap', 'failed'),
         check('minimum-gap', 'passed'),
         check('pixel-equality', 'passed'),
+        check('all-designs-placed', 'passed'),
       ]),
     )
     expect(summary.status).toBe('failed')

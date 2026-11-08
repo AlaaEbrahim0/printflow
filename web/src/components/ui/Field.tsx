@@ -1,5 +1,4 @@
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react'
-import '../styles/ui.css'
 
 function Wrapper({
   label,

@@ -21,12 +21,13 @@ import { snapCentimeters } from './units'
 
 export type Rotation = 0 | 90 | 180 | 270
 
-/** The four blocking integrity checks from ARCHITECTURE §8.2. */
+/** The five blocking integrity checks from ARCHITECTURE §8.2. */
 export const INTEGRITY_CHECK_IDS = [
   'visible-pixels-inside-sheet',
   'dilated-masks-no-overlap',
   'minimum-gap',
   'pixel-equality',
+  'all-designs-placed',
 ] as const
 
 export type IntegrityCheckId = (typeof INTEGRITY_CHECK_IDS)[number]
@@ -245,7 +246,7 @@ export interface IntegritySummary {
 
 /**
  * A small typed view of a report. `skipped` is always treated as NOT passed, and
- * a missing check for one of the four required ids counts as skipped. This is
+ * a missing check for one of the five required ids counts as skipped. This is
  * the single source of truth the UI reads, so it can never claim "passed" on an
  * unchecked/stale sheet or on a report where a blocking check was skipped.
  */

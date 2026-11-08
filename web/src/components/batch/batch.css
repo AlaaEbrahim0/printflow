@@ -1,0 +1,155 @@
+.batch-card {
+  display: grid;
+  gap: 14px;
+}
+
+.design-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.design-card.is-excluded {
+  opacity: 0.72;
+}
+
+.design-name {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.design-thumb {
+  height: 190px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.design-thumb .alpha-preview {
+  min-height: 100%;
+}
+
+.design-facts,
+.design-actions {
+  display: grid;
+  gap: 9px;
+}
+
+.design-actions {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+.design-actions .btn {
+  white-space: normal;
+}
+
+.dpi-note {
+  margin: 0;
+  color: var(--warn);
+  font-size: 0.78rem;
+}
+
+.dpi-note.strong {
+  color: var(--bad);
+}
+
+.breadcrumb {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.breadcrumb a {
+  color: inherit;
+}
+
+.breadcrumb a:hover {
+  color: var(--accent);
+}
+
+.workflow-controls {
+  display: grid;
+  gap: 16px;
+}
+
+.version-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.sheet-preview {
+  display: block;
+  width: 100%;
+  max-height: 78vh;
+  object-fit: contain;
+  margin: 0 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--ink);
+}
+
+.integrity-checks,
+.placement-list {
+  display: grid;
+  gap: 8px;
+}
+
+.integrity-checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.integrity-checks li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+
+.placement-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) repeat(2, minmax(100px, 140px)) auto auto;
+  align-items: end;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.placement-name {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 700px) {
+  .version-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .placement-row {
+    grid-template-columns: repeat(2, minmax(100px, 1fr));
+  }
+
+  .placement-name {
+    grid-column: 1 / -1;
+  }
+}
