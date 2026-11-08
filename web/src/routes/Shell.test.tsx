@@ -31,7 +31,7 @@ describe('workbench shell', () => {
     expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Batches' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument()
-    expect(screen.getByText('contract 1.0.0')).toBeInTheDocument()
+    expect(screen.getByText('contract 2.0.0')).toBeInTheDocument()
     expect(screen.getByText(/machine proposes, the human approves/)).toBeInTheDocument()
   })
 

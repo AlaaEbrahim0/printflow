@@ -379,3 +379,17 @@ dialog.modal::backdrop {
   display: grid;
   gap: 8px;
 }
+
+/* Visible to screen readers only. Used for state that is already conveyed by
+   an icon or colour on screen, so the meaning is not lost when colour is. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

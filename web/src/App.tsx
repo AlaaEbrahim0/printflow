@@ -6,6 +6,7 @@ import SettingsPage from './routes/SettingsPage'
 import SheetPage from './routes/SheetPage'
 import { SettingsProvider } from './state/SettingsContext'
 import { HealthDot } from './components/ui/HealthDot'
+import { ContractBadge } from './components/ui/ContractBadge'
 import './styles/shell.css'
 import './styles/ui.css'
 
@@ -31,7 +32,7 @@ export function WorkbenchRoutes() {
         </nav>
         <div className="topbar-meta">
           <HealthDot />
-          <span className="pill">contract 1.0.0</span>
+          <ContractBadge />
         </div>
       </header>
 

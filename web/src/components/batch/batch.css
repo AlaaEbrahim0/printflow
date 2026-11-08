@@ -3,10 +3,224 @@
   gap: 14px;
 }
 
+/* Export artifacts: the flat PNG is the file the shop prints, so each one is
+   named for its purpose and sized as a full-width download target. */
+.artifact-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.artifact-link {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--paper);
+  text-decoration: none;
+  transition: border-color 120ms ease;
+}
+
+.artifact-link:hover {
+  border-color: var(--accent);
+}
+
+.artifact-link strong {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+/* Five-stage spine shared by every workflow page. Horizontal while there is
+   room, wrapping to a stacked list on narrow screens so the labels never
+   squeeze into unreadable slivers. */
+.workflow-stepper ol {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workflow-stage {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.workflow-mark {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  font-size: 0.68rem;
+  line-height: 1;
+  color: var(--dim);
+}
+
+.workflow-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workflow-text strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.workflow-text span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.workflow-stage.is-done {
+  border-color: color-mix(in srgb, var(--good) 45%, var(--line));
+}
+
+.workflow-stage.is-done .workflow-mark {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.workflow-stage.is-current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.workflow-stage.is-current .workflow-mark {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.workflow-stage.is-blocked {
+  border-color: color-mix(in srgb, var(--bad) 55%, var(--line));
+}
+
+.workflow-stage.is-blocked .workflow-mark {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+/* Batch list controls: the default view is "needs action" because that is what
+   a shop operator is actually looking for when they open the workbench. */
+.batch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.batch-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.batch-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.batch-filter:hover {
+  border-color: var(--line-strong);
+  color: var(--paper);
+}
+
+.batch-filter.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--paper);
+}
+
+.batch-filter-count {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--dim);
+}
+
+.batch-filter.is-active .batch-filter-count {
+  color: var(--accent);
+}
+
+.batch-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  max-width: 320px;
+}
+
+/* The single most useful line on a batch card: what to do next, not just the
+   counts. Tone matches the rest of the chip palette. */
+.batch-next {  display: grid;
+  gap: 3px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--line-strong);
+  background: var(--panel-2);
+}
+
+.batch-next strong {
+  font-size: 0.87rem;
+}
+
+.batch-next span {
+  color: var(--muted);
+  font-size: 0.79rem;
+  line-height: 1.4;
+}
+
+.batch-next.info {
+  border-left-color: var(--info);
+}
+
+.batch-next.good {
+  border-left-color: var(--good);
+}
+
+.batch-next.warn {
+  border-left-color: var(--warn);
+}
+
 .design-card {
   display: grid;
   align-content: start;
   gap: 12px;
+}
+
+/* Design groups: needs-work first, then ready, then excluded. */
+.design-group {
+  margin-bottom: 18px;
+}
+
+.design-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
 }
 
 .design-card.is-excluded {
@@ -88,6 +302,90 @@
   overflow-wrap: anywhere;
 }
 
+/* Two mutually exclusive intake paths: the operator picks one instead of
+   facing two upload forms that look equally applicable. */
+.intake-paths {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+
+.intake-path {
+  display: grid;
+  gap: 5px;
+  padding: 11px 13px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--paper);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.intake-path:hover {
+  border-color: var(--line-strong);
+}
+
+.intake-path.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.intake-path strong {
+  font-size: 0.9rem;
+}
+
+.intake-path span {
+  color: var(--muted);
+  font-size: 0.79rem;
+  line-height: 1.4;
+}
+
+.intake-panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.intake-panel-title {
+  margin-bottom: 8px;
+  font-size: 0.92rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* Names of the designs actually blocking the pack, each linking to its review
+   page — the generic "3 designs are not ready" sentence is not actionable. */
+.readiness-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.83rem;
+}
+
+.readiness-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.readiness-list a {
+  color: inherit;
+}
+
+.readiness-list a:hover {
+  color: var(--accent);
+}
+
 .workflow-controls {
   display: grid;
   gap: 16px;
@@ -135,13 +433,30 @@
 
 .integrity-checks li {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  padding: 7px 0;
+  padding: 9px 0;
   border-bottom: 1px solid var(--line);
-  font-family: var(--mono);
-  font-size: 0.75rem;
+}
+
+.integrity-check-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.integrity-check-label {
+  font-size: 0.86rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.integrity-check-detail {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .placement-row {
@@ -158,6 +473,35 @@
   gap: 4px;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* The layout-selection list is a checkbox list, not a placement editor, so it
+   gets its own row shape instead of borrowing the coordinate grid. */
+.layout-design-list {
+  display: grid;
+  gap: 2px;
+}
+
+.layout-design-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.layout-design-row:first-child {
+  border-top: 0;
+}
+
+.layout-design-row input {
+  flex: none;
+  margin: 0;
+}
+
+.layout-design-row .placement-name {
+  flex: 1;
 }
 
 @media (max-width: 700px) {

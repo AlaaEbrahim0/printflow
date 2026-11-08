@@ -1,5 +1,5 @@
 /**
- * Contract ranges from `contracts/openapi/printsheet-api.yaml` (frozen 1.0.0).
+ * Contract ranges from `contracts/openapi/printsheet-api.yaml` (frozen 2.0.0).
  * Kept in one place so client-side validation mirrors the server instead of
  * inventing numbers: roll 1–500 cm, margins 0–500 mm, working DPI 72–1200,
  * name 1–200 characters, currency exactly 3 characters.

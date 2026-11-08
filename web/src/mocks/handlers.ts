@@ -149,8 +149,8 @@ export const handlers = [
     guarded(() =>
       jsonBody({
         service: 'printsheet-api',
-        version: '1.0.0-mock',
-        contractVersion: '1.0.0',
+        version: '2.0.0-mock',
+        contractVersion: '2.0.0',
         phase: 1,
       }),
     ),

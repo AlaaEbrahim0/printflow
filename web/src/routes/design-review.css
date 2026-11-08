@@ -103,6 +103,30 @@
   font-size: 0.78rem;
 }
 
+/* What approving this proposal would change, stated before the buttons. */
+.proposal-diff {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+.proposal-diff dt {
+  padding-top: 3px;
+}
+
+/* A step whose result is already part of the current artwork. The chip in the
+   summary states it in words, so the border is only reinforcement. */
+.pipeline-step.is-done {
+  border-color: color-mix(in srgb, var(--good) 40%, var(--line));
+}
+
+.pipeline-step.is-done .pipeline-number {
+  border-color: var(--good);
+  color: var(--good);
+}
+
 .pipeline-content {
   padding: 0 12px 14px 54px;
 }
@@ -118,6 +142,61 @@
 
 .compact-details[open] > summary {
   margin-bottom: 12px;
+}
+
+/* "Can this be packed?" — the four conditions a design must satisfy, each
+   marked done or open, so the operator sees the rule instead of a bare status
+   word. Open steps carry the fix, not just the failure. */
+.readiness-steps {
+  display: grid;
+  gap: 2px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.readiness-steps li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.83rem;
+}
+
+.readiness-steps li:first-child {
+  border-top: 0;
+}
+
+.readiness-steps li > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.readiness-steps li strong {
+  font-weight: 600;
+}
+
+.readiness-steps li span:not(.readiness-mark):not(.sr-only) {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.readiness-mark {
+  font-size: 0.9rem;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.readiness-steps .is-done .readiness-mark {
+  color: var(--good);
+}
+
+.readiness-steps .is-open .readiness-mark {
+  color: var(--warn);
 }
 
 @media (prefers-reduced-motion: reduce) {

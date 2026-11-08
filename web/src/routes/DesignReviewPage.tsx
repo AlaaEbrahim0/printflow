@@ -9,7 +9,9 @@ import { CheckboxField, NumberField, SelectField } from '../components/ui/Field'
 import { EmptyState, ErrorState, Loading } from '../components/ui/States'
 import CropTool from '../components/crop/CropTool'
 import { useAsync, useJobPoller } from '../hooks/useAsync'
-import { formatPixels, shortId, stepLabel } from '../lib/format'
+import { formatPixels, shortId, statusLabel, stepLabel } from '../lib/format'
+import { reviewReadiness } from '../components/batch/reviewReadiness'
+import { pipelineStatus } from '../components/batch/pipelineStatus'
 import { DEFAULT_PREVIEW_BACKGROUND, previewBackgroundFor, type PreviewBackground } from '../lib/preview'
 import { useSettings } from '../state/SettingsContext'
 import './design-review.css'
@@ -44,6 +46,53 @@ function formatElapsed(milliseconds: number): string {
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
   return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+/**
+ * Job type in words.
+ *
+ * The raw type is API vocabulary (`background-removal`), and the old
+ * `replaceAll` fallback produced lowercase fragments like "resize". These are
+ * the types an operator can still queue; retired ones stay readable.
+ */
+const JOB_LABELS: Record<string, string> = {
+  classify: 'Artwork analysis',
+  trim: 'Auto crop',
+  crop: 'Manual crop',
+  upscale: 'Image enhancement',
+  resize: 'Final resize',
+  'background-removal': 'Background removal (retired)',
+  vectorize: 'Vectorize (retired)',
+  'pack-sheet': 'Packing sheet',
+  'integrity-check': 'Integrity check',
+  export: 'Export',
+}
+
+function jobLabel(type: string): string {
+  return JOB_LABELS[type] ?? statusLabel(type)
+}
+
+/**
+ * One sentence on what approving a proposal of this type actually does.
+ *
+ * Approval is the irreversible-feeling action on this page (the version becomes
+ * current and feeds the sheet), so the consequence is spelled out instead of
+ * left to be inferred from the step name.
+ */
+const PROPOSAL_EFFECTS: Record<string, string> = {
+  trim: 'Removes the cropped edge from the printable artwork. The original stays available in version history.',
+  crop: 'Replaces the printable area with the rectangle you drew. The original stays available in version history.',
+  upscale: 'Replaces the current image with the enlarged one. AI enlargement adds pixels, not original detail, so compare it with the original first.',
+  resize: 'Sets the final pixel size that the packer will place. This is the version that gets printed.',
+  'background-removal': 'Retired step. This historical version stays readable but cannot be produced again.',
+  vectorize: 'Retired step. This historical version stays readable but cannot be produced again.',
+}
+
+function proposalEffect(stepType: string): string {
+  return (
+    PROPOSAL_EFFECTS[stepType] ??
+    'Makes this version current, so it becomes the artwork that gets packed and printed.'
+  )
 }
 
 export default function DesignReviewPage() {
@@ -177,6 +226,8 @@ export default function DesignReviewPage() {
 
   const canPropose = !proposal && !busy && job?.status !== 'queued' && job?.status !== 'running'
   const currentDetails = versionFor(design, current.id)
+  const readiness = reviewReadiness(design)
+  const pipeline = pipelineStatus(design.versions, design.currentVersionId)
   const sourceDpi = data?.suggestions.status === 'ready'
     ? data.suggestions.source?.effectiveDpiAtTarget
     : null
@@ -194,7 +245,9 @@ export default function DesignReviewPage() {
           </p>
           <h1 className="page-title">{design.name}</h1>
           <p className="page-subtitle">
-            {design.status} · {design.versionCount} immutable versions · current {stepLabel(current.stepType)}
+            {statusLabel(design.status)} · {design.versionCount} immutable{' '}
+            {design.versionCount === 1 ? 'version' : 'versions'} · current version is{' '}
+            {stepLabel(current.stepType).toLowerCase()}
           </p>
         </div>
         <div className="row">
@@ -210,7 +263,7 @@ export default function DesignReviewPage() {
         <section className={`card job-progress ${jobActive ? 'is-active' : ''}`} aria-label="Job progress">
           <div className="card-heading">
             <div className="row">
-              <strong>{job.type === 'upscale' ? 'Image enhancement' : job.type.replaceAll('-', ' ')}</strong>
+              <strong>{jobLabel(job.type)}</strong>
               <StatusChip status={job.status} />
             </div>
             {job.status === 'queued' ? (
@@ -247,7 +300,7 @@ export default function DesignReviewPage() {
               {job.error?.message
                 ?? (job.status === 'succeeded'
                   ? `Finished${job.durationMs == null ? '' : ` in ${formatElapsed(job.durationMs)}`}. Review the proposal before approving.`
-                  : `Job ${job.status}.`)}
+                  : `${statusLabel(job.status)}.`)}
             </p>
           )}
         </section>
@@ -259,6 +312,30 @@ export default function DesignReviewPage() {
         onChange={setBackground}
         garmentHex={design.garmentColor.hex}
       />
+
+      <section className="card readiness-card" aria-labelledby="readiness-title">
+        <div className="card-heading">
+          <h2 className="card-title" id="readiness-title">
+            Can this be packed?
+          </h2>
+          <Chip tone={readiness.packable ? 'good' : 'warn'}>{readiness.headline}</Chip>
+        </div>
+        <p className="hint">{readiness.detail}</p>
+        <ul className="readiness-steps">
+          {readiness.steps.map((step) => (
+            <li key={step.id} className={step.done ? 'is-done' : 'is-open'} data-step={step.id}>
+              <span className="readiness-mark" aria-hidden="true">
+                {step.done ? '✓' : '○'}
+              </span>
+              <div>
+                <strong>{step.label}</strong>
+                {step.blockedBy ? <span>{step.blockedBy}</span> : null}
+              </div>
+              <span className="sr-only">{step.done ? 'done' : 'not done'}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <div className="split">
         <section className="card">
@@ -313,6 +390,20 @@ export default function DesignReviewPage() {
               <p className="mono muted">
                 {stepLabel(proposal.stepType)} · {formatPixels(proposal.widthPx)} × {formatPixels(proposal.heightPx)} · {shortId(proposal.id)}
               </p>
+              <dl className="kv proposal-diff">
+                <dt>Pixels</dt>
+                <dd>
+                  {proposal.widthPx === current.widthPx && proposal.heightPx === current.heightPx
+                    ? `${formatPixels(current.widthPx)} × ${formatPixels(current.heightPx)} — unchanged`
+                    : `${formatPixels(current.widthPx)} × ${formatPixels(current.heightPx)} → ${formatPixels(proposal.widthPx)} × ${formatPixels(proposal.heightPx)}`}
+                </dd>
+                <dt>Step</dt>
+                <dd>
+                  {stepLabel(current.stepType)} → {stepLabel(proposal.stepType)}
+                </dd>
+                <dt>If approved</dt>
+                <dd>{proposalEffect(proposal.stepType)}</dd>
+              </dl>
               <div className="row">
                 <button
                   type="button"
@@ -369,11 +460,17 @@ export default function DesignReviewPage() {
           <p className="hint">Choose a step, review its proposal, then continue. Every step is optional and keeps the original safe.</p>
         </div>
         <ol className="pipeline">
-          <li className="pipeline-step">
+          <li className={`pipeline-step${pipeline.prepared ? ' is-done' : ''}`}>
             <details>
               <summary>
                 <span className="pipeline-number">1</span>
-                <span><strong>Prepare artwork</strong><small>Crop unwanted edges</small></span>
+                <span>
+                  <strong>Prepare artwork</strong>
+                  <small>
+                    {pipeline.prepared ? 'Cropped — done for this design' : 'Crop unwanted edges'}
+                  </small>
+                </span>
+                {pipeline.prepared ? <Chip tone="good">done</Chip> : null}
               </summary>
               <div className="pipeline-content row">
                 <button
@@ -400,11 +497,19 @@ export default function DesignReviewPage() {
             </details>
           </li>
 
-          <li className="pipeline-step">
-            <details open>
+          <li className={`pipeline-step${pipeline.enhanced ? ' is-done' : ''}`}>
+            <details open={!pipeline.enhanced}>
               <summary>
                 <span className="pipeline-number">2</span>
-                <span><strong>Enhance resolution</strong><small>Real-ESRGAN · usually seconds on GPU</small></span>
+                <span>
+                  <strong>Enhance resolution</strong>
+                  <small>
+                    {pipeline.enhanced
+                      ? 'Upscaled — compare with the original before approving'
+                      : 'Real-ESRGAN · usually seconds on GPU'}
+                  </small>
+                </span>
+                {pipeline.enhanced ? <Chip tone="good">done</Chip> : null}
               </summary>
               <div className="pipeline-content stack-sm">
                 {sourceDpi != null ? (
@@ -450,11 +555,19 @@ export default function DesignReviewPage() {
             </details>
           </li>
 
-          <li className="pipeline-step">
-            <details>
+          <li className={`pipeline-step${pipeline.sized ? ' is-done' : ''}`}>
+            <details open={!pipeline.sized}>
               <summary>
                 <span className="pipeline-number">3</span>
-                <span><strong>Set print size</strong><small>Final physical dimensions and resolution</small></span>
+                <span>
+                  <strong>Set print size</strong>
+                  <small>
+                    {pipeline.sized
+                      ? 'Final size set — this is what the packer will use'
+                      : 'Final physical dimensions and resolution'}
+                  </small>
+                </span>
+                {pipeline.sized ? <Chip tone="good">done</Chip> : null}
               </summary>
               <div className="pipeline-content stack-sm">
                 <div className="row">

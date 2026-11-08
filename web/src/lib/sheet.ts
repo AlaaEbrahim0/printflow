@@ -33,6 +33,50 @@ export const INTEGRITY_CHECK_IDS = [
 export type IntegrityCheckId = (typeof INTEGRITY_CHECK_IDS)[number]
 
 /**
+ * Operator-facing wording for each blocking check.
+ *
+ * The schema ids are stable identifiers meant for logs and support tickets; on
+ * screen they read as gibberish. Every surface that lists checks shows `label`
+ * and keeps `id` available in a `title`/`code` attribute so a failure can still
+ * be quoted back to whoever wrote the report.
+ */
+export interface IntegrityCheckCopy {
+  label: string
+  description: string
+}
+
+export const INTEGRITY_CHECK_COPY: Record<IntegrityCheckId, IntegrityCheckCopy> = {
+  'visible-pixels-inside-sheet': {
+    label: 'Artwork is on the sheet',
+    description: 'No visible pixel of any design falls outside the printable area.',
+  },
+  'dilated-masks-no-overlap': {
+    label: 'No two designs overlap',
+    description: 'Each design silhouette, grown by the gap margin, stays clear of the others.',
+  },
+  'minimum-gap': {
+    label: 'Cut gaps are wide enough',
+    description: 'Neighbouring designs are at least the required distance apart for clean cutting.',
+  },
+  'pixel-equality': {
+    label: 'Printed pixels match the approved files',
+    description: 'The rendered sheet reproduces each approved version exactly, with no resampling.',
+  },
+  'all-designs-placed': {
+    label: 'Every selected design is placed',
+    description: 'Nothing from this layout selection was dropped or silently omitted.',
+  },
+}
+
+export function integrityCheckLabel(id: IntegrityCheckId): string {
+  return INTEGRITY_CHECK_COPY[id].label
+}
+
+export function integrityCheckDescription(id: IntegrityCheckId): string {
+  return INTEGRITY_CHECK_COPY[id].description
+}
+
+/**
  * A placement rectangle in cm. `Placement` (server) and locally edited copies
  * both satisfy this, so the math below never depends on the fuller server type.
  */

@@ -77,6 +77,50 @@ export function statusLabel(status: string): string {
     .join(' ')
 }
 
+/**
+ * Why the packer left a design off the sheet, in words an operator can act on.
+ *
+ * The packer reports machine codes (`exceeds-roll`, `no-legal-placement`) and
+ * the API adds `not-selected` for designs the operator left out of the layout.
+ * Showing the raw code is technically accurate and practically useless, so
+ * every known code gets an actionable sentence. Unknown codes fall back to the
+ * de-hyphenated text rather than being hidden.
+ */
+const UNPLACED_REASONS: Record<string, string> = {
+  'not-selected': 'Not selected for this layout.',
+  'exceeds-roll':
+    'Wider than the roll in every allowed rotation. Reduce the target width or turn rotation on.',
+  'no-legal-placement':
+    'No clear spot was found. Repack, or exclude another design to free up space.',
+  'no-visible-pixels':
+    'The approved file is fully transparent, so there is nothing to print.',
+  'no-feasible-rotation': 'No allowed rotation fits inside the roll.',
+}
+
+export function describeUnplacedReason(reason: string | null | undefined): string {
+  if (!reason) return 'The packer did not report a reason.'
+  return UNPLACED_REASONS[reason] ?? statusLabel(reason)
+}
+
+/**
+ * Human names for export artifacts.
+ *
+ * The API names artifacts by role (`flat`, `layered`, `manifest`). "Download
+ * flat" tells an operator nothing about what they are getting, and the flat PNG
+ * is the file they actually print, so it is named for its purpose.
+ */
+const ARTIFACT_LABELS: Record<string, string> = {
+  flat: 'Print sheet PNG',
+  layered: 'Layered file',
+  preview: 'Preview image',
+  manifest: 'Placement manifest',
+  jsx: 'Photoshop script',
+}
+
+export function artifactLabel(name: string): string {
+  return ARTIFACT_LABELS[name] ?? statusLabel(name)
+}
+
 /** Short, stable id chip for audit trails without dumping whole UUIDs. */
 export function shortId(id: string | null | undefined): string {
   if (!id) return '—'

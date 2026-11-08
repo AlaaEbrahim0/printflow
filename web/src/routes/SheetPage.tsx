@@ -11,6 +11,8 @@ import {
 } from '../api/client'
 import { ApiError } from '../api/problem'
 import { evaluatePackReadiness } from '../components/batch/packReadiness'
+import { WorkflowStepper } from '../components/batch/WorkflowStepper'
+import { workflowProgress } from '../components/batch/workflowProgress'
 import { Banner, ErrorBanner } from '../components/ui/Banner'
 import { Chip, StatusChip, StaleChip } from '../components/ui/Chip'
 import { EmptyState, ErrorState, Loading } from '../components/ui/States'
@@ -20,11 +22,19 @@ import {
   clampPlacement,
   collidingDesignIds,
   INTEGRITY_CHECK_IDS,
+  integrityCheckDescription,
+  integrityCheckLabel,
   integritySummary,
   rotateBy90,
   toManualPlacements,
 } from '../lib/sheet'
-import { formatCentimeters, formatMoney } from '../lib/format'
+import {
+  artifactLabel,
+  describeUnplacedReason,
+  formatCentimeters,
+  formatMoney,
+  statusLabel,
+} from '../lib/format'
 
 interface PlacementDraft {
   xCm: number
@@ -133,6 +143,17 @@ export default function SheetPage() {
     )?.details?.unplacedDesigns
     return Array.isArray(raw) ? (raw as Array<{ designId: string; reason: string }>) : []
   })()
+  // Reports identify designs by id; operators know them by name. Fall back to
+  // the id only when the design is no longer part of the batch.
+  const designNameById = new Map((batch?.designs ?? []).map((design) => [design.id, design.name]))
+  const unplacedLabel = (designId: string) => designNameById.get(designId) ?? designId
+  // An export only counts as done when it is for *this* revision; an older
+  // export of a repacked sheet must not tick the final stage.
+  const exported =
+    sheet !== null &&
+    [...(data?.exports ?? []), ...(latestExport ? [latestExport] : [])].some(
+      (item) => item.sheetRevision === sheet.revision && item.status === 'succeeded',    )
+  const progress = batch ? workflowProgress({ batch, sheet, exported }) : null
 
   async function queueJob(kind: 'pack' | 'integrity' | 'export', start: () => Promise<{ jobId: string }>) {
     setBusy(true)
@@ -229,15 +250,23 @@ export default function SheetPage() {
         </div>
       </header>
 
+      {progress ? <WorkflowStepper progress={progress} /> : null}
+
       {readiness.blockingReason ? (
         <Banner kind="warn" title="Packing is blocked">{readiness.blockingReason}</Banner>
       ) : null}
       {error ? <ErrorBanner error={error} title="Sheet action failed" /> : null}
       {jobPollError ? <ErrorBanner error={jobPollError} title="Could not check sheet job" /> : null}
       {job ? (
-        <Banner kind={job.status === 'failed' ? 'error' : 'info'} title={`${displayJobName(job.type)} job`}>
-          {job.status}
-          {job.error ? `: ${job.error.message}` : ''}
+        <Banner
+          kind={job.status === 'failed' ? 'error' : 'info'}
+          title={`${displayJobName(job.type)}: ${statusLabel(job.status).toLowerCase()}`}
+        >
+          {job.error
+            ? job.error.message
+            : job.status === 'succeeded'
+              ? 'Finished. Review the result below before continuing.'
+              : 'This runs in the background; the page updates when it finishes.'}
         </Banner>
       ) : null}
       {state.kind === 'reloading' ? <p className="mono muted">Refreshing sheet state…</p> : null}
@@ -250,11 +279,11 @@ export default function SheetPage() {
         <p className="hint">
           Every non-excluded design must be ready before packing. Select a subset to preview a partial layout; omitted designs are not included in this sheet.
         </p>
-        <div className="placement-list">
+        <div className="layout-design-list">
           {readiness.included.map((design) => {
             const checked = selectedIds.includes(design.id)
             return (
-              <label className="placement-row" key={design.id}>
+              <label className="layout-design-row" key={design.id}>
                 <input
                   type="checkbox"
                   checked={checked}
@@ -274,7 +303,8 @@ export default function SheetPage() {
                     {design.targetWidthCm && design.targetHeightCm
                       ? `${design.targetWidthCm} × ${design.targetHeightCm} cm target`
                       : 'No explicit target box'}
-                    {' · '}{design.status}
+                    {' · '}
+                    {statusLabel(design.status)}
                   </span>
                 </span>
               </label>
@@ -311,6 +341,10 @@ export default function SheetPage() {
                 <dd>{sheet.widthPx} × {sheet.heightPx} px</dd>
                 <dt>Physical</dt>
                 <dd>{formatCentimeters(sheet.widthCm, 2)} × {formatCentimeters(sheet.heightCm, 2)}</dd>
+                <dt>Designs</dt>
+                <dd>{sheet.placements.length} placed</dd>
+                <dt>Cut gap</dt>
+                <dd>{batch.marginMm} mm between designs · {batch.edgeMarginMm} mm to the edge</dd>
                 <dt>Estimate</dt>
                 <dd>{formatMoney(sheet.estimatedCost)}</dd>
               </dl>
@@ -327,25 +361,43 @@ export default function SheetPage() {
                 All five blocking checks must pass for this exact revision before any export.
               </p>
               <ul className="integrity-checks">
-                {INTEGRITY_CHECK_IDS.map((checkId) => (
-                  <li key={checkId}>
-                    <span>{checkId}</span>
-                    <StatusChip status={integrity.checks[checkId]} />
-                  </li>
-                ))}
+                {INTEGRITY_CHECK_IDS.map((checkId) => {
+                  const result = integrity.checks[checkId]
+                  const failure = sheet.integrityReport?.failures.find(
+                    (item) => item.checkId === checkId,
+                  )
+                  return (
+                    <li key={checkId} data-check={checkId}>
+                      <div className="integrity-check-text">
+                        <span className="integrity-check-label">
+                          {integrityCheckLabel(checkId)}
+                        </span>
+                        <span className="integrity-check-detail" title={checkId}>
+                          {failure?.message ?? integrityCheckDescription(checkId)}
+                        </span>
+                      </div>
+                      <StatusChip status={result} />
+                    </li>
+                  )
+                })}
               </ul>
               {sheet.integrityReport && !sheet.integrityReport.passed ? (
                 <Banner kind="error" title="Integrity failed" strong>
-                  {sheet.integrityReport.failures.map((failure, index) => (
-                    <p key={`${failure.checkId}-${index}`}>{failure.message}</p>
-                  ))}
+                  {/* Each failing check already shows its own message in the list
+                      above, so this banner only summarises which ones failed
+                      rather than repeating the sentences twice. */}
+                  {sheet.integrityReport.failures
+                    .map((failure) => integrityCheckLabel(failure.checkId))
+                    .join(' · ')}
                 </Banner>
               ) : null}
               {unplacedDesigns.length > 0 ? (
                 <Banner kind="warn" title="Some designs were not placed">
                   <ul>
                     {unplacedDesigns.map((item) => (
-                      <li key={item.designId}>{item.designId}: {item.reason}</li>
+                      <li key={item.designId}>
+                        {unplacedLabel(item.designId)}: {describeUnplacedReason(item.reason)}
+                      </li>
                     ))}
                   </ul>
                   Select a smaller subset, update explicit target sizes, or exclude designs before repacking.
@@ -449,13 +501,37 @@ export default function SheetPage() {
             <h2 className="card-title">Latest export</h2>
             <StatusChip status={latestExport.status} />
           </div>
-          {latestExport.artifacts.map((artifact) => (
-            <p key={artifact.name}>
-              <a href={exportArtifactUrl(latestExport.id, artifact.name)} download>
-                Download {artifact.name} ({Math.ceil(artifact.sizeBytes / 1024)} KB)
+          <dl className="kv">
+            <dt>Revision</dt>
+            <dd>{latestExport.sheetRevision}</dd>
+            <dt>Resolution</dt>
+            <dd>{latestExport.dpi} DPI</dd>
+            {sheet ? (
+              <>
+                <dt>Pixel size</dt>
+                <dd>
+                  {sheet.widthPx} × {sheet.heightPx} px ·{' '}
+                  {formatCentimeters(sheet.widthCm, 2)} × {formatCentimeters(sheet.heightCm, 2)}
+                </dd>
+              </>
+            ) : null}
+          </dl>
+          <div className="artifact-list">
+            {latestExport.artifacts.map((artifact) => (
+              <a
+                key={artifact.name}
+                className="artifact-link"
+                href={exportArtifactUrl(latestExport.id, artifact.name)}
+                download
+              >
+                <strong>{artifactLabel(artifact.name)}</strong>
+                <span className="mono muted">{Math.ceil(artifact.sizeBytes / 1024)} KB</span>
               </a>
-            </p>
-          ))}
+            ))}
+          </div>
+          <p className="hint">
+            Files are downloaded as exported — nothing is resized or re-encoded on the way out.
+          </p>
         </section>
       ) : null}
 
@@ -470,7 +546,7 @@ export default function SheetPage() {
                   <StatusChip status={exportItem.status} />
                   {exportItem.artifacts.map((artifact) => (
                     <a key={artifact.name} href={exportArtifactUrl(exportItem.id, artifact.name)} download>
-                      {artifact.name}
+                      {artifactLabel(artifact.name)}
                     </a>
                   ))}
                 </div>

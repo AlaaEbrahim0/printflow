@@ -3,12 +3,14 @@ import type { BatchSummary } from '../../api/client'
 import { StatusChip } from '../ui/Chip'
 import { ProgressBar } from '../ui/States'
 import { formatCentimeters, formatDate } from '../../lib/format'
+import { nextStepFor } from './batchNextStep'
 import './batch.css'
 
 export function BatchCard({ batch }: { batch: BatchSummary }) {
   const included = batch.designCount - batch.excludedCount
   const percent = included > 0 ? Math.round((batch.readyCount / included) * 100) : 0
   const href = `/batches/${batch.id}`
+  const next = nextStepFor(batch)
 
   return (
     <article className="card batch-card" data-testid={`batch-card-${batch.name}`}>
@@ -19,6 +21,11 @@ export function BatchCard({ batch }: { batch: BatchSummary }) {
           </Link>
         </h2>
         <StatusChip status={batch.status} />
+      </div>
+
+      <div className={`batch-next ${next.tone}`}>
+        <strong>{next.label}</strong>
+        <span>{next.detail}</span>
       </div>
 
       <dl className="kv">
@@ -48,7 +55,7 @@ export function BatchCard({ batch }: { batch: BatchSummary }) {
       <ProgressBar percent={percent} label={`${batch.readyCount}/${included} designs ready`} />
 
       <div className="row row-end">
-        <Link className="btn sm" to={href}>
+        <Link className="btn sm primary" to={href}>
           Open batch
         </Link>
       </div>
