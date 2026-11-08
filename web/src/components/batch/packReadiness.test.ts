@@ -95,11 +95,23 @@ describe('evaluatePackReadiness', () => {
     expect(readiness.canPack).toBe(false)
   })
 
-  it('flags a design wider than the usable roll', () => {
-    // 58 cm roll minus 10 mm edge margins on both sides = 56 cm usable.
-    const readiness = evaluatePackReadiness(batch([design({ targetWidthCm: 57 })]))
+  it('flags a design whose narrowest allowed orientation is too wide', () => {
+    // 58 cm roll minus 10 mm edge margins on both sides = 56 cm usable. With
+    // rotation disabled the width is the only orientation, so 57 cm cannot fit.
+    const readiness = evaluatePackReadiness(
+      batch([design({ targetWidthCm: 57, allowRotation: false })]),
+    )
     expect(readiness.usableWidthCm).toBeCloseTo(56, 6)
     expect(readiness.overWide.map((item) => item.id)).toEqual(['d1'])
+  })
+
+  it('does not flag a wide design that rotation can rescue', () => {
+    // 57x12 cm cannot go across the roll, but the packer tries 90 degrees and
+    // places it 12 cm wide. Warning here told the operator to fix a non-problem.
+    const readiness = evaluatePackReadiness(
+      batch([design({ targetWidthCm: 57, targetHeightCm: 12, allowRotation: true })]),
+    )
+    expect(readiness.overWide).toHaveLength(0)
   })
 
   it('does not flag a design that exactly fills the usable width', () => {
@@ -123,8 +135,11 @@ describe('evaluatePackReadiness', () => {
   })
 
   it('reports over-wide separately from not-ready, since the fix differs', () => {
-    // An over-wide design can still be `ready`; only rotation or resizing helps.
-    const readiness = evaluatePackReadiness(batch([design({ targetWidthCm: 57 })]))
+    // An over-wide design can still be `ready`; only resizing helps, because
+    // rotation is already off.
+    const readiness = evaluatePackReadiness(
+      batch([design({ targetWidthCm: 57, allowRotation: false })]),
+    )
     expect(readiness.canPack).toBe(true)
     expect(readiness.overWide).toHaveLength(1)
   })

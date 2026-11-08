@@ -37,9 +37,21 @@ export function evaluatePackReadiness(batch: BatchDetail): PackReadiness {
   const ready = included.filter((design) => design.status === 'ready')
   const notReady = included.filter((design) => design.status !== 'ready')
   const usable = usableRollWidthCm(batch.rollWidthCm, batch.edgeMarginMm)
-  const overWide = included.filter(
-    (design) => design.targetWidthCm !== null && design.targetWidthCm !== undefined && design.targetWidthCm > usable,
-  )
+  // The packer tries every allowed rotation and skips the ones that do not fit,
+  // so a wide design is only hopeless when *no* rotation fits. With rotation
+  // allowed that means its shorter side; without it, its width. Flagging the
+  // width unconditionally warned about designs the packer places happily.
+  const narrowestWidth = (design: DesignSummary): number | null => {
+    if (design.targetWidthCm === null || design.targetWidthCm === undefined) return null
+    const width = design.targetWidthCm
+    const height = design.targetHeightCm
+    if (!design.allowRotation || height === null || height === undefined) return width
+    return Math.min(width, height)
+  }
+  const overWide = included.filter((design) => {
+    const width = narrowestWidth(design)
+    return width !== null && width > usable
+  })
 
   let blockingReason: string | null = null
   if (included.length === 0) {
