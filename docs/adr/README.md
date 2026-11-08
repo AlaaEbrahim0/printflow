@@ -5,9 +5,10 @@
 | [0001](0001-service-split-and-stack.md) | Service split and stack | Accepted |
 | [0002](0002-job-queue.md) | Database-backed job queue with leases | Accepted |
 | [0003](0003-layered-export-format.md) | Layered export format and PSD/PSB limits | Accepted |
-| [0004](0004-packer-algorithm.md) | Packer algorithm | Accepted |
+| [0004](0004-packer-algorithm.md) | Packer algorithm | Superseded by 0007 |
 | [0005](0005-storage-and-file-exchange.md) | Storage layout and file exchange | Accepted |
 | [0006](0006-immutable-versioning.md) | Immutable versioning and approval | Accepted |
+| [0007](0007-placement-guarantee-and-scope.md) | Placement guarantee, target fitting and retired steps | Accepted |
 
 ## Format
 

@@ -1,8 +1,9 @@
 # PrintSheet Workbench
 
 Internal, review-driven DTF print preparation. Staff upload a batch of customer
-designs, the system proposes trim, upscale, background removal, vectorization
-and final print sizing, and a human approves every step. Approved designs are
+designs, the system proposes trim, crop, Real-ESRGAN enhancement and final print
+sizing, and a human approves every step. Background removal and vectorization
+were retired in contract v2.0.0. Approved designs are
 nested onto a master sheet that is exactly **58 cm wide** (6850 px at 300 DPI);
 sheet height — and therefore print cost — is minimized. Every step creates an
 immutable version, originals are never overwritten, and export is blocked
@@ -10,10 +11,11 @@ unless a machine-readable integrity check passes.
 
 **Core rule: the machine proposes, the human approves, nothing is lost.**
 
-> Phase 0 status: skeletons, frozen contracts, architecture/domain docs, ADRs,
-> PSD spike and fixtures. The feature tracks (API domain, worker algorithms,
-> packer nesting, web wizard) start in Phase 1 and are **not implemented yet**.
-> See [`AGENTS.md`](AGENTS.md) for the exact handoff state.
+> Phase 3 image-quality validation is in progress. The API, worker, packer,
+> workbench screens, settings, lease-based packer runner and Compose stack are
+> implemented, and the fixture-backed intake-to-export flow passes with the
+> five-check v2.0 integrity report. GPU enhancement runs natively. See
+> [`AGENTS.md`](AGENTS.md) for current verification status.
 
 ---
 
@@ -44,12 +46,15 @@ credentials and the internal worker key. The defaults are development-only.
 ### What Compose runs
 
 - **api** — ASP.NET Core 10, PostgreSQL, storage at `/data/storage`.
-- **worker** — FastAPI skeleton, CPU-only, shares the storage volume.
+- **worker** — FastAPI image processor, CPU-only, claims image jobs and shares
+  the storage volume.
+- **packer** — lease-based runner for sheet packing, integrity checks and
+  exports; invokes the standalone packer CLI and shares storage.
 - **web** — Vite dev server.
 - **postgres** — persisted in the `postgres_data` volume.
 
-The packer is a library/CLI, not a Compose service in Phase 0/1. It is invoked
-by tests, benchmarks and (Phase 2) a job runner.
+The packer library/CLI remains independent of the API and worker; only its
+small job runner communicates with the API.
 
 ---
 
@@ -62,11 +67,12 @@ make setup          # restore NuGet, create worker/packer venvs, npm ci, contrac
 make test           # every gate
 ```
 
-Run the three processes in separate terminals:
+Run the services in separate terminals:
 
 ```bash
 make api            # http://localhost:8080, SQLite, storage/ in repo root
-make worker         # http://localhost:8000, shares the same storage directory
+make worker         # http://localhost:8000, claims image jobs
+cd packer && .venv/bin/printsheet-packer-runner
 make web            # http://localhost:5173, proxies to :8080
 ```
 
@@ -75,9 +81,12 @@ The native API uses `api/src/PrintSheet.Api/appsettings.Development.json`
 PostgreSQL and `/data/storage`. They are intentionally different; do not point
 native development at the Compose database unless you mean to.
 
-GPU note: the Compose worker cannot use the host GPU. Run the worker natively
-with `make worker-gpu` for Real-ESRGAN work. GPU jobs are serialized
-(`max_gpu_jobs = 1`) because the target GPU has 4 GB VRAM.
+GPU note: the Compose worker cannot use the host GPU. Run
+`make worker-gpu-setup` once to install the pinned Real-ESRGAN binary/models,
+then use `make worker-gpu` for GPU work. On the target workstation this selects
+the GTX 1650 Ti as Vulkan device 1; override
+`PRINTSHEET_REALESRGAN_GPU_DEVICE_INDEX` if device ordering differs. GPU jobs
+are serialized (`max_gpu_jobs = 1`) because the card has 4 GB VRAM.
 
 ---
 
@@ -164,8 +173,8 @@ make fixtures
 They cover full-bleed art, white smoke on black, a flat logo, a thin signature
 at ~94 DPI, pale mist, an alpha sticker with fringe, a tall banner, an
 over-wide banner, a low-quality JPEG screenshot and a flat vector logo. The
-manifest records expected trim/background/vectorize behavior, dimensions,
-effective DPI and SHA-256. See [`fixtures/README.md`](fixtures/README.md).
+manifest records expected trim/enhancement behavior, dimensions, effective DPI
+and SHA-256. See [`fixtures/README.md`](fixtures/README.md).
 
 ---
 
@@ -181,9 +190,23 @@ make test-contracts   # schemas, examples, OpenAPI
 make verify           # alias for make test
 ```
 
-Every logical change should pass its relevant gate before commit. The packer
-and integrity checks will get property-based/adversarial tests in Phase 1 C; a
-green shell test is not sufficient for nesting or export.
+Run the fixture-backed API/worker/packer flow after the services are running:
+
+```bash
+make up
+make e2e-fixtures
+```
+
+The E2E command creates a new batch, uploads the generated fringe fixture,
+resizes and approves a version, packs a sheet, runs the blocking integrity
+check, and downloads the exported PNG and preview. It leaves the batch in the
+database for inspection. For a native stack, start `make api`, `make worker`,
+and `cd packer && .venv/bin/printsheet-packer-runner` in separate terminals
+before running it.
+
+Every logical change should pass its relevant gate before commit. Packer
+property/adversarial tests cover nesting and integrity; a passing fixture flow
+complements rather than replaces those tests.
 
 ---
 

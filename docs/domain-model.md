@@ -20,10 +20,10 @@ disagreement before merging. The HTTP shape is in
 | **DesignVersion** | One immutable processing result: a file plus step type, parameters, parent and status. |
 | **Current version** | The approved version the rest of the system treats as the design's pixels. A pointer, not a mutation. |
 | **Proposal** | A `proposed` version awaiting human approval. At most one per design. |
-| **Step** | A processing operation that can change visible pixels: trim, crop, upscale, vectorize, background-removal, resize. |
+| **Step** | A processing operation that can change visible pixels: trim, crop, upscale, resize. Historical `vectorize`/`background-removal` values remain readable. |
 | **Sheet** | A packing result for a batch at one revision: placements, geometry and integrity state. |
 | **Placement** | Translation + 90° rotation of an approved version on the sheet. No resampling. |
-| **Integrity report** | Machine-readable result of four blocking pre-export checks. |
+| **Integrity report** | Machine-readable result of five blocking pre-export checks. |
 | **Export** | A rendered deliverable for one sheet revision. Blocked unless integrity passed. |
 | **Job** | A queued unit of work (image processing, packing, integrity check, export) with a lease. |
 | **Garment color** | Preview-only background used to judge edges/halos. Never baked into artwork. |
@@ -38,9 +38,9 @@ Field names are camelCase in JSON.
 | Context | Owns | Does not own |
 | --- | --- | --- |
 | **Intake & review** (API) | Batch/design/version state, approvals, target sizes | Pixel algorithms |
-| **Image processing** (worker) | Trim, crop, upscale, background removal, vectorize, resize, classify | Batch state, approvals, sheet packing |
-| **Packing & export** (packer) | Masks, nesting, integrity checks, rendering, artifacts | Version approval, database |
-| **Workbench UI** (web) | Review, crop/brush interaction, placement editing, previews | File storage, secrets, domain transitions |
+| **Image processing** (worker) | Trim, crop, upscale, resize, classify | Batch state, approvals, sheet packing |
+| **Packing & export** (packer) | Alpha geometry, nesting, integrity checks, rendering, artifacts | Version approval, database |
+| **Workbench UI** (web) | Review, crop interaction, placement editing, previews | File storage, secrets, domain transitions |
 
 The API is the only writer of domain state. Worker and packer are stateless
 processes that read and write files at paths assigned by the API and report
@@ -104,13 +104,14 @@ for its status (`proposed` → `approved` | `rejected`) and audit timestamps.
 Fields:
 
 - `designId`, `parentId` (null only for the original);
-- `stepType`: `original`, `trim`, `crop`, `upscale`, `vectorize`,
-  `background-removal`, `resize`;
+- `stepType`: `original`, `trim`, `crop`, `upscale`, `resize`; historical
+  `vectorize` and `background-removal` values remain readable;
 - `status`: `proposed`, `approved`, `rejected`;
-- `filePath` (relative to storage root), `maskPath`, `svgPath` (nullable);
+- `filePath` (relative to storage root), `maskPath`, `svgPath` (nullable;
+  historical artifacts only);
 - `widthPx`, `heightPx`, `hasAlpha`;
 - `parameters` (exact, immutable JSON: crop rect, model, scale, tolerance,
-  brush ops, target box, DPI, fit mode, …);
+  target box, DPI, fit mode, …);
 - `createdAt`, `approvedAt`, `rejectedAt`, `rejectionReason`;
 - `jobId` that produced it (nullable for original).
 
@@ -165,11 +166,12 @@ timestamps, structured error.
 
 Job types:
 
-- image processing: `classify`, `trim`, `background-removal`, `upscale`,
-  `vectorize`, `resize`;
+- image processing: `classify`, `trim`, `upscale`, `resize`;
 - orchestration: `pack-sheet`, `integrity-check`, `export`.
 
-Only the six image-processing types use the canonical worker-job schema.
+Only the four supported image-processing types are queued. Historical
+`background-removal`/`vectorize` documents remain schema-valid but the worker
+rejects new runs with a structured `retired` reason.
 
 ---
 
@@ -234,15 +236,18 @@ bounds. Used by both auto-trim results and manual crop commands.
 ### 4.5 IntegrityReport
 
 `{ schemaVersion, reportId, generatedAt, passed, sheet, checks[], failures[],
-metrics }`. The four blocking check IDs are fixed:
+metrics }`. New reports use `schemaVersion` `2.0` with five blocking check IDs:
 
 1. `visible-pixels-inside-sheet`
 2. `dilated-masks-no-overlap`
 3. `minimum-gap`
 4. `pixel-equality`
+5. `all-designs-placed`
 
-`passed` is true only when all four are `passed`. A `skipped` check means the
-report is **not** passed.
+`passed` is true only when all five are `passed` and no requested design is
+unplaced. A `skipped` check or a `not-selected` subset omission means the report
+is **not** passed. Historical `1.0` reports with four checks remain readable but
+cannot satisfy the five-check export gate.
 
 ### 4.6 Money
 
@@ -422,8 +427,7 @@ Uploads never overwrite. Re-uploading the same artwork creates a new design.
 
 ### 6.2 Processing proposal
 
-`Propose<Step>(designId, parameters)` for trim, crop, upscale, vectorize,
-background-removal, resize:
+`Propose<Step>(designId, parameters)` for trim, crop, upscale, resize:
 
 1. Require the design not excluded and not `needs-better-source`.
 2. Require no existing `proposed` version; otherwise 409
@@ -676,10 +680,10 @@ A 20-design batch at 58 cm wide, 300 DPI, 30 mm margin.
 1. Operator creates the batch; geometry is snapshotted (58 cm, 30 mm, 300 DPI).
 2. Uploads 20 PNGs. Each becomes an `original` design version; classify jobs
    are queued. Designs are `received`.
-3. For design A, the classifier suggests trim + background removal + 4×
-   upscale. The operator approves a trim (`in-progress`), rejects a bad
-   background-removal proposal (offered adjust/manual/skip), accepts a
-   color-to-alpha result, accepts an upscale.
+3. For design A, the classifier suggests a trim and a 4× upscale. The operator
+   approves the trim (`in-progress`), reviews the upscale preview, rejects one
+   over-smoothed proposal (offered adjust/manual/skip), and accepts a second
+   upscale.
 4. Target is 20 × 15 cm. The final resize produces 2362 × 1772 px
    (`round(20 × 300 / 2.54) = 2362`, `round(15 × 300 / 2.54) = 1772`).
    Effective DPI from the upscaled source is computed and shown; approving the

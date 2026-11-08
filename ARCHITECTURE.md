@@ -1,11 +1,15 @@
 # PrintSheet Workbench — Architecture
 
-Status: Phase 0 skeleton and frozen contracts. Phase 1 feature tracks are not
-started.
+Status: Phase 2 native and Compose integration are verified. The current
+priority is image enhancement/upscaling quality, speed, and review UX. Phase 3
+fixture checks confirm Real-ESRGAN GPU execution; one line-art sample was
+tested, but representative photo/color artwork is still needed for a
+real-world quality verdict. Final Photoshop review and updates remain human
+work.
 
-This document describes the intended system. Code that does not exist yet is
-marked by phase. The frozen interfaces live in `contracts/`; the domain rules
-live in `docs/domain-model.md` and the ADRs.
+The frozen interfaces live in `contracts/`; the domain rules live in
+`docs/domain-model.md` and the ADRs. Phase references below describe when
+decisions were introduced, not whether those components are still planned.
 
 ---
 
@@ -24,6 +28,10 @@ PrintSheet is a human-in-the-loop workbench, not an unattended pipeline.
 - Export is blocked unless a blocking integrity report for the exact sheet
   revision passes.
 - The GPU is a GTX 1650 Ti with 4 GB VRAM. GPU jobs run one at a time.
+- The primary productivity goal is reducing staff time spent cropping,
+  enhancing and packing. The operator reviews proposed changes and manually
+  reviews/updates the final Photoshop sheet; full workflow automation is not a
+  product goal.
 - The MVP is local (Docker Compose) and single-operator. Authentication and
   multi-tenancy are out of scope, except for the internal worker key.
 
@@ -50,7 +58,7 @@ Component split:
 | Component | Responsibility | Must not know |
 | --- | --- | --- |
 | `/api` | Domain state, version pointers, jobs, batch/sheet/export orchestration, HTTP | Image-processing internals |
-| `/worker` | Trim, upscale, background removal, vectorize, resize, classify | Domain aggregates or sheet state |
+| `/worker` | Trim/crop, upscale, resize, classify | Domain aggregates or sheet state |
 | `/packer` | Mask nesting, placement, integrity checks, strip rendering | API/worker code or databases |
 | `/web` | Review UI, crop/brush tools, packing preview | Filesystem paths or service secrets |
 
@@ -99,27 +107,38 @@ storage and treats it as immutable.
 | --- | --- | --- |
 | `postgres` | internal 5432 | PostgreSQL for jobs and domain data |
 | `api` | 8080 | ASP.NET Core; SQLite/Postgres provider switch |
-| `worker` | 8000 | CPU image-processing skeleton; no GPU in Compose |
+| `worker` | 8000 | CPU image-processing job loop; GPU is disabled in Compose |
+| `packer` | internal | Lease-based pack, integrity and export runner |
 | `web` | 5173 | Vite dev server proxying API |
 
 Shared volumes:
 
-- `storage_data` mounted at `/data/storage` in API and worker.
+- The repository's ignored `storage/` directory is bind-mounted at
+  `/data/storage` in API, worker and packer runner. The native GPU worker uses
+  that same directory so it can process Compose-created artwork.
+- Compose file services run as the host storage UID/GID (defaults to `1000:1000`;
+  override with `PRINTSHEET_STORAGE_UID` and `PRINTSHEET_STORAGE_GID`) so files
+  remain writable by the native worker.
 - `postgres_data` for the database.
 
-The packer is not a long-running service in Phase 0/1. It is a CLI/library
-invoked by a job runner. In Phase 2, a lightweight packer runner claims
-`pack-sheet`, `integrity-check` and `export` jobs and shells out to the CLI.
+The packer is a standalone CLI/library. Its lightweight runner claims
+`pack-sheet`, `integrity-check` and `export` jobs, heartbeats leases while the
+CLI runs, and reports machine-readable results to the API.
 
 ### Native fallback
 
 GPU passthrough on Windows is painful, so the worker also runs natively:
 
 - `scripts/run-worker-gpu.sh` sets `PRINTSHEET_GPU_ENABLED=true` and uses the
-  host's `realesrgan-ncnn-vulkan` binary.
+  host's `realesrgan-ncnn-vulkan` binary installed by `make worker-gpu-setup`.
+  On the target workstation it selects Vulkan device 1 (GTX 1650 Ti; Intel UHD
+  is device 0); other machines can override `PRINTSHEET_REALESRGAN_GPU_DEVICE_INDEX`.
+- The native worker advertises only `gpu` and listens on port 8001. The Compose
+  worker remains on port 8000 and handles CPU image jobs using Python 3.12.
 - GPU jobs are serialized by configuration (`max_gpu_jobs = 1`).
 - The API and web can still run in Docker; the native worker points at
-  `http://localhost:8080` and a shared storage directory.
+  `http://localhost:8080` and the repository's `storage/` directory. Its
+  separate port and GPU-only capability allow it to run alongside Compose.
 
 ---
 
@@ -162,7 +181,8 @@ Highlights:
 - Designs: metadata, garment color, target size, exclude/include, better-source
   flag.
 - Versions: list/download, approve, reject (returns next actions), revert.
-- Steps: trim, crop, upscale, vectorize, background-removal, resize.
+- Steps: trim, crop, upscale, resize. Historical vectorize/background-removal
+  versions and artifacts remain readable; new proposals are not accepted.
 - Jobs: poll, cancel, batch listing.
 - Sheets: pack, manual placements, integrity check, preview.
 - Exports: request, list, get, download artifacts.
@@ -226,10 +246,13 @@ The canonical request/response envelopes and per-type parameters are
 | --- | --- |
 | Trim | Sample corners/edges to detect black/white/gray/transparent. Full-bleed (all four edges non-uniform) → no auto-crop proposal. Content touching the crop edge → warning. Manual crop uses the same worker job with explicit bounds; version step type is `crop`. |
 | Upscale | `realesrgan-ncnn-vulkan`, models `realesrgan-x4plus` (photos) and `realesrgan-x4plus-anime` (illustrations/logos), 2× or 4×. GPU tile size tuned for 4 GB; one job at a time. Before/after slider in web. |
-| Background removal | Three modes: AI cutout (rembg/BiRefNet), key-color-to-alpha (unmultiplied color so gradients keep correct alpha and no dark/white fringe), none. All produce a non-destructive mask artifact. Brush edits reuse the mask and append brush ops to version parameters. |
-| Vectorize | potrace/vtracer for flat logos and line art. Produces an SVG artifact plus a preview raster version. Final resize can rasterize the SVG at target size/DPI. Before/after toggle. |
 | Resize | Resample exactly once with Lanczos to `round(cm * dpi / 2.54)` pixels. Show effective source DPI; warn <150, strongly warn <100. Upscale is a separate proposal. |
-| Classify | Heuristic features: flat-color ratio, edge density, unique-color count, sampled background, full-bleed detection. Suggests upscale model, vectorize candidate, and background-removal mode. Suggestions are always overridable. |
+| Classify | Heuristic features: flat-color ratio, edge density, unique-color count, sampled background, full-bleed detection. Suggests trim and upscale settings. Suggestions are always overridable. |
+
+Background removal and vectorization were retired in contract v2.0.0. Their
+historical versions, masks and SVGs remain readable and downloadable, but the
+API no longer queues new proposals and the worker rejects those job types with a
+structured `retired` reason.
 
 The original is never passed to a destructive operation. The worker writes only
 the assigned new file paths.
@@ -241,8 +264,8 @@ the assigned new file paths.
 - The queue grants at most one `gpu` job per GPU worker at a time. The worker
   setting `max_gpu_jobs=1` is validated; the API also serializes by capability
   for a single GPU worker.
-- CPU fallback is allowed for trim/background removal/vectorize/resize but not
-  for a good Real-ESRGAN experience.
+- CPU fallback is allowed for trim/resize but not for a good Real-ESRGAN
+  experience.
 
 ---
 
@@ -254,9 +277,9 @@ The packer is a standalone package/CLI with no imports from `/api` or
 ```
 printsheet_packer/
   contracts.py      load/validate request and response
-  masks.py          alpha → conservative masks, dilation, grid
-  nesting.py        placement search, rotations, randomized orderings
-  integrity.py      four blocking checks
+  masks.py          alpha → exact silhouette polygons, dilation, target fit
+  nesting.py        integer-pixel polygon placement, rotations, randomized orderings
+  integrity.py      five blocking checks
   render.py         strip/tile renderer, 90° transforms only
   export.py         flat PNG/TIFF, layered bundle, manifest
   cli.py            file-based entry point
@@ -264,21 +287,26 @@ printsheet_packer/
 
 ### 8.1 Algorithm
 
-1. Decode each approved design. Build an occupancy mask from alpha with a low
+1. Decode each approved design. Build an exact alpha silhouette with a low
    threshold (default 5/255). This includes faint smoke and stray mist pixels.
-   Keep real interior holes.
-2. Dilate by `margin/2` so the visible pixels of any two designs are at least
-   `margin` apart.
-3. Downsample to an occupancy grid (default 5 mm cells). Round grid dimensions
-   **up** so the grid never underestimates occupied area.
-4. Place largest-area first at the lowest feasible position. Try rotations
-   0/90/180/270 when `allowRotation`. Collision checks use vectorized NumPy
-   (bitwise AND) or FFT/convolution.
-5. Run N randomized orderings (default ~30) under a time budget; keep the
-   shortest sheet. The RNG seed is recorded and deterministic.
-6. Optional “no interlocking” mode uses convex hulls (Shapely) instead of raster
-   masks.
-7. Render from original full-resolution approved pixels, never from previews or
+   Keep real interior holes. If an explicit physical target box differs from
+   the approved pixels, Lanczos-fit into that box once and emit
+   `target-resampled`.
+2. Buffer the silhouette by `margin/2` (Shapely) so visible pixels of any two
+   designs are at least `margin` apart. Edge margins are enforced against the
+   sheet border.
+3. Place largest visible area first at the lowest feasible integer-pixel
+   position. Try rotations 0/90/180/270 when `allowRotation`; collision checks
+   are exact polygon intersections, not downsampled approximations.
+4. Candidate positions come from polygon bounds, holes and obstacle vertices.
+   The full rotated source raster must fit on the sheet; transparent padding
+   cannot be clipped.
+5. Run the deterministic order plus N seeded random orderings (default ~30)
+   under a time budget; keep the layout with the fewest unplaced designs, then
+   the shortest sheet. The RNG seed is recorded and reproducible.
+6. Designs that exceed the roll or have no legal placement are returned as
+   `unplacedDesigns` with a stable reason; they cannot be silently dropped.
+7. Render from approved full-resolution pixels, never from previews or
    downsampled masks. Rotations are 90° steps with no interpolation.
 8. Sheets can be ~6850 × 59,000 px. Render and write in horizontal strips; never
    allocate the full canvas at once.
@@ -292,11 +320,13 @@ Fixed check IDs, all blocking:
 | `visible-pixels-inside-sheet` | All visible pixels lie inside the sheet bounds. |
 | `dilated-masks-no-overlap` | No two dilated masks overlap. |
 | `minimum-gap` | Minimum visible-pixel gap ≥ configured margin. |
-| `pixel-equality` | Each rendered placement crop is byte/pixel-identical to the source after the applied 90° rotation. |
+| `pixel-equality` | Each rendered placement crop is byte/pixel-identical to the (possibly target-fitted) placed source after the applied 90° rotation, and no source raster is clipped. |
+| `all-designs-placed` | Every requested design is placed. Subset packs report omitted designs as `not-selected`. |
 
-`IntegrityReport.passed` is true only if all four are `passed`. `skipped` counts
-as not passed. The report is machine-readable and stored with the sheet/export.
-Export is blocked if the report is missing, stale, or failed.
+`IntegrityReport.passed` is true only if all five are `passed`. `skipped` counts
+as not passed, and an unplaced design fails the report. Reports use
+`schemaVersion` `2.0`. The report is machine-readable and stored with the
+sheet/export. Export is blocked if the report is missing, stale, or failed.
 
 ### 8.3 Manual override
 
@@ -411,8 +441,8 @@ ADR 0002 explains the choice. Summary:
 - API client generated or hand-written from the frozen OpenAPI spec.
 - No filesystem knowledge; downloads use API URLs.
 - Preview backgrounds are CSS/canvas compositing over the returned RGBA file.
-- Phase 1 D builds against a mock server generated from OpenAPI, not the real
-  API; integration in Phase 2.
+- Component tests use the mock API; the fixture E2E flow also exercises the
+  real API, worker job loop and packer runner.
 
 ---
 
@@ -475,7 +505,8 @@ snapshotted on the batch so re-opening an old batch is reproducible.
 | Integrity | Adversarial cases: ring with hole, stray faint pixel, smoke gradient, tall design, overlap, crop mismatch. |
 | Export | Pixel equality, DPI metadata, strip boundaries, layered bundle/JSX. |
 | Web | Component tests for crop/brush; visual checks for preview backgrounds; packing preview interactions. |
-| E2E | `/fixtures` end-to-end after Phase 2 integration. |
+| E2E | `make e2e-fixtures` exercises intake, resize/approval, packing,
+  integrity and PNG export against a running stack. |
 
 Fixture inputs cover: full-bleed collage, white-on-black smoke, flat logo on
 black with margins, thin signature on gray at ~80 DPI, pale misty art on white,
@@ -485,16 +516,19 @@ transparent sticker with fringe, tall banner.
 
 ## 18. Phase roadmap
 
-- **Phase 0 (this phase):** skeleton, Compose, contracts, domain doc, ADRs, PSD
+- **Phase 0:** skeleton, Compose, contracts, domain doc, ADRs, PSD
   spike, fixtures, one-command startup.
-- **Phase 1 A:** domain + state machine + versioning + jobs against a fake
-  worker.
+- **Phase 1 A:** domain + state machine + versioning + jobs.
 - **Phase 1 B:** worker image steps, CLI-testable.
 - **Phase 1 C:** packer library, integrity, exporters, property-based tests,
   benchmark.
-- **Phase 1 D:** web wizard/crop/brush/batch/packing preview against mock API.
-- **Phase 2:** integration, E2E on fixtures, settings page, cleanup of old
-  files, packer runner.
+- **Phase 1 D:** web batch/design/sheet workflows and crop/brush editing.
+- **Phase 2:** API/worker/packer integration, settings, and packer runner are
+  implemented; native and Compose fixture-backed E2E, Compose startup, and
+  smoke checks pass.
+- **Phase 3:** real-world image quality and GPU processing validation;
+  optimize staff time in crop/enhance/pack while keeping final Photoshop
+  review and updates human-led. In progress.
 
 Track boundaries are strict. Contract changes require updating the schema, the
 examples, this document if structural, and notifying the other tracks.

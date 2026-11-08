@@ -1,6 +1,6 @@
 # ADR 0004 — Packer algorithm
 
-- **Status:** Accepted
+- **Status:** Superseded by [0007](0007-placement-guarantee-and-scope.md)
 - **Date:** 2026-11-05
 - **Deciders:** PrintSheet engineering
 
@@ -43,7 +43,9 @@ Use **raster-mask nesting with conservative occupancy grids**:
    it is occupied. The grid may overestimate occupied area, never underestimate.
 4. **Placement search.** Sort by descending mask area (largest first). For each
    design, try rotations `0, 90, 180, 270` when `allowRotation`, and place at
-   the lowest feasible y then lowest x (bottom-left skyline style). Collision
+   the lowest feasible y then lowest x (bottom-left skyline style). Constrain
+   the full rotated source raster to the sheet, not only its visible alpha
+   bounds; transparent padding may therefore increase sheet height. Collision
    checks are vectorized NumPy bitwise operations on the grid; the full mask is
    used for verification after a candidate placement.
 5. **Randomized restarts.** Run N randomized orderings (default 30) within a
@@ -54,7 +56,9 @@ Use **raster-mask nesting with conservative occupancy grids**:
    boxes or convex hulls (Shapely) instead of raster masks. This is a
    predictable fallback for troubleshooting, not the default.
 7. **Verification.** Before returning, re-check every placement against the
-   full-resolution masks and reject any overlap or out-of-bounds result.
+   full-resolution masks and reject any overlap or out-of-bounds result. The
+   pixel-equality check also fails if any part of a source raster is clipped,
+   even when the clipped pixels are transparent.
 8. **Rendering.** Render the sheet from the approved full-resolution version
    files, in horizontal strips (target ~512–1024 rows), applying only 90°
    rotations and integer translation. Never allocate the full sheet canvas.

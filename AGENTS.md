@@ -14,8 +14,9 @@ out.** Do not leave the next agent guessing.
 
 PrintSheet Workbench is an internal, review-driven tool for a custom T-shirt
 DTF printing business. Staff upload ~20 customer designs per batch (often
-low-quality PNG screenshots). The tool proposes trim, upscale, background
-removal, vectorization and final print sizing. A human approves every step. The
+low-quality PNG screenshots). The tool proposes trim, crop, upscale and final
+print sizing. Background removal and vectorization were retired in contract
+v2.0.0; their historical versions stay readable. A human approves every step. The
 packer nests approved designs onto a master sheet that is exactly 58 cm wide
 (6850 px at 300 DPI); sheet height is minimized because print cost is
 proportional to height. Every processing step creates a new immutable
@@ -23,6 +24,11 @@ proportional to height. Every processing step creates a new immutable
 machine-readable integrity check passes.
 
 **Core rule:** the machine proposes, the human approves, nothing is lost.
+
+**Workflow objective:** minimize staff time spent cropping, enhancing, and
+packing while keeping the workbench human-led. Staff will review and update the
+Photoshop sheet at the end; the product must assist that handoff, not automate
+the whole workflow or silently approve image changes.
 
 ---
 
@@ -36,9 +42,11 @@ machine-readable integrity check passes.
    parameters, use the manual tool, or skip.
 4. Previews must be honest: checkerboard **and** selectable solid colors
    (white/black/custom garment color). Halos and fringes only show there.
-5. The packer never resamples, recolors or crops pixels. It only translates and
-   rotates by multiples of 90°. Rendering uses the original full-resolution
-   approved pixels.
+5. The packer never recolors or crops pixels, and only translates and rotates
+   by multiples of 90°. Its single resampling exception is fitting an approved
+   image into an explicitly selected physical target box with Lanczos; that
+   emits a `target-resampled` warning and remains reviewable. Rendering uses the
+   approved full-resolution pixels.
 6. A blocking integrity check runs before every export.
 7. Sizes are stored in physical units (cm) **and** pixels. Working resolution is
    300 DPI (configurable).
@@ -46,6 +54,9 @@ machine-readable integrity check passes.
    proposal requiring approval.
 9. Only approved versions may become current.
 10. A batch can be packed only when every non-excluded design is `ready`.
+    Packing a selected subset is a preview: omitted designs are reported as
+    `not-selected`, and the sheet cannot pass integrity/export until they are
+    packed too or explicitly excluded.
 11. Placements are invalidated when any design, target size, or batch geometry
     changes after packing.
 12. Designs wider than the roll are rejected or scaled only by explicit user
@@ -60,10 +71,17 @@ present** in the conversation. The agent working on 2026-11-05 assumed the
 assignment was **Phase 0**, because Phase 0 is explicitly single-agent and
 blocks every other track. That assumption is recorded here.
 
-**Current phase: Phase 0 (deliverables complete; Docker verification blocked by
-host permissions).**
-Do **not** start Phase 1 tracks A–D or Phase 2 work without explicit user
-confirmation.
+**Current phase: Phase 3 real-world image-quality and GPU validation.** Phase 2
+integration and Compose runtime verification are complete. Focus is image
+enhancement and upscaling: enhancement quality, fast GPU execution,
+source-resolution guidance, and review UX. The final Photoshop sheet remains
+human-reviewed and updated.
+
+Contract v2.0.0 retired background removal and vectorization, added optional
+packing of a selected subset, made `all-designs-placed` the fifth blocking
+integrity check, and versioned IntegrityReport as `2.0`. The API, worker,
+packer, web and Compose images are aligned on v2.0.0; the fixture E2E and a
+live GPU upscale both pass.
 
 Phase 0 deliverables:
 
@@ -84,27 +102,39 @@ Phase 0 deliverables:
 - [x] Contract examples + validation script, all green
 - [x] PSD spike report in `docs/spikes/psd-spike/` (scripts + results + report)
 - [x] `/fixtures` realistic sample inputs + manifest (generated, not committed)
-- [ ] `docker-compose.yml` + Dockerfiles verified with one command — Compose
-      config validates, but the local Docker daemon is inactive and starting it
-      needs a password (`sudo` unavailable to the agent). Native stack smoke
-      test passes. Run `make up` once Docker is available.
+- [x] `docker-compose.yml` + Dockerfiles verified with `make up`; all services
+      become healthy, the smoke test passes, and the fixture flow completes
+      through export.
 - [x] Native run scripts / Makefile
 - [x] Root `README.md`
 - [x] Final Phase 0 verification and handoff summary (all gates green except the
       Docker run noted above)
 
-Phase 1 tracks (do not start without confirmation):
+Phase 1 track status:
 
-- **A — API:** aggregates, state machine, versioning, jobs against fake worker.
-- **B — Worker:** trim, Real-ESRGAN, size/resample, background-removal modes,
-  vectorize, classifier; CLI-testable.
-- **C — Packer:** library, integrity check, exporters, property-based tests,
-  benchmark.
-- **D — Web:** wizard, crop tool, batch grid, packing preview, brush editor,
-  against a mock server built from OpenAPI.
+- **A — API:** core aggregates, state machine, versioning, job services,
+  endpoints, and persistence are implemented in the current worktree. The
+  existing 10 domain tests pass; live workflow coverage is added in Phase 2.
+- **B — Worker:** image processing implementation is integrated; 234 tests
+  pass.
+- **C — Packer:** nesting, integrity checks, and export implementation is
+  integrated; the complete packer suite has 157 passing tests.
+- **D — Web:** batch/design/sheet/settings workflow screens are implemented
+  against the mock API. Brush editing is now wired to immutable mask proposals.
+  The web suite has 111 passing tests.
 
-Phase 2 (do not start without confirmation): integration, E2E on fixtures,
-settings page, cleanup of old files.
+Phase 2 progress:
+
+- The packer runner claims pack, integrity and export jobs, heartbeats leases,
+  invokes the packer CLI and reports results through the internal API protocol.
+- Compose and the native worker launch script enable the worker job loop.
+- `scripts/e2e_fixture_flow.py` and `make e2e-fixtures` exercise intake through
+  resize approval, packing, integrity verification and PNG export.
+- Settings screens and API settings were implemented in Phase 1; reviewed for
+  Phase 2 and remain part of the end-to-end app.
+- Native and Compose fixture workflows pass through export. The next phase is
+  validating real enhancement outputs and GPU behavior on
+  representative print artwork, without replacing human review.
 
 ---
 
@@ -115,8 +145,8 @@ settings page, cleanup of old files.
 ├── AGENTS.md                    ← this file (keep status current)
 ├── README.md                    ← quick start, contracts, gates, guardrails
 ├── ARCHITECTURE.md              ← system design and deployment
-├── docker-compose.yml           ← postgres + api + worker + web
-├── Makefile                     ← setup/up/test/fixtures/clean entry points
+├── docker-compose.yml           ← postgres + api + worker + packer + web
+├── Makefile                     ← setup/up/test/fixtures/E2E/clean entry points
 ├── api/                         ← ASP.NET Core 10 LTS, Clean Architecture
 │   ├── PrintSheet.slnx          ← note: .NET 10 uses .slnx, not .sln
 │   ├── src/PrintSheet.Domain/   ← aggregates/value objects; no infrastructure
@@ -124,18 +154,18 @@ settings page, cleanup of old files.
 │   ├── src/PrintSheet.Infrastructure/
 │   ├── src/PrintSheet.Api/
 │   └── tests/PrintSheet.Domain.Tests/
-├── worker/                      ← Python 3.11+ FastAPI, Phase 0 health only
-├── packer/                      ← standalone Python, no API/worker dependency
+├── worker/                      ← Python FastAPI job loop + image processors
+├── packer/                      ← standalone Python CLI/library + API job runner
 │   ├── printsheet_packer/
 │   └── spikes/psd-spike/        ← executable PSD/PSB reproducer
 ├── web/                         ← React 19 + TypeScript + Vite shell
 ├── contracts/
-│   ├── openapi/                 ← printsheet-api.yaml (3.0.3, v1.0.0)
+│   ├── openapi/                 ← printsheet-api.yaml (3.0.3, v2.0.0)
 │   ├── jsonschema/              ← 5 worker/packer/integrity contracts
-│   └── examples/                ← 14 validated examples
+│   └── examples/                ← 15 validated examples
 ├── docs/
 │   ├── domain-model.md          ← aggregates, state machines, invariants
-│   ├── adr/                     ← 0001–0006 + index
+│   ├── adr/                     ← 0001–0007 + index
 │   └── spikes/psd-spike/        ← report + measured JSON results
 ├── fixtures/                    ← README + generator; generated/ is ignored
 └── scripts/                     ← run, smoke-test, fixtures, contract validation
@@ -172,11 +202,9 @@ Verified on the development machine on 2026-11-05:
 | Docker Compose | 5.6.1 | — |
 | ImageMagick | 7.1.2-34 | used only in PSD spike |
 
-Host limitation observed on 2026-11-05: the Docker daemon is installed but
-inactive, `systematic-mess` is not in the `docker` group, and `sudo` requires a
-password the agent does not have. `docker compose config` validates the compose
-file, but `make up` cannot run until a human starts Docker or grants socket
-access. The native API/worker/web stack was smoke-tested instead.
+Docker daemon access was initially blocked on 2026-11-05, but was granted for
+Phase 2 runtime verification on 2026-11-07. `make up`, the Compose smoke test,
+and the fixture E2E now pass.
 
 NuGet versions restored by the skeleton:
 
@@ -192,18 +220,22 @@ version or docs first.
 
 ---
 
-## 6. Current service skeletons
+## 6. Current service implementations
 
 ### API (`api/`)
 
-- .NET 10 minimal API with Clean Architecture project references.
-- `/healthz` checks PostgreSQL (Compose) or SQLite (Development) through EF Core.
-- In Development the empty SQLite database is created with `EnsureCreated()` at
-  startup; EF's connectivity check treats a missing file as disconnected.
-  Migrations/mappings are Phase 1 A.
-- `/api/v1/info` returns contract version `1.0.0`.
-- `PrintSheetDbContext` is intentionally empty; mappings/migrations are Phase 1 A.
-- `PrintUnits` already implements cm↔px and effective DPI; tested.
+- .NET 10 Clean Architecture API with batch/design/version state, intake,
+  approvals/reverts, step and packer jobs, settings, sheets, integrity checks,
+  and exports.
+- EF Core persistence supports PostgreSQL in Compose and SQLite in Development;
+  `/healthz` checks the configured database and `/api/v1/info` returns contract
+  version `2.0.0`.
+- Supported new steps are classify, trim/manual crop, upscale and resize.
+  Background-removal and vectorize versions remain readable but cannot be
+  proposed; their stored mask/SVG endpoints still serve history.
+- Processing steps create immutable proposed versions. The current pointer
+  changes only on approval; files are stored under the shared storage root.
+- `PrintUnits` implements cm↔px and effective DPI; domain tests cover it.
 - Build/test commands:
 
 ```bash
@@ -218,10 +250,17 @@ dotnet test PrintSheet.slnx
 
 ### Worker (`worker/`)
 
-- FastAPI app with `/` and `/health`.
+- FastAPI processing service with health and worker/job endpoints.
 - `PRINTSHEET_*` settings via `pydantic-settings`.
 - `PRINTSHEET_MAX_GPU_JOBS` is constrained to 1 (GTX 1650 Ti, 4 GB VRAM).
-- No job loop yet. Phase 1 B adds processing and polling/claiming.
+- Image processing covers trim/crop, upscale, resize and classify. GPU jobs are
+  constrained to one at a time. The retired background-removal/vectorize job
+  types fail with a structured `retired` reason; the schema still accepts old
+  documents so historical records remain readable.
+- Job polling starts only when `PRINTSHEET_RUN_JOBS=true`; Compose and
+  `scripts/run-worker.sh` enable it. Health-only app/test runs keep the default
+  false.
+- Current test suite: 195 tests.
 - Tests:
 
 ```bash
@@ -234,11 +273,16 @@ python3.12 -m venv .venv
 ### Packer (`packer/`)
 
 - Standalone package + CLI; no imports from API/worker.
-- `python -m printsheet_packer version` works.
-- `validate` command validates JSON documents against contracts, loading all
-  schemas into a `referencing` registry so the packer response can resolve the
-  integrity-report `$ref`.
-- Phase 0 tests only cover the shell; Phase 1 C owns nesting/integrity/export.
+- Implements exact alpha-polygon placement, full-raster containment, sheet
+  rendering, the five blocking integrity checks (including
+  `all-designs-placed`) and supported export artifacts. It Lanczos-resizes only
+  when an explicit target box differs from the approved pixels, and warns.
+- The contract validator loads all schemas into a `referencing` registry so
+  packer responses can resolve the integrity-report `$ref`.
+- `printsheet-packer-runner` (or `python -m printsheet_packer.runner`) claims
+  packer/export jobs, heartbeats leases while subprocesses run, and reports
+  results to the API. It validates storage-relative input and output paths.
+- Current test suite includes runner, property and rendering coverage.
 - Tests:
 
 ```bash
@@ -250,28 +294,34 @@ python3.11 -m venv .venv
 
 ### Web (`web/`)
 
-- React 19 + TypeScript + Vite 8 shell, dark workbench landing page.
-- Live `/healthz` check through Vite proxy to the API.
+- React 19 + TypeScript + Vite 8 workbench with batch intake, design review,
+  preview background selection, crop and enhancement controls, sheet placement
+  (including partial-selection previews), integrity/export controls, and
+  settings.
+- Component tests use a mock API; browser requests remain relative. The
+  fixture E2E script exercises the real API and job runners.
 - Proxy target: `VITE_API_PROXY_TARGET` (default `http://localhost:8080`).
-- Build/lint:
+- Build/lint and tests:
 
 ```bash
 cd web
 npm ci
 npm run build
 npm run lint
+npm test
 ```
 
 ---
 
 ## 7. Frozen contracts
 
-Contract version: **1.0.0** (frozen 2026-11-05).
+Contract version: **2.0.0** (breaking change 2026-11-08; frozen 1.0.0 was
+2026-11-05).
 
 Canonical files:
 
-- `contracts/openapi/printsheet-api.yaml` — HTTP API, OpenAPI 3.0.3, 38 paths,
-  69 schemas.
+- `contracts/openapi/printsheet-api.yaml` — HTTP API, OpenAPI 3.0.3, 36 paths,
+  66 schemas.
 - `contracts/jsonschema/worker-job.schema.json` — worker request envelope with
   per-type parameters.
 - `contracts/jsonschema/worker-result.schema.json` — worker completion result,
@@ -279,9 +329,10 @@ Canonical files:
 - `contracts/jsonschema/packer-request.schema.json` — file-based packer input.
 - `contracts/jsonschema/packer-response.schema.json` — placements + outputs,
   referencing the integrity report.
-- `contracts/jsonschema/integrity-report.schema.json` — four blocking checks.
-- `contracts/examples/` — 14 validated examples covering every worker job type
-  and both integrity outcomes.
+- `contracts/jsonschema/integrity-report.schema.json` — five blocking checks
+  (`schemaVersion` 2.0).
+- `contracts/examples/` — 15 validated examples covering every supported worker
+  job type and both integrity outcomes.
 - `contracts/CHANGELOG.md`, `contracts/README.md` — change policy.
 
 Contract rules:
@@ -289,14 +340,16 @@ Contract rules:
 1. All service-to-service file exchange is by **relative storage path**, never
    base64 or file bytes in JSON.
 2. Paths are relative to the shared storage root and must not contain `..`.
-3. Worker job types: `classify`, `trim`, `background-removal`, `upscale`,
-   `vectorize`, `resize`. Manual crop is a trim job with a manual crop rect but
-   is recorded as a `crop` DesignVersion.
+3. Supported worker job types: `classify`, `trim`, `upscale`, `resize`. Manual
+   crop is a trim job with a manual crop rect but is recorded as a `crop`
+   DesignVersion. `background-removal` and `vectorize` remain in the schema only
+   so historical documents stay readable; the worker rejects new ones.
 4. Packer request/response uses top-left origin, cm for placements, pixels for
-   geometry, 90° rotation steps only.
-5. `IntegrityReport.passed` is true only when all four blocking checks pass:
+   geometry, 90° rotation steps only; `designIds` may select a subset for a
+   preview, and omitted designs are reported unplaced.
+5. `IntegrityReport.passed` is true only when all five blocking checks pass:
    `visible-pixels-inside-sheet`, `dilated-masks-no-overlap`, `minimum-gap`,
-   `pixel-equality`.
+   `pixel-equality`, `all-designs-placed`.
 6. Any contract change requires:
    - updating the schema **and** examples,
    - updating this file if the change is structural,
@@ -316,8 +369,9 @@ must not accidentally reverse them:
 - Design statuses: `received`, `in-progress`, `ready`, `needs-better-source`,
   `excluded`.
 - Version statuses: `proposed`, `approved`, `rejected`.
-- Step types: `original`, `trim`, `crop`, `upscale`, `vectorize`,
-  `background-removal`, `resize`.
+- Step types: `original`, `trim`, `crop`, `upscale`, `resize`. Historical
+  `vectorize` and `background-removal` values remain readable but are retired
+  for new proposals.
 - Only one `proposed` version per design. A stale proposal (parent no longer
   current) must be rejected, not quietly rebased.
 - A design becomes `ready` only when the current approved version is a `resize`
@@ -326,18 +380,21 @@ must not accidentally reverse them:
   **not** create or delete a version. If the target is not a current-matching
   resize, the design returns to `in-progress`.
 - The final `resize` step resamples exactly once with Lanczos to
-  `round(cm * dpi / 2.54)` pixels.
+  `round(cm * dpi / 2.54)` pixels. During packing, an approved image is
+  Lanczos-fitted into an explicitly selected physical target box only when its
+  pixels differ from that box; this emits `target-resampled`.
 - `PrintUnits.PixelsForCentimeters` uses round-half-away-from-zero:
   58 cm × 300 DPI → 6850 px.
 - Low-DPI warnings: warn below 150 DPI, strongly warn below 100 DPI. These are
   configurable settings, not scattered magic numbers.
-- Background removal is a non-destructive mask. Modes: AI cutout, key-color to
-  alpha (unmultiplied color), none. Brush operations are stored in version
-  parameters; the mask is an artifact, never destructive.
 - Full-bleed inputs (all four edges non-uniform) must not get an auto-trim
   proposal.
-- Vectorize output has a preview raster version and an SVG artifact; the final
-  resize can rasterize from the SVG at target size/DPI.
+- Historical background-removal masks and vector SVGs stay readable and
+  downloadable; they are never edited. The brush editor and new mask proposals
+  are gone.
+- `all-designs-placed` is the fifth blocking check. Subset packs report omitted
+  designs with reason `not-selected`; any unplaced design makes
+  `IntegrityReport.passed` false and blocks export.
 - Job statuses: `queued`, `running`, `succeeded`, `failed`, `cancelled`.
   DB-backed queue with leases; GPU jobs serialized to one at a time.
 
@@ -401,6 +458,7 @@ make test-packer   # pytest
 make test-web      # tsc build + oxlint
 make test-contracts
 make fixtures      # regenerate fixtures/generated
+make e2e-fixtures  # live intake -> resize -> pack -> integrity -> export flow
 make api / worker / web / worker-gpu
 ```
 
@@ -412,11 +470,11 @@ cd worker && .venv/bin/python -m pytest
 cd packer && .venv/bin/python -m pytest
 cd web && npm run build && npm run lint
 .venv-contracts/bin/python scripts/validate_contracts.py
+./scripts/e2e_fixture_flow.py  # requires a running API, worker and packer runner
 ```
 
-Every logical step should pass its relevant gate before commit. The packer and
-integrity check will later get property-based/adversarial tests; do not treat a
-green smoke test as sufficient for Phase 1 C.
+Every logical step should pass its relevant gate before commit. The fixture
+flow complements, but does not replace, packer property/adversarial tests.
 
 ---
 
@@ -432,7 +490,7 @@ green smoke test as sufficient for Phase 1 C.
 - Immutable versions: always write a new file; never mutate an existing version
   file. Reject/revert only move pointers and record audit events.
 - IDs: UUIDs.
-- JSON casing: lowercase kebab statuses/enums (`in-progress`, `background-removal`),
+- JSON casing: lowercase kebab statuses/enums (`in-progress`, `needs-better-source`),
   camelCase field names.
 - Time: ISO-8601 UTC (`Z`) in contracts.
 - Physical units: cm in API/packer placements; mm in batch margin settings;
@@ -450,8 +508,8 @@ green smoke test as sufficient for Phase 1 C.
 - .NET 10 templates create `PrintSheet.slnx`, not `.sln`. Dockerfile and docs
   must match.
 - API health depends on the database. In native Development mode use SQLite;
-  in Compose use PostgreSQL. `AddDbContextCheck` only checks connectivity — no
-  migrations/tables exist yet.
+  in Compose use PostgreSQL. Startup creates the schema for either provider;
+  health checks also verify database connectivity.
 - Vite dev server proxies `/healthz` and `/api`. Do not hardcode
   `http://localhost:8080` in browser code.
 - The worker Docker image is CPU-only. GPU work must run natively through the
@@ -498,50 +556,114 @@ If context is running low, prioritize in this order:
 
 ## 14. Live status
 
-**Last updated:** 2026-11-05 (Phase 0 deliverables complete)
+**Last updated:** 2026-11-08 (contract v2.0.0 alignment and runtime verification)
 
 **Done and verified:**
 
 - Git repo initialized (`main`); skeleton commit `d0d44b9`; Phase 0 deliverable
   commit `9f52d0b`.
-- API Clean Architecture skeleton builds; 10 domain unit tests pass.
-- API `/healthz` wired to EF Core. Native SQLite dev DB is created at startup
-  (`EnsureCreated`) so the connectivity probe passes; Compose uses PostgreSQL.
-- Worker FastAPI skeleton; 2 tests pass.
-- Packer package/CLI shell; 2 tests pass; external `$ref` registry works.
-- Web shell builds and lints clean.
+- API Clean Architecture implementation builds; 11 domain tests and 5
+  infrastructure tests pass. The live fixture-flow script covers the API job
+  lifecycle.
+- Worker processing covers classify, trim/crop, upscale and resize; 195 tests
+  pass. Retired background-removal/vectorize jobs fail with a structured
+  `retired` reason while historical schema documents stay readable.
+- Packer exact-polygon nesting/integrity/export implementation is integrated.
+  Lease-based API runner has targeted tests for pack, integrity, export, path
+  safety, failure payloads and lease loss; the complete packer suite has 159
+  passing tests. Full source rasters remain inside sheet bounds, integrity
+  rejects clipped source padding, and `all-designs-placed` blocks export when a
+  selected design is unplaced.
+- Web workflow routes (including partial-selection packing previews) are
+  implemented. `npm test`: 109 passed across 8 files. `npm run build` succeeds;
+  `npm run lint` exits successfully with existing React-hook/fast-refresh
+  warnings.
 - PSD/PSB spike rerun from the committed reproducer; report and JSON results in
   `docs/spikes/psd-spike/`.
-- Frozen contracts complete: 5 JSON Schemas, 14 examples, OpenAPI 3.0.3 with 38
-  paths / 69 schemas. `scripts/validate_contracts.py` green.
-- `ARCHITECTURE.md`, `docs/domain-model.md`, ADRs 0001–0006 with index.
+- Frozen contracts complete at v2.0.0: 5 JSON Schemas, 15 examples, OpenAPI
+  3.0.3 with 36 paths / 66 schemas. `scripts/validate_contracts.py` green.
+- `ARCHITECTURE.md`, `docs/domain-model.md`, ADRs 0001–0007 with index. ADR 0004
+  is superseded by 0007 for the placement-geometry and scope change.
 - `scripts/generate_fixtures.py` produces 10 realistic inputs + manifest +
   contact sheet under `fixtures/generated/` (git-ignored).
 - `docker-compose.yml`, `Makefile`, native run scripts, smoke test, root
   `README.md`.
-- `make test` green: contracts, 10 API tests, 2 worker tests, 2 packer tests,
-  web build + oxlint.
-- Native end-to-end smoke passed: API `/healthz` + database, `/api/v1/info`,
-  worker `/health` with writable storage, web page.
-- `docker compose config` validates.
+- Compose `make up` builds and starts all services; `make smoke` passes and
+  `docker compose ps` reports API, PostgreSQL, worker and web healthy.
+- Compose storage is bind-mounted from the ignored repository `storage/`
+  directory. API, packer, web, PostgreSQL, and the CPU worker are running; the
+  worker health check reports writable storage and image-only capability.
+  The native GPU worker uses port 8001 and claims GPU jobs only, so it can run
+  alongside the Compose CPU worker on port 8000.
+- `make test` passes after the v2.0.0 alignment: contracts, 11 API domain tests,
+  5 infrastructure tests, 195 worker tests, 159 packer tests, and the web
+  build/lint. Separately, `npm test` passes all 109 web tests.
+- Compose `make e2e-fixtures` passes intake, resize approval, packing,
+  five-check integrity, and PNG export (batch
+  `1de0e8d2-221b-4fea-b62e-6eba25ff4157`, report `schemaVersion` 2.0).
+- Release API image builds with SkiaSharp instead of the licensed ImageSharp
+  package; API/domain and image-inspector tests pass.
+- The pinned, checksum-verified Real-ESRGAN Linux installer and native GPU
+  launcher are in place. Vulkan device 1 is the GTX 1650 Ti on this host.
+  Earlier AC-powered runs: a 360 × 240 photo fixture scaled 4× to 1440 × 960 in
+  7.835 s; a 960 × 320 thin signature scaled 2× in 15.560 s versus 98.159 s on
+  Intel Vulkan device 0. On 2026-11-08 the host was **discharging on battery**:
+  the same direct 360 × 240 ×4 run took ~28 s while the GPU stayed at 300 MHz /
+  P8 (100% utilization, no boost). Plug in AC and use a performance power
+  profile before judging GPU speed.
+- A live API GPU job on 2026-11-08 routed to the native worker and produced
+  1440 × 960 from the low-res fixture in 33.1 s, correctly retaining the
+  91.0 DPI `very-low-effective-dpi` warning.
+- Upscale DPI warnings now use the source dimensions, so AI-created pixels do
+  not erase a low-resolution warning; the 2× signature remains flagged at
+  121.9 DPI. Visual review of the photo fixture saw detail recovery but also
+  synthetic texture/sharpening artifacts. Every result remains a proposal for
+  human comparison and approval.
+- One user-provided 316 × 198 line-art sample was processed only in temporary
+  local storage: Real-ESRGAN x4 completed on the GTX in 5.337 s but remained
+  40.1 DPI at target size; Potrace produced a clean transparent preview and
+  SVG in 100 ms. The original was untouched and no image was added to the repo.
+- Detailed fixture and sample measurements are recorded in
+  `docs/image-engine-validation.md`. Representative shop photos and color art
+  still need review.
+- Design review now puts Real-ESRGAN enhancement first, explains likely AI
+  artifacts and the limits of upscaling, surfaces the source DPI before
+  processing, and uses explicit model/scale labels. A focused route test
+  verifies the selected model, scale and GPU request reach the API.
+- Design review now groups cropping, enhancement and print sizing into a
+  three-step expandable pipeline. Active jobs show an indeterminate progress
+  bar, elapsed time, sample GPU timing, and explicit queued-worker guidance;
+  transient job-poll errors retry automatically. At a 562px viewport the page
+  has no horizontal overflow.
+- Historical vector/background-removal runs (VTracer transparency, Potrace dark
+  garment output, AI removal) remain recorded in
+  `docs/image-engine-validation.md`; those engines and proposal endpoints are
+  retired in v2.0.0.
+- Crop, trim, upscale and API-stored job errors were revalidated on generated
+  artwork. The API serializes stored errors as the contract's `code`,
+  `message`, `retryable`, and object-valued `details`, so failure reasons
+  display in the UI.
+- The design screen reloads persisted batch jobs and reattaches to the latest
+  relevant job after navigation. Existing failed jobs remain in history and
+  must be resubmitted after fixes; they are not silently retried.
+- API health, Compose smoke and the live failed-job response shape were checked
+  against the rebuilt v2.0.0 stack.
 
 **In progress / immediate next:**
 
-1. Docker verification is the only open Phase 0 gate. Start Docker and grant
-   socket access, then run:
-   ```bash
-   sudo systemctl start docker
-   sudo usermod -aG docker "$USER"   # then log out/in
-   make up
-   ```
-   If the build surfaces a Dockerfile/compose issue, fix it and rerun
-   `make test` + `make smoke`.
-2. Mark the Docker deliverable complete in section 3, commit Phase 0, and stop.
-3. Do not start Phase 1 A–D without explicit user confirmation.
-
-**Blockers:** local Docker daemon is inactive and the agent cannot start it
-(no passwordless sudo, user not in the `docker` group). Everything else is
-green.
+1. The native GPU worker is running from `make worker-gpu` on port 8001
+   (GPU-only); the Compose CPU worker stays on port 8000. Re-run the launcher
+   after a reboot or stop/start cycle.
+2. Re-measure GPU speed with the laptop on AC power and the performance power
+   profile. The 2026-11-08 battery run was 3–4× slower because the GPU never
+   left 300 MHz; this is host power policy, not a worker bug.
+3. Compare enhancement quality and time against authorized non-branded shop
+   photos and color art. This is blocked on representative samples; only
+   generated photos and one provided line-art sample have been reviewed.
+4. Keep enhancement a reviewable proposal and the final Photoshop review/update
+   human-led; measure operator time saved, not unattended automation.
+5. The worktree still contains the large uncommitted Phase 1–3 change set.
+   Commit it in logical slices before starting further feature work.
 
 **Open assumptions to confirm with user later:**
 
@@ -556,12 +678,181 @@ green.
   an explicit lock command if the shop needs “sent to printer” immutability.
 - The MVP allows one current sheet per batch; very tall batches must be split
   by excluding designs or accepted as one tall sheet/one export.
+- Background removal and vectorization are intentionally retired, not merely
+  hidden. Confirm with the shop that operators will handle those cases in
+  Photoshop; historical artifacts remain downloadable.
 
 ---
 
 ## 15. Handoff log
 
 Append newest entries at the top. Keep them short and factual.
+
+### 2026-11-08 — Contract v2.0.0 alignment and green gates
+
+- Finished the in-progress v2.0.0 refactor: repaired `JobCompletionService`
+  (local functions had been nested inside `ReadDesignSnapshot`), regenerated
+  the web OpenAPI types, and taught the sheet UI/mock/tests about the fifth
+  `all-designs-placed` check and report `schemaVersion` 2.0.
+- Every gate is green: contracts (5 schemas / 15 examples, OpenAPI 36 paths /
+  66 schemas), API 11 + 5 tests, worker 195, packer 159, web build/lint and 109
+  tests.
+- Rebuilt Compose; API/worker report contract `2.0.0`, smoke passes, and
+  `make e2e-fixtures` completes with a five-check passing report.
+- Live GPU check: native worker on :8001 upscaled the 360 × 240 fixture to
+  1440 × 960 in 33.1 s and kept the 91.0 DPI warning. Host was on battery, so
+  the GPU was pinned at 300 MHz; re-measure on AC before judging speed.
+- Added ADR 0007 and aligned README/ARCHITECTURE/domain-model/AGENTS with the
+  retired background-removal/vectorize scope and polygon placement.
+
+### 2026-11-08 — Image-processing job troubleshooting
+
+- Fixed crop serialization (`CropRect.Area` no longer leaks into the worker
+  contract), storage ownership for native/Compose workers, and missing worker
+  dependencies for VTracer and AI background removal.
+- Configured the native GPU worker as GPU-only on port 8001, alongside the
+  Compose CPU worker on port 8000. Compose has a writable shared storage bind
+  mount and persistent model/cache directories.
+- Reattached the design review UI to persisted jobs after navigation. Job
+  failures remain in history; the UI now receives errors in the expected
+  contract shape, including object-valued details.
+- Validated crop, trim, Potrace, VTracer, key-color removal, and AI removal on
+  generated artwork. Full `make test` passes (API 11+5, worker 238, packer
+  157, contracts and web build/lint); `npm test` passes 114 tests. Compose API
+  and CPU-worker health pass.
+- The native GPU worker is configured but not running. Representative shop
+  photo/color-art quality review remains open; no customer artwork was used for
+  the generated-art engine checks.
+
+### 2026-11-07 — Native GPU worker handoff
+
+- `make worker-gpu` initially failed because the Compose worker already bound
+  port 8000. Stopped the Compose worker so the native worker can bind that port.
+- Found that Compose used a Docker-only named storage volume, while the native
+  worker defaults to repository `storage/`. Copied the existing 28 files
+  without deleting the original volume, changed API/worker/packer mounts to
+  `./storage:/data/storage`, and updated deployment guidance.
+- Recreated API, worker and packer against the bind mount; API and packer are
+  running, API health is green, and Compose worker is stopped. User can now run
+  `make worker-gpu` from the repository root; the native worker will use the
+  same artwork storage as the Compose API.
+
+### 2026-11-07 — Phase 3 fixture-backed engine validation
+
+- The user set the next phase: validate real-world image quality and GPU
+  processing, using Real-ESRGAN/Upscayl-compatible models for photo
+  enhancement. The final Photoshop sheet remains human-reviewed and updated;
+  the goal is less time cropping, enhancing, and packing, not full automation.
+- Verified the official Real-ESRGAN bundle installer by checksum and pinned
+  the GPU launcher to Vulkan device 1 (GTX 1650 Ti) on this Intel-first host.
+  A 360 × 240 photo fixture scaled 4× in 7.835 s, with NVIDIA utilization
+  peaking at 97% and memory at 686 MiB. A 960 × 320 signature scaled 2× in
+  15.560 s on NVIDIA versus 98.159 s on Intel device 0.
+- Fixed upscale DPI metadata/warnings to use source pixels; the enlarged
+  signature correctly remains flagged at 121.9 DPI. Photo output showed detail
+  recovery and synthetic texture/sharpening, so human review remains required.
+- Tested one user-provided 316 × 198 line-art sample locally without modifying
+  the original: Real-ESRGAN x4 completed in 5.337 s but remained 40.1 DPI at
+  target size; Potrace produced a clean transparent preview and SVG in 100 ms.
+  No image was stored in the repository.
+- Ran real VTracer color and Potrace dark-garment binary jobs in the worker
+  container. VTracer retained transparency (467,289 fully transparent pixels
+  in the 1,000 × 1,000 preview); Potrace kept the background transparent and
+  the traced ink light on a dark garment.
+- Root causes for "doesn't work": no Real-ESRGAN binary/models installed;
+  Compose worker excludes the `gpu` capability; worker image omitted Potrace,
+  VTracer and SVG rasterization dependencies. These dependencies and native
+  GPU setup are now wired. VTracer 0.6.15 segfaults on Python 3.14 and works
+  on Python 3.12; a guard prevents native Python 3.14 use.
+- Source-level test gates pass: `make test`, 112 web tests, and 238 worker
+  tests. Representative real-world quality is still unverified because no
+  representative photo or color samples have been processed.
+
+### 2026-11-07 — Enhancement priority
+
+- The user prioritized image enhancement and upscaling over secondary
+  vectorization/packing work.
+- Moved the Real-ESRGAN controls into the primary Image enhancement card,
+  clarified photo/general versus anime-style model selection, added review and
+  source-detail caveats, and surfaced effective source DPI before processing.
+- Added a route test verifying chosen model, scale, and GPU request. Focused
+  route tests (7), TypeScript production build, and lint passed; lint still
+  reports existing React hook/fast-refresh warnings.
+- Next: use authorized non-branded shop photo/color samples for quality
+  comparison; none were available during the prior review.
+
+### 2026-11-07 — Job progress and multistep pipeline UX
+
+- The user reported long enhancement waits with no progress indicator and asked
+  for a simpler multistep pipeline.
+- Job polling now checks each second and retries after transient read failures.
+  The design screen shows queued versus running state, elapsed time, an
+  indeterminate activity bar (the engine exposes no reliable percent), recent
+  measured GTX timings for small upscales, and guidance when a GPU job waits
+  for a native worker.
+- Grouped preparation/crop, Real-ESRGAN enhancement, background/vector cleanup,
+  and print sizing into expandable numbered pipeline stages; enhancement opens
+  by default. Image analysis and history are collapsed until requested.
+- Added route coverage for queued/running progress, elapsed time, and stage
+  actions. All 114 web tests pass; production build and lint pass with existing
+  warnings. Browser check at 562px found no horizontal overflow.
+
+### 2026-11-07 — Phase 2 Compose runtime verification
+
+- Docker access was granted. `make up`, `make smoke`, Compose service health,
+  and `API_URL=http://127.0.0.1:8080 make e2e-fixtures` all pass.
+- Fixed Release API publishing after the EF Core analyzer cache issue, replaced
+  licensed ImageSharp with SkiaSharp, and added image-inspector tests.
+- Compose runtime checks exposed the web healthcheck host mismatch, missing
+  PostgreSQL schema initialization, and upload-stream ownership issue; fixes
+  are covered by the image-inspector tests and successful fixture flow.
+- The packer image omitted `contracts/jsonschema`; it now builds from the
+  repository root and includes the frozen schemas. The first Compose pack job
+  then completed with passed integrity and PNG export.
+- No commits were created. Worktree includes the ongoing Phase 1/2 changes.
+
+### 2026-11-07 — Phase 2 native verification
+
+- Fixed service/contract mismatches found by the live flow: nullable classify
+  output paths, resize pixel dimensions, and the API's persisted sheet/report
+  response shapes.
+- Fixed packing so the complete rotated source raster fits on the sheet, and
+  made integrity fail if any source pixels are clipped, including transparent
+  padding.
+- Native fixture E2E passed through PNG and preview downloads. `make test`
+  passed (API 10, worker 234, packer 157, contracts and web build/lint);
+  `npm test` passed 111 web tests. `docker compose config --quiet` passed.
+- Docker daemon/socket access remains unavailable; no commits were created.
+
+### 2026-11-07 — Phase 2 integration work
+
+- Added the API-backed packer runner, dedicated console entry point, Docker
+  image and Compose service. Fixed flat PNG/TIFF output paths and preview
+  artifact reporting; runner rejects unsafe paths and honors lease loss.
+- Enabled the worker job loop in Compose and the native launch script.
+- Added `scripts/e2e_fixture_flow.py` and `make e2e-fixtures` for a live
+  intake-to-export flow; updated service info to report Phase 2.
+- Reconciled the top-level README and architecture status. Docker Compose
+  configuration validates, but daemon/socket access is still unavailable.
+- Runner's nine targeted tests and lint pass. The full packer suite exposed a
+  pre-existing deterministic-test assertion on `durationMs`; the assertion was
+  corrected to compare stable metrics. Re-run the suite and live E2E next.
+
+### 2026-11-07 — Resuming Phase 1 core workflows
+
+- Implemented the web workflow routes and added the non-destructive erase/restore
+  brush editor. Brush strokes are emitted in source-pixel coordinates and
+  submitted with the background-removal proposal; re-editing an existing mask
+  reuses its artifact and the pre-mask source so restore strokes can work.
+- Added brush interaction and route tests; the full web suite passes (111 tests).
+- `make test` passes: contracts, API (10 domain tests), worker (232), packer
+  (144), and web build/lint. Web lint has warnings but exits successfully.
+- The worker-job schema/example now explicitly permit brush-only mask
+  reapplication (`mode: "none"` plus `maskFromVersionId` and `brushOps`); this
+  additive contract clarification is recorded in section 16.
+- API, web workflow, and brush changes remain uncommitted in the worktree.
+- Next: add focused API-level tests and continue Phase 1 integration. Docker
+  runtime verification remains blocked until daemon/socket access is available.
 
 ### 2026-11-05 — Phase 0 completion (Docker gate open)
 
@@ -576,8 +867,50 @@ Append newest entries at the top. Keep them short and factual.
 
 ## 16. Contract change notifications
 
-Contract version 1.0.0 was frozen on 2026-11-05. No post-freeze changes.
+Contract version 1.0.0 was frozen on 2026-11-05. It was superseded by the
+breaking 2.0.0 change on 2026-11-08 after two additive clarifications on
+2026-11-07.
 
 When a contract changes, add a dated entry here naming the schema/operation,
 the version bump, and which tracks must adapt (API A, worker B, packer C,
 web D). Also update `contracts/CHANGELOG.md` and the examples.
+
+### 2026-11-08 — Contract 2.0.0: retire removal/vectorize, add placement guarantee
+
+- **API:** removed `POST /steps/vectorize` and
+  `POST /steps/background-removal`; retained version/artifact read endpoints
+  for history. `PackSheetRequest` gains optional `designIds` for a preview
+  subset. Classifier results may omit the retired suggestion fields.
+- **Integrity:** `IntegrityReport` `schemaVersion` is `2.0` and
+  `all-designs-placed` is the fifth blocking check; `passed` is false if any
+  design is unplaced or omitted from a subset pack. Packer responses are
+  `schemaVersion` `2.0` with `unplacedDesigns`.
+- **Packer:** exact alpha-polygon placement; full raster containment; Lanczos
+  target-box fitting only when an explicit physical target differs from the
+  approved pixels, reported as `target-resampled`.
+- **Worker:** `background-removal` and `vectorize` stay in the job schema for
+  historical readability but are rejected as `retired`.
+- **Web:** removes brush/removal/vectorize controls; adds subset pack previews
+  and the fifth check to the integrity gate.
+- Contract version is **2.0.0**. API A, worker B, packer C and web D are all
+  aligned; historical records remain readable.
+
+### 2026-11-07 — Brush-only mask reapplication
+
+- Additively relaxed the worker-job background-removal schema so
+  `mode: "none"` may include `brushOps` when `maskFromVersionId` is a string.
+  The same change is mirrored in `worker/app/_contracts/worker-job.schema.json`;
+  the example now covers reusing a mask with brush operations. Contract version
+  remains 1.0.0 because the change only accepts an additional valid request.
+- Tracks: API A and web D submit this request shape; worker B validates and
+  processes it. Packer C is unaffected.
+
+### 2026-11-07 — Nullable classify output path
+
+- The worker-job schema allows `outputPath: null` for classify jobs, which do
+  not produce a raster; raster-producing jobs still require a safe relative
+  path. Updated the canonical and vendored schemas, classify example, changelog
+  and contract documentation. Contract version remains 1.0.0 because this
+  accepts an additional valid request shape.
+- Tracks: API A serializes the null value and worker B validates it. Packer C
+  and web D are unaffected.

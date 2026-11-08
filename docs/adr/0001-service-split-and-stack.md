@@ -12,9 +12,10 @@ business. The workload has four very different shapes:
 1. **Domain and review state.** Batches, designs, immutable versions, approvals,
    target sizes, packing revisions and exports. Transactional, auditable,
    strongly typed.
-2. **Image processing.** Trim, crop, upscale (Real-ESRGAN), background removal,
-   vectorization, resize. Python-native libraries, GPU-bound, failure-prone,
-   long-running.
+2. **Image processing.** Trim, crop, upscale (Real-ESRGAN), resize.
+   Python-native libraries, GPU-bound, failure-prone, long-running. Background
+   removal and vectorization were later retired; see
+   [0007](0007-placement-guarantee-and-scope.md).
 3. **Packing and export.** Raster masks, nesting search, integrity checks and
    strip rendering of very tall sheets. CPU/memory-bound, Python-native
    (NumPy/Pillow/Shapely), independently testable.
