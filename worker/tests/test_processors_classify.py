@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 from PIL import Image
 
@@ -16,7 +15,6 @@ from tests.conftest import (
     job_document,
     put_image_file,
     run_processor,
-    transparent_sticker,
     version_path,
 )
 
@@ -64,6 +62,7 @@ def test_features_match_the_frozen_shape(storage: StorageRoot, settings) -> None
     )
     assert isinstance(features["fullBleed"], bool)
     assert result["metadata"]["engine"] == "heuristic-v1"
+    assert set(result["suggestions"]["suggestions"]) == {"trim", "upscale"}
 
 
 def test_uniform_border_is_detected_as_gray_background(storage: StorageRoot, settings) -> None:
@@ -91,30 +90,6 @@ def test_full_bleed_holds_for_any_busy_artwork(storage: StorageRoot, settings, s
     features = result["suggestions"]["features"]
     assert features["fullBleed"] is True
     assert features["sampledBackground"]["confidence"] < 0.9
-
-
-def test_transparent_source_suggests_no_background_removal(storage: StorageRoot, settings) -> None:
-    result = classify_result(storage, settings, transparent_sticker())
-
-    suggestion = result["suggestions"]["suggestions"]["backgroundRemoval"]
-    assert suggestion["mode"] == "none"
-    assert result["suggestions"]["features"]["sampledBackground"]["kind"] == "transparent"
-
-
-def test_flat_uniform_background_prefers_key_colour_removal(storage: StorageRoot, settings) -> None:
-    result = classify_result(storage, settings, gray_screenshot())
-
-    suggestion = result["suggestions"]["suggestions"]["backgroundRemoval"]
-    assert suggestion["mode"] == "color-to-alpha"
-    assert suggestion["keyColor"] == "#B8B8B8"
-
-
-def test_noisy_background_prefers_the_ai_cutout(storage: StorageRoot, settings) -> None:
-    rng = np.random.default_rng(5)
-    array = rng.integers(0, 256, size=(120, 160, 3), dtype=np.uint8)
-    result = classify_result(storage, settings, Image.fromarray(array, "RGB"))
-
-    assert result["suggestions"]["suggestions"]["backgroundRemoval"]["mode"] == "ai"
 
 
 def test_trim_is_suggested_when_dead_margin_exists(storage: StorageRoot, settings) -> None:
@@ -145,41 +120,6 @@ def test_upscale_scale_tracks_effective_dpi(storage: StorageRoot, settings) -> N
         desperate["suggestions"]["suggestions"]["upscale"]["confidence"]
         > comfortable["suggestions"]["suggestions"]["upscale"]["confidence"]
     )
-
-
-def test_photo_like_content_is_not_recommended_for_vectorizing(
-    storage: StorageRoot, settings
-) -> None:
-    yy, xx = np.mgrid[0:96, 0:96]
-    array = np.stack(
-        [
-            (xx * 2) % 256,
-            (yy * 3) % 256,
-            ((xx + yy) * 4) % 256,
-        ],
-        axis=-1,
-    ).astype(np.uint8)
-
-    result = classify_result(storage, settings, Image.fromarray(array, "RGB"))
-    assert result["suggestions"]["features"]["uniqueColorCount"] > 48
-    assert result["suggestions"]["suggestions"]["vectorize"]["recommended"] is False
-
-
-def flat_logo_canvas(size: tuple[int, int] = (200, 120)) -> Image.Image:
-    """Mostly one colour with a small solid mark: the classic DTF logo case."""
-
-    image = Image.new("RGB", size, (250, 250, 250))
-    image.paste(Image.new("RGB", (40, 24), (12, 12, 12)), (size[0] // 2, size[1] // 2))
-    return image
-
-
-def test_flat_logo_is_recommended_for_vectorizing(storage: StorageRoot, settings) -> None:
-    result = classify_result(storage, settings, flat_logo_canvas())
-
-    features = result["suggestions"]["features"]
-    assert features["flatColorRatio"] >= 0.9
-    assert features["uniqueColorCount"] <= 48
-    assert result["suggestions"]["suggestions"]["vectorize"]["recommended"] is True
 
 
 def test_missing_target_omits_effective_dpi(storage: StorageRoot, settings) -> None:

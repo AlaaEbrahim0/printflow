@@ -20,11 +20,7 @@ from PIL import Image
 
 from app.config import Settings
 from app.engines.command import CommandRunner, SubprocessCommandRunner
-from app.engines.cutout import AiCutoutEngine
-from app.engines.potrace import PotraceEngine
-from app.engines.raster import SvgRasterizer, detect_rasterizer
 from app.engines.realesrgan import RealesrganEngine
-from app.engines.vtracer import VtracerEngine
 from app.errors import MissingInputArtifactError
 from app.imaging import (
     image_has_alpha,
@@ -39,34 +35,14 @@ from app.storage import StorageRoot
 
 @dataclass
 class Engines:
-    """Injectable engine bundle. ``rasterizer`` is resolved lazily and cached."""
+    """Injectable engine bundle."""
 
     realesrgan: RealesrganEngine
-    potrace: PotraceEngine
-    vtracer: VtracerEngine
-    ai_cutout: AiCutoutEngine
-    _rasterizer: SvgRasterizer | None = None
-    _rasterizer_resolved: bool = False
-
-    @property
-    def rasterizer(self) -> SvgRasterizer | None:
-        return self._rasterizer
-
-    def resolve_rasterizer(self, settings: Settings) -> SvgRasterizer | None:
-        if not self._rasterizer_resolved:
-            self._rasterizer = detect_rasterizer(settings)
-            self._rasterizer_resolved = True
-        return self._rasterizer
 
 
 def default_engines(settings: Settings, runner: CommandRunner | None = None) -> Engines:
     resolved_runner = runner or SubprocessCommandRunner()
-    return Engines(
-        realesrgan=RealesrganEngine(settings, resolved_runner),
-        potrace=PotraceEngine(settings, resolved_runner),
-        vtracer=VtracerEngine(settings),
-        ai_cutout=AiCutoutEngine(settings),
-    )
+    return Engines(realesrgan=RealesrganEngine(settings, resolved_runner))
 
 
 @dataclass(frozen=True)

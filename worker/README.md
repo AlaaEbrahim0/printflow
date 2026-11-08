@@ -1,7 +1,8 @@
 # PrintSheet Worker
 
-Phase 1 track B: a real image-processing worker for the six frozen job types —
-`classify`, `trim`, `background-removal`, `upscale`, `vectorize`, `resize`.
+Phase 3 image-processing worker. Active job types are `classify`, `trim`,
+`upscale`, and `resize`. Legacy background-removal/vectorization records remain
+readable, but those job types are rejected as retired.
 
 It reads and writes only files inside the shared storage root; image bytes never
 travel in JSON. The FastAPI service still only exposes `/` and `/health`; the job
@@ -59,7 +60,7 @@ PRINTSHEET_RUN_JOBS=true .venv/bin/uvicorn app.main:app --port 8000   # + loop
 | `API_BASE_URL` | `http://localhost:8080` | internal API base |
 | `WORKER_KEY` | `dev-worker-key` | sent as `X-Worker-Key` |
 | `WORKER_ID` | `worker-local` | identity recorded on claims |
-| `CAPABILITIES` | all six types | comma list sent in `ClaimJobsRequest` |
+| `CAPABILITIES` | `image` | capability list sent in `ClaimJobsRequest` |
 | `RUN_JOBS` | `false` | start the claim loop in the app lifespan |
 | `LEASE_SECONDS` | `120` | requested lease, clamped to 15..900 |
 | `HEARTBEAT_SECONDS` | `30` | heartbeat cadence (never later than lease/3) |
@@ -80,22 +81,14 @@ PRINTSHEET_RUN_JOBS=true .venv/bin/uvicorn app.main:app --port 8000   # + loop
 | `CLASSIFY_COLOR_LEVELS` | `32` | quantisation levels per channel |
 | `CLASSIFY_FLAT_COLOR_TOLERANCE` | `12` | flat-colour match |
 | `CLASSIFY_EDGE_THRESHOLD` | `48` | gradient magnitude that counts as an edge |
-| `CLASSIFY_FLAT_LOGO_RATIO` / `CLASSIFY_UNIQUE_COLOR_LOGO_MAX` | `0.6` / `48` | vectorize heuristic |
+| `CLASSIFY_UNIQUE_COLOR_LOGO_MAX` | `48` | illustration heuristic for upscale suggestions |
 | `TRIM_PADDING_PX` / `TRIM_TOLERANCE` | `8` / `12` | auto-trim defaults |
-| `BACKGROUND_TOLERANCE` / `BACKGROUND_EDGE_SOFTNESS` | `12` / `0` | keying defaults |
-| `AI_MODEL` | `isnet-general-use` | rembg model when `mode=ai` |
 | `REALESRGAN_BINARY` | `realesrgan-ncnn-vulkan` | engine path |
 | `REALESRGAN_MODEL_DIR` | unset | passed as `-m` when set |
 | `REALESRGAN_TILE_SIZE` | `256` | default `-t` when the job omits it |
 | `REALESRGAN_GPU_DEVICE_INDEX` | `0` | `-g` when GPU is enabled |
 | `REALESRGAN_CPU_THREADS` | `0` | `-j 1:N:N` on the CPU path, 0 = engine default |
 | `REALESRGAN_TIMEOUT_SECONDS` | `900` | hard subprocess timeout |
-| `POTRACE_BINARY` | `potrace` | engine path |
-| `POTRACE_CORNER_THRESHOLD` / `POTRACE_OPTIMIZE_TOLERANCE` | `1.0` / `0.2` | `-a` / `-O` |
-| `POTRACE_TIMEOUT_SECONDS` | `180` | hard timeout |
-| `VECTORIZE_THRESHOLD` / `_TURDSIZE` / `_COLOR_COUNT` | `128` / `0` / `4` | vectorize defaults |
-| `SVG_RASTERIZER` | auto | force `cairosvg`, `resvg-py`, `rsvg-convert` or `inkscape` |
-| `SVG_RASTER_TIMEOUT_SECONDS` | `120` | rasterizer timeout |
 | `LOG_LEVEL` / `LOG_JSON` | `INFO` / `false` | stderr logging; JSON for containers |
 
 `MAX_GPU_JOBS` is constrained to exactly `1`: the loop is sequential, so a GPU
@@ -118,27 +111,25 @@ re-checked here independently (`app/storage.py`).
 
 ## Engines and how to enable them
 
-Base install is CPU-only and self-contained: trim, background removal
-(key-colour and none), classify and resize need nothing external.
-
-```bash
-.venv/bin/pip install -e '.[vector]'   # vtracer + cairosvg (SVG trace + previews)
-.venv/bin/pip install -e '.[ai]'       # rembg (onnxruntime; downloads weights on first use)
-```
+The worker image supports crop/trim, classification and resizing without
+optional image-engine dependencies. Background removal and vectorization are
+retired; legacy jobs fail explicitly with `unsupported-parameters`.
 
 * **Real-ESRGAN** is the `realesrgan-ncnn-vulkan` binary; it is not a pip
-  dependency. Install a release into `PATH` or point `REALESRGAN_BINARY` at it,
-  then run the worker with `PRINTSHEET_GPU_ENABLED=true`
-  (`scripts/run-worker-gpu.sh` from the repo root).
-* **potrace** is a system binary (`apt install potrace`, `pacman -S potrace`).
-* **SVG rasterization** (vectorize previews, `rasterizeFromVector`) uses
-  `cairosvg`, `resvg-py`, `rsvg-convert` or `inkscape`, whichever is present.
-  `rsvg-convert` (librsvg) is the zero-Python option and is what the author's
-  machine uses.
-
-Missing engine → stable non-retryable failure: `engine-unavailable`,
-`ai-unavailable`, `svg-rasterizer-unavailable`, `engine-mode-unsupported`. The
-worker never substitutes a different algorithm behind the operator's back.
+  dependency. From the repository root, run `make worker-gpu-setup` to install
+  the checksum-verified Linux release and its models under the ignored
+  `.tools/` directory. Then run `make worker-gpu`; this starts a native worker
+  that advertises only the GPU capability on port 8001. The Compose worker
+  remains active on port 8000 for CPU jobs. Both workers share the repository
+  `storage/` directory. On this workstation
+  the launcher defaults to Vulkan device 1 (the GTX 1650 Ti; Intel UHD is
+  device 0); override
+  `PRINTSHEET_REALESRGAN_GPU_DEVICE_INDEX` when the device ordering differs.
+  Other platforms can install a release into `PATH` or set
+  `PRINTSHEET_REALESRGAN_BINARY` and `PRINTSHEET_REALESRGAN_MODEL_DIR`.
+Missing Real-ESRGAN binaries produce a stable non-retryable
+`engine-unavailable` result. The worker never substitutes another algorithm
+behind the operator's back.
 
 ## Processing rules implemented here
 
@@ -152,10 +143,6 @@ worker never substitutes a different algorithm behind the operator's back.
   6850 px, the same rule as `PrintUnits` in the API.
 * `resize` resamples exactly once with Lanczos; `contain` never stretches or
   crops and centres the artwork on transparent padding.
-* `background-removal` always exports the 8-bit mask (255 = visible) and computes
-  output alpha as `sourceAlpha × mask / 255`. Colour-to-alpha is the unmultiplied
-  GIMP formulation, so gradients keep their hue instead of a dark/white fringe.
-  Brush strokes (`erase` → 0, `restore` → 255) edit only the mask.
 * Full bleed is never auto-trimmed: the input is passed through with the warning
   `full-bleed-no-auto-trim`, and `classify` sets `trim.recommended = false`
   whenever `fullBleed` is true.
@@ -174,17 +161,12 @@ worker never substitutes a different algorithm behind the operator's back.
 | `input-missing` | yes | the assigned input file is not there yet |
 | `image-decode-failed` | no | the input exists but cannot be decoded |
 | `input-too-large` | no | above `MAX_INPUT_PIXELS` |
-| `unsupported-parameters` | no | schema-legal value the worker cannot honour |
+| `unsupported-parameters` | no | schema-legal value the worker cannot honour, including retired jobs |
 | `crop-out-of-bounds` | no | manual `cropRect` leaves the source |
-| `missing-input-artifact` | no | needed `inputArtifacts.mask`/`.svg` absent |
-| `mask-dimensions-mismatch` | no | a supplied mask is not the source size |
-| `ai-unavailable` | no | `rembg`/model missing for `mode=ai` |
-| `engine-unavailable` | no | `realesrgan-ncnn-vulkan`/`potrace` absent |
-| `engine-mode-unsupported` | no | e.g. `mode=color` on potrace |
+| `engine-unavailable` | no | `realesrgan-ncnn-vulkan` is absent |
 | `engine-failed` | yes | the engine exited non-zero or misbehaved |
 | `engine-timeout` | yes | the engine exceeded its timeout |
 | `engine-output-invalid` | no | no output, or wrong dimensions/undecodable |
-| `svg-rasterizer-unavailable` | no | SVG needs rasterizing, no backend |
 | `unsupported-output-format` | no | assigned suffix cannot hold the pixels |
 | `invalid-result` | no | our own result failed the result schema |
 | `worker-shutdown` | yes | grace period expired mid-job |
@@ -196,45 +178,32 @@ Warning codes you will see in previews include
 `lossy-reencode`, `palette-converted`, `bit-depth-converted`,
 `low-effective-dpi`, `very-low-effective-dpi`, `target-px-cm-mismatch`,
 `gpu-requested-cpu-fallback`, `tile-size-below-minimum`,
-`alpha-dropped-by-engine`, `mask-edge-softened`, `brush-op-off-canvas`,
-`engine-input-converted`, `vector-preview-contained`,
-`color-count-approximated`, `classifier-analysis-downscaled`.
+`alpha-dropped-by-engine`, `engine-input-converted`,
+`classifier-analysis-downscaled`.
 
 ## Limitations, stated honestly
 
-1. **AI cutout is unverified on this machine.** `rembg`/onnxruntime is not
-   installed here, so the adapter is exercised only through fakes. The call is
-   wrapped, so an unexpected build surfaces as `ai-unavailable`/`engine-failed`
-   rather than a crash. Model weights download on first use — do that on a
-   machine with the model cache, never in a test.
-2. **potrace traces bitmaps only.** `mode: color` with the potrace engine fails
-   `engine-mode-unsupported` and tells the operator to choose vtracer.
-3. **vtracer `colorCount` is approximate** (mapped to `color_precision`, a bit
-   depth) and reported with `color-count-approximated`.
-4. **Real-ESRGAN alpha** depends on the binary version: the worker verifies the
+1. **Real-ESRGAN alpha** depends on the binary version: the worker verifies the
    output dimensions and warns (`alpha-dropped-by-engine`) if transparency the
    source had is gone. It cannot judge visually — that is the preview's job.
-5. **CPU fallback for upscaling** is allowed (same model, slower device) with a
+2. **CPU fallback for upscaling** is allowed (same model, slower device) with a
    warning; nothing silently switches to a plain Lanczos enlargement.
-6. **Classifier features are measured on a downscaled copy** for colour/edge
+3. **Classifier features are measured on a downscaled copy** for colour/edge
    stats (`CLASSIFY_ANALYSIS_MAX_PX`); margins and full-bleed use full
    resolution. `uniqueColorCount` counts *quantised* colours.
-7. **`resize` honours an explicit `targetWidthPx`/`targetHeightPx`** even when it
+4. **`resize` honours an explicit `targetWidthPx`/`targetHeightPx`** even when it
    disagrees with `round(cm × dpi / 2.54)`, and reports
    `target-px-cm-mismatch`; the API decides readiness.
-8. **Container verification is still open.** The Compose stack cannot be started
-   by this agent (Docker daemon inactive, no sudo), so the worker image was not
-   built here; `app/_contracts/` exists precisely so the image stays self-contained.
-9. **No EXIF orientation handling.** Uploaded screenshots are used as stored.
+5. **No EXIF orientation handling.** Uploaded screenshots are used as stored.
 
 ## Tests
 
 ```bash
-.venv/bin/pytest -q          # 230 tests, no network, no GPU, no binaries needed
+.venv/bin/pytest -q
 .venv/bin/ruff check app tests
 ```
 
-Fakes cover the engine seams (`tests/conftest.py`: `FakeCommandRunner`,
-`FakeRasterizer`, `fake_rembg_module`, `fake_vtracer_module`) and the API
-(`httpx.MockTransport`, `FakeClient` in `tests/test_runner.py`). The frozen
-contract examples are executed end to end in `tests/test_job_examples.py`.
+Fakes cover the Real-ESRGAN command seam (`FakeCommandRunner`) and API
+(`httpx.MockTransport`, `FakeClient` in `tests/test_runner.py`). Legacy job
+examples are validated and rejected explicitly; active examples are executed
+end to end in `tests/test_job_examples.py`.

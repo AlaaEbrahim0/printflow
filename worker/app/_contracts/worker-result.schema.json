@@ -139,7 +139,7 @@
         "suggestions": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["trim", "backgroundRemoval", "upscale", "vectorize"],
+          "required": ["trim", "upscale"],
           "properties": {
             "trim": {
               "type": "object",

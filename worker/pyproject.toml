@@ -23,17 +23,6 @@ dev = [
   "pytest>=8.3,<10",
   "ruff>=0.8,<1",
 ]
-# Optional engines. The base install must keep working without them: the
-# adapters fail with a stable typed code (ai-unavailable / engine-unavailable)
-# instead of crashing, and the test suite uses fakes.
-ai = [
-  "rembg>=2.0,<3",
-]
-vector = [
-  "vtracer>=0.6,<0.7",
-  "cairosvg>=2.7,<3",
-]
-
 [project.scripts]
 printsheet-worker = "app.cli:main"
 

@@ -1,10 +1,9 @@
 """Shared fixtures: synthetic images, storage roots and fake engines.
 
-No binary files are committed and nothing here needs a GPU, a network, the real
-``realesrgan-ncnn-vulkan``, ``potrace``, ``vtracer`` or ``rembg``. External
-engines are replaced by fakes at their own seams (a command runner that writes a
-canned file, a fake python module), so the tests exercise command construction
-and output verification rather than the tools themselves.
+No binary files are committed and nothing here needs a GPU, a network, or the
+real ``realesrgan-ncnn-vulkan``. External engines are replaced by fakes at their
+own seams, so tests exercise command construction and output verification
+rather than the tools themselves.
 """
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -23,10 +21,7 @@ from app.config import Settings
 from app.context import Engines, JobScope, default_engines
 from app.contracts import validate_job
 from app.engines.command import CommandResult, CommandRunner
-from app.engines.cutout import AiCutoutEngine
-from app.engines.potrace import PotraceEngine
 from app.engines.realesrgan import RealesrganEngine
-from app.engines.vtracer import VtracerEngine
 from app.job_models import WorkerJob
 from app.storage import StorageRoot
 
@@ -45,7 +40,6 @@ def make_settings(tmp_path: Path, **overrides: Any) -> Settings:
         "gpu_enabled": False,
         "log_level": "CRITICAL",
         "realesrgan_binary": tmp_path / "bin" / "realesrgan-ncnn-vulkan",
-        "potrace_binary": tmp_path / "bin" / "potrace",
     }
     values.update(overrides)
     return Settings(**values)
@@ -87,15 +81,6 @@ def gray_screenshot(size: tuple[int, int] = (300, 200), margin: int = 40) -> Ima
 
     array = np.full((size[1], size[0], 3), 184, dtype=np.uint8)
     array[margin : size[1] - margin, margin : size[0] - margin] = (30, 30, 30)
-    return Image.fromarray(array, "RGB")
-
-
-def black_background_logo(size: tuple[int, int] = (200, 200)) -> Image.Image:
-    """Uniform black canvas with a light flat block in the middle."""
-
-    array = np.zeros((size[1], size[0], 3), dtype=np.uint8)
-    margin = size[0] // 4
-    array[margin : size[1] - margin, margin : size[0] - margin] = (240, 240, 240)
     return Image.fromarray(array, "RGB")
 
 
@@ -237,67 +222,12 @@ def write_scaled_png(factor: int) -> Callable[[list[str]], None]:
     return handler
 
 
-MINIMAL_SVG = '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
-
-
-def write_svg(svg: str = MINIMAL_SVG) -> Callable[[list[str]], None]:
-    def handler(command: list[str]) -> None:
-        output_path = Path(command[command.index("-o") + 1])
-        output_path.write_text(svg, encoding="utf-8")
-
-    return handler
-
-
-def write_pgm(luminance: int = 200) -> Callable[[list[str]], None]:
-    """potrace's PGM backend: mostly paper-white, so the preview is mostly clear.
-
-    potrace takes the input file as a trailing positional argument, not ``-i``.
-    """
-
-    def handler(command: list[str]) -> None:
-        input_path = Path(command[-1])
-        output_path = Path(command[command.index("-o") + 1])
-        with Image.open(input_path) as opened:
-            width, height = opened.size
-        array = np.full((height, width), luminance, dtype=np.uint8)
-        array[height // 4 : height // 2, width // 4 : width // 2] = 0
-        Image.fromarray(array, "L").save(output_path)
-
-    return handler
-
-
-def combined_writer(*handlers: Callable[[list[str]], None]) -> Callable[[list[str]], None]:
-    def handler(command: list[str]) -> None:
-        for candidate in handlers:
-            candidate(command)
-
-    return handler
-
-
 def make_engines(
     settings: Settings,
     runner: CommandRunner | None = None,
-    *,
-    vtracer_module: ModuleType | None = None,
-    rembg_module: ModuleType | None = None,
-    rasterizer: Any = None,
-    no_rasterizer: bool = False,
 ) -> Engines:
     resolved = runner or FakeCommandRunner()
-    engines = Engines(
-        realesrgan=RealesrganEngine(settings, resolved),
-        potrace=PotraceEngine(settings, resolved),
-        vtracer=VtracerEngine(settings, vtracer_module),
-        ai_cutout=AiCutoutEngine(settings, rembg_module),
-    )
-    if rasterizer is not None:
-        engines._rasterizer = rasterizer
-        engines._rasterizer_resolved = True
-    elif no_rasterizer:
-        # Pretend nothing was detected, regardless of what this host has installed.
-        engines._rasterizer = None
-        engines._rasterizer_resolved = True
-    return engines
+    return Engines(realesrgan=RealesrganEngine(settings, resolved))
 
 
 @pytest.fixture
@@ -313,59 +243,6 @@ def make_executable(path: Path) -> Path:
     path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     path.chmod(0o755)
     return path
-
-
-def fake_rembg_module(rgba: Image.Image | None = None) -> ModuleType:
-    """Stands in for rembg. With no canned image it echoes its input as RGBA."""
-
-    from io import BytesIO
-
-    calls: dict[str, Any] = {}
-
-    def new_session(model: str) -> SimpleNamespace:
-        calls["model"] = model
-        return SimpleNamespace(model=model)
-
-    def remove(image: Image.Image, session: Any = None) -> bytes:
-        calls["session"] = session
-        produced = rgba if rgba is not None else image
-        buffer = BytesIO()
-        produced.convert("RGBA").save(buffer, format="PNG")
-        return buffer.getvalue()
-
-    return SimpleNamespace(new_session=new_session, remove=remove, calls=calls)
-
-
-def fake_vtracer_module(svg: str = '<svg xmlns="http://www.w3.org/2000/svg"></svg>') -> ModuleType:
-    calls: list[dict[str, Any]] = []
-
-    def convert_image_to_svg_py(image_path: str, out_path: Path, **kwargs: Any) -> None:  # noqa: ANN001
-        calls.append({"image": image_path, "out": out_path, **kwargs})
-        Path(out_path).write_text(svg, encoding="utf-8")
-
-    return SimpleNamespace(convert_image_to_svg_py=convert_image_to_svg_py, calls=calls)
-
-
-class FakeRasterizer:
-    """Writes a solid RGBA raster of the requested size, recording the request."""
-
-    name = "fake-rasterizer"
-
-    def __init__(self, colour: tuple[int, int, int, int] = (0, 0, 0, 255)) -> None:
-        self.colour = colour
-        self.requests: list[tuple[int, int]] = []
-
-    def is_available(self) -> bool:
-        return True
-
-    def rasterize(
-        self, *, svg_path: Path, output_path: Path, width_px: int, height_px: int
-    ) -> None:
-        self.requests.append((width_px, height_px))
-        array = np.zeros((height_px, width_px, 4), dtype=np.uint8)
-        array[...] = self.colour
-        Image.fromarray(array, "RGBA").save(output_path)
-
 
 
 def alpha_of(image: Image.Image) -> np.ndarray:

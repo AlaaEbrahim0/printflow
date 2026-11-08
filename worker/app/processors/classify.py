@@ -1,15 +1,12 @@
-"""classify: measure the frozen features and propose the next steps.
+"""classify: measure an image and suggest cropping or enhancement.
 
 Nothing here decides for the operator — the contract calls them *suggestions*
 and the UI can override every one. The rules that matter are documented inline:
 
 * ``fullBleed == True`` **always** means ``trim.recommended == False`` (product
   rule 12: never silently cut a design that runs off all four edges);
-* background removal prefers key-colour to alpha when the border really is one
-  flat colour, and only then proposes the AI cutout;
 * the upscale model follows the content (flat illustration vs. photo) and the
   scale follows the effective DPI at the declared target;
-* vectorization is proposed for flat, low-colour-count artwork only.
 """
 
 from __future__ import annotations
@@ -17,7 +14,6 @@ from __future__ import annotations
 from typing import Any
 
 from app.analysis import (
-    TRANSPARENT,
     background_matches,
     content_bbox,
     edge_margin_ratios,
@@ -98,51 +94,6 @@ def _trim_suggestion(
     return suggestion
 
 
-def _background_removal_suggestion(
-    *, sample, settings: Settings
-) -> dict[str, Any]:
-    key_hex = sample.key_hex()
-    if sample.kind == TRANSPARENT:
-        return {
-            "mode": "none",
-            "reason": (
-                "The source already carries an alpha channel; there is no flat "
-                "background colour to key out."
-            ),
-            "confidence": round(min(1.0, sample.confidence), 4),
-        }
-    if sample.confidence >= 0.8 and key_hex:
-        return {
-            "mode": "color-to-alpha",
-            "keyColor": key_hex,
-            "reason": (
-                f"The border is a near-uniform {sample.kind} ({key_hex}) covering "
-                f"{sample.confidence:.0%} of the sampled strips; unmultiplied "
-                "key-colour removal keeps gradient hues without a fringe."
-            ),
-            "confidence": round(min(1.0, sample.confidence), 4),
-        }
-    if sample.confidence >= 0.5 and key_hex:
-        return {
-            "mode": "color-to-alpha",
-            "keyColor": key_hex,
-            "reason": (
-                f"The border is mostly {sample.kind} ({key_hex}) but not uniform "
-                f"({sample.confidence:.0%}); check the preview for gradients the key "
-                "may eat."
-            ),
-            "confidence": round(sample.confidence, 4),
-        }
-    return {
-        "mode": "ai",
-        "reason": (
-            "The border is not a single flat colour, so key-colour removal would "
-            "leave background behind; an AI cutout is the better starting point."
-        ),
-        "confidence": round(max(0.05, 1.0 - sample.confidence), 4),
-    }
-
-
 def _upscale_suggestion(
     *,
     effective_dpi: float | None,
@@ -200,67 +151,6 @@ def _upscale_suggestion(
             "edge cleanup."
         ),
         "confidence": 0.15,
-    }
-
-
-def _vectorize_suggestion(
-    *,
-    flat_color_ratio: float,
-    unique_color_count: int,
-    edge_density: float,
-    full_bleed: bool,
-    settings: Settings,
-) -> dict[str, Any]:
-    flat_logo = (
-        flat_color_ratio >= settings.classify_flat_logo_ratio
-        and unique_color_count <= settings.classify_unique_color_logo_max
-    )
-    confidence = round(
-        min(
-            0.95,
-            max(
-                0.05,
-                0.35 + 0.35 * flat_color_ratio + 0.15 * (1.0 - min(edge_density, 1.0)),
-            ),
-        ),
-        4,
-    )
-    if flat_logo and not full_bleed:
-        return {
-            "recommended": True,
-            "reason": (
-                f"{flat_color_ratio:.0%} flat colour and only {unique_color_count} "
-                "quantised tones: a trace will reproduce this cleanly and let the "
-                "final resize rasterise at print resolution."
-            ),
-            "confidence": confidence,
-        }
-    if flat_logo and full_bleed:
-        return {
-            "recommended": False,
-            "reason": (
-                "The palette is flat enough to trace, but the artwork is full-bleed "
-                "and the trace would fill the entire canvas; trim or crop first."
-            ),
-            "confidence": confidence,
-        }
-    if unique_color_count > settings.classify_unique_color_logo_max:
-        return {
-            "recommended": False,
-            "reason": (
-                f"{unique_color_count} distinct quantised colours and only "
-                f"{flat_color_ratio:.0%} flat coverage: continuous tone. Tracing "
-                "would posterise the design — upscale instead."
-            ),
-            "confidence": round(1.0 - confidence, 4) if confidence > 0.5 else confidence,
-        }
-    return {
-        "recommended": False,
-        "reason": (
-            f"Edge density is {edge_density:.2f} against {flat_color_ratio:.0%} flat "
-            "colour, so the artwork has detail a trace would lose."
-        ),
-        "confidence": confidence,
     }
 
 
@@ -338,20 +228,10 @@ def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
                     confidence=sample.confidence,
                     settings=settings,
                 ),
-                "backgroundRemoval": _background_removal_suggestion(
-                    sample=sample, settings=settings
-                ),
                 "upscale": _upscale_suggestion(
                     effective_dpi=effective_dpi,
                     flat_color_ratio=features["flatColorRatio"],
                     unique_color_count=features["uniqueColorCount"],
-                    settings=settings,
-                ),
-                "vectorize": _vectorize_suggestion(
-                    flat_color_ratio=features["flatColorRatio"],
-                    unique_color_count=features["uniqueColorCount"],
-                    edge_density=features["edgeDensity"],
-                    full_bleed=full_bleed,
                     settings=settings,
                 ),
             },

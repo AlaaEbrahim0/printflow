@@ -8,7 +8,7 @@ import pytest
 from PIL import Image
 
 from app.contracts import WORKER_RESULT_SCHEMA, describe_document
-from app.errors import CODE_ENGINE_UNAVAILABLE
+from app.errors import CODE_ENGINE_UNAVAILABLE, CODE_UNSUPPORTED_PARAMETERS
 from app.pipeline import process_document
 from app.storage import StorageRoot
 from tests.conftest import (
@@ -21,11 +21,11 @@ from tests.conftest import (
 EXPECTED = {
     "worker-job-classify.json": "succeeded",
     "worker-job-trim.json": "succeeded",
-    "worker-job-background-removal.json": "succeeded",
+    "worker-job-background-removal.json": "unsupported-parameters",
     "worker-job-resize.json": "succeeded",
     # These two need external binaries that are deliberately not installed.
     "worker-job-upscale.json": "engine-unavailable",
-    "worker-job-vectorize.json": "engine-unavailable",
+    "worker-job-vectorize.json": "unsupported-parameters",
 }
 
 SIZE = (240, 160)
@@ -73,15 +73,20 @@ def test_frozen_example_produces_a_valid_envelope(seeded, name: str, example_dir
         if document["type"] != "classify":
             assert storage.resolve(processed.result["outputPath"]).is_file()
             assert processed.result["metadata"]["durationMs"] >= 0
-        if document["type"] == "background-removal":
-            assert storage.resolve(processed.result["outputArtifacts"]["mask"]).is_file()
         if document["type"] == "classify":
             features = processed.result["suggestions"]["features"]
             assert set(features["sampledBackground"]) <= {"kind", "hex", "confidence"}
     else:
         assert processed.succeeded is False
-        assert processed.result["error"]["code"] == CODE_ENGINE_UNAVAILABLE
+        expected_code = (
+            CODE_UNSUPPORTED_PARAMETERS
+            if expectation == "unsupported-parameters"
+            else CODE_ENGINE_UNAVAILABLE
+        )
+        assert processed.result["error"]["code"] == expected_code
         assert processed.result["error"]["retryable"] is False
+        if expectation == "unsupported-parameters":
+            assert document["type"] in processed.result["error"]["details"]["retired"]
 
 
 def test_examples_cover_every_frozen_job_type(example_dir) -> None:

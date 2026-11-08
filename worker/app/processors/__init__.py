@@ -1,8 +1,4 @@
-"""Processor registry: one entry per frozen worker job type.
-
-Every job type in ``worker-job.schema.json`` has a real implementation here;
-there is no stubbed processor.
-"""
+"""Processor registry for supported worker job types."""
 
 from __future__ import annotations
 
@@ -11,23 +7,14 @@ from collections.abc import Callable
 from app.context import JobScope
 from app.errors import UnsupportedParameterError
 from app.job_models import WorkerJob
-from app.processors import (
-    background,
-    classify,
-    resize,
-    trim,
-    upscale,
-    vectorize,
-)
+from app.processors import classify, resize, trim, upscale
 
 Processor = Callable[[WorkerJob, JobScope], dict]
 
 PROCESSORS: dict[str, Processor] = {
     "classify": classify.process,
     "trim": trim.process,
-    "background-removal": background.process,
     "upscale": upscale.process,
-    "vectorize": vectorize.process,
     "resize": resize.process,
 }
 
@@ -38,7 +25,10 @@ def processor_for(job_type: str) -> Processor:
     except KeyError as exc:
         raise UnsupportedParameterError(
             f"no processor is registered for job type {job_type!r}",
-            details={"registered": sorted(PROCESSORS)},
+            details={
+                "registered": sorted(PROCESSORS),
+                "retired": ["background-removal", "vectorize"],
+            },
         ) from exc
 
 

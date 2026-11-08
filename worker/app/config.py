@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     api_base_url: str = "http://localhost:8080"
     worker_key: SecretStr = SecretStr("dev-worker-key")
     worker_id: str = "worker-local"
-    capabilities: str = "classify,trim,background-removal,upscale,vectorize,resize"
+    capabilities: str = "image"
     api_timeout_seconds: float = Field(default=15.0, gt=0)
     log_level: str = "INFO"
     log_json: bool = False
@@ -82,18 +82,12 @@ class Settings(BaseSettings):
     classify_color_levels: int = Field(default=32, ge=2, le=256)
     classify_flat_color_tolerance: int = Field(default=12, ge=0, le=255)
     classify_edge_threshold: int = Field(default=48, ge=1, le=255)
-    classify_flat_logo_ratio: float = Field(default=0.6, ge=0, le=1)
     classify_unique_color_logo_max: int = Field(default=48, ge=1)
     classify_trim_margin_ratio: float = Field(default=0.02, ge=0, le=0.5)
 
     # Auto-trim defaults used when the job omits paddingPx / tolerance.
     trim_padding_px: int = Field(default=8, ge=0, le=10000)
     trim_tolerance: int = Field(default=12, ge=0, le=255)
-
-    # Background removal defaults used when the job omits them.
-    background_tolerance: int = Field(default=12, ge=0, le=255)
-    background_edge_softness: float = Field(default=0.0, ge=0, le=10)
-    ai_model: str = "isnet-general-use"
 
     # --- engines -------------------------------------------------------------
     realesrgan_binary: Path = Path("realesrgan-ncnn-vulkan")
@@ -103,26 +97,14 @@ class Settings(BaseSettings):
     realesrgan_cpu_threads: int = Field(default=0, ge=0, le=64)
     realesrgan_timeout_seconds: int = Field(default=900, ge=1)
 
-    potrace_binary: Path = Path("potrace")
-    potrace_timeout_seconds: int = Field(default=180, ge=1)
-    potrace_corner_threshold: float = Field(default=1.0, ge=0, le=1.3333)
-    potrace_optimize_tolerance: float = Field(default=0.2, ge=0, le=1)
-
-    # Defaults applied when a vectorize job omits the corresponding parameter.
-    vectorize_threshold: int = Field(default=128, ge=0, le=255)
-    vectorize_turdsize: int = Field(default=0, ge=0)
-    vectorize_color_count: int = Field(default=4, ge=2, le=256)
-
-    vtracer_binary: Path = Path("vtracer")
-
-    # SVG rasterization for vectorize previews and resize.rasterizeFromVector.
-    # "" = auto-detect (cairosvg, resvg-py, rsvg-convert, inkscape).
-    svg_rasterizer: str = ""
-    svg_raster_timeout_seconds: int = Field(default=120, ge=1)
-
     @property
     def capability_list(self) -> list[str]:
-        return [item.strip() for item in self.capabilities.split(",") if item.strip()]
+        capabilities = [item.strip() for item in self.capabilities.split(",") if item.strip()]
+        if not self.gpu_enabled:
+            capabilities = [item for item in capabilities if item != "gpu"]
+        elif "gpu" not in capabilities:
+            capabilities.append("gpu")
+        return capabilities
 
     @property
     def border_band_settings(self) -> tuple[float, int, int]:

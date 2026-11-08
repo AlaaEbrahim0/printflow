@@ -30,14 +30,11 @@ CODE_UNSUPPORTED_PARAMETERS = "unsupported-parameters"
 CODE_CROP_OUT_OF_BOUNDS = "crop-out-of-bounds"
 CODE_FULL_BLEED_NO_AUTO_TRIM = "full-bleed-no-auto-trim"
 CODE_MISSING_INPUT_ARTIFACT = "missing-input-artifact"
-CODE_MASK_DIMENSION_MISMATCH = "mask-dimensions-mismatch"
-CODE_AI_UNAVAILABLE = "ai-unavailable"
 CODE_ENGINE_UNAVAILABLE = "engine-unavailable"
 CODE_ENGINE_MODE_UNSUPPORTED = "engine-mode-unsupported"
 CODE_ENGINE_FAILED = "engine-failed"
 CODE_ENGINE_TIMEOUT = "engine-timeout"
 CODE_ENGINE_OUTPUT_INVALID = "engine-output-invalid"
-CODE_SVG_RASTERIZER_UNAVAILABLE = "svg-rasterizer-unavailable"
 CODE_OUTPUT_FORMAT_UNSUPPORTED = "unsupported-output-format"
 CODE_OUTPUT_IS_INPUT = "output-overwrites-input"
 CODE_RESULT_INVALID = "invalid-result"
@@ -143,24 +140,10 @@ class MissingInputArtifactError(WorkerError):
     retryable = False
 
 
-class MaskMismatchError(WorkerError):
-    """A supplied mask does not match the source pixel dimensions."""
-
-    code = CODE_MASK_DIMENSION_MISMATCH
-    retryable = False
-
-
 class EngineUnavailableError(WorkerError):
     """The configured engine/binary/model is not present on this machine."""
 
     code = CODE_ENGINE_UNAVAILABLE
-    retryable = False
-
-
-class AiUnavailableError(EngineUnavailableError):
-    """The AI cutout dependency or model is not installed."""
-
-    code = CODE_AI_UNAVAILABLE
     retryable = False
 
 

@@ -105,6 +105,24 @@ def test_engine_reads_the_job_input_and_timeout_is_configured(
     assert runner.flag("-t") == "0"
 
 
+def test_upscale_keeps_source_dpi_warning_after_enlargement(
+    engine_storage, engine_settings
+) -> None:
+    _, result = run_upscale(
+        engine_storage,
+        engine_settings,
+        gray_screenshot(size=(100, 80)),
+        {"model": "realesrgan-x4plus", "scale": 4},
+        FakeCommandRunner(writer=write_scaled_png(4)),
+    )
+
+    assert result["metadata"]["widthPx"] == 400
+    assert result["metadata"]["effectiveDpiAtTarget"] == 12.7
+    assert "very-low-effective-dpi" in {
+        warning["code"] for warning in result["metadata"]["warnings"]
+    }
+
+
 def test_missing_binary_is_a_stable_non_retryable_failure(tmp_path) -> None:
     settings = make_settings(tmp_path, realesrgan_binary=tmp_path / "nowhere" / "realesrgan")
     storage = StorageRoot(settings.storage_root)

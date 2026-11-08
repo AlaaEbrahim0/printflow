@@ -13,11 +13,6 @@ Fit modes are honest about what they do:
              keeps its aspect ratio, is scaled to fit inside, and is centred on
              transparent padding. It never stretches and never crops.
 
-``rasterizeFromVector`` asks the SVG rasterizer for the final pixel size
-directly, so no resampling happens at all. It is only valid when the job
-supplies ``inputArtifacts.svg``; with no rasterizer installed the job fails
-``svg-rasterizer-unavailable`` instead of quietly falling back to the stored
-raster, which would keep the design at its old resolution.
 """
 
 from __future__ import annotations
@@ -27,12 +22,7 @@ from typing import Any
 from PIL import Image
 
 from app.context import JobScope
-from app.engines.raster import unavailable
-from app.errors import (
-    EngineOutputInvalidError,
-    MissingInputArtifactError,
-    UnsupportedParameterError,
-)
+from app.errors import UnsupportedParameterError
 from app.imaging import (
     build_metadata,
     dpi_warnings,
@@ -129,41 +119,6 @@ def _target_size(
     )
 
 
-def _rasterize_svg(
-    job: WorkerJob,
-    scope: JobScope,
-    svg_relative: str,
-    size: tuple[int, int],
-) -> Image.Image:
-    rasterizer = scope.engines.resolve_rasterizer(scope.settings)
-    if rasterizer is None:
-        raise unavailable(scope.settings.svg_rasterizer or "auto")
-    svg_absolute = scope.storage.resolve(svg_relative)
-    staged = scope.scratch(f"{job.job_id}-rasterized.png")
-    rasterizer.rasterize(
-        svg_path=svg_absolute,
-        output_path=staged.absolute,
-        width_px=size[0],
-        height_px=size[1],
-    )
-    with Image.open(staged.absolute) as opened:
-        opened.load()
-        produced = opened.convert("RGBA")
-    if (produced.width, produced.height) != size:
-        raise EngineOutputInvalidError(
-            f"SVG rasterizer returned {produced.width}x{produced.height} instead of "
-            f"{size[0]}x{size[1]}",
-            details={
-                "actualWidthPx": produced.width,
-                "actualHeightPx": produced.height,
-                "expectedWidthPx": size[0],
-                "expectedHeightPx": size[1],
-            },
-            engine=rasterizer.name,
-        )
-    return produced
-
-
 def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
     if job.type != "resize":
         raise UnsupportedParameterError(
@@ -193,56 +148,40 @@ def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
     warnings = _px_consistency_warnings(
         target_width_cm, target_height_cm, target_width_px, target_height_px, dpi
     )
-    rasterize_from_vector = job.param_bool("rasterizeFromVector", False)
+    if job.param_bool("rasterizeFromVector", False):
+        raise UnsupportedParameterError(
+            "resizing directly from SVG artifacts is no longer supported",
+            details={"parameter": "rasterizeFromVector"},
+        )
     output_relative = job.require_output_path()
 
     source = scope.open_input()
     warnings = list(source.warnings) + warnings
     reference = source.image
 
-    if rasterize_from_vector:
-        svg_relative = job.artifact_input("svg")
-        if not svg_relative:
-            raise MissingInputArtifactError(
-                "rasterizeFromVector requires inputArtifacts.svg; nothing can be "
-                "rasterized without the vector artifact",
-                details={"rasterizeFromVector": True},
+    image = source.image
+    width, height = _target_size(
+        fit_mode, image.width, image.height, target_width_px, target_height_px
+    )
+    if fit_mode == "contain" and image.mode != "RGBA":
+        warnings.append(
+            make_warning(
+                "contain-padding-alpha",
+                "info",
+                "Contain fit needs transparent padding, so the output is widened "
+                "to RGBA.",
+                details={"fromMode": image.mode, "toMode": "RGBA"},
             )
-        box = _target_size(
-            fit_mode, reference.width, reference.height, target_width_px, target_height_px
         )
-        # The rasterizer is asked for the final pixel size, so no resample happens.
-        rasterized = _rasterize_svg(job, scope, svg_relative, box)
-        engine = "svg"
-        canvas = (
-            _center(rasterized, target_width_px, target_height_px)
-            if fit_mode == "contain"
-            else rasterized
-        )
-    else:
-        image = source.image
-        width, height = _target_size(
-            fit_mode, image.width, image.height, target_width_px, target_height_px
-        )
-        if fit_mode == "contain" and image.mode != "RGBA":
-            warnings.append(
-                make_warning(
-                    "contain-padding-alpha",
-                    "info",
-                    "Contain fit needs transparent padding, so the output is widened "
-                    "to RGBA.",
-                    details={"fromMode": image.mode, "toMode": "RGBA"},
-                )
-            )
-            image = image.convert("RGBA")
-        # Exactly one resample; centring afterwards never touches pixels.
-        resized = image.resize((width, height), Image.Resampling.LANCZOS)
-        engine = ENGINE_NAME
-        canvas = (
-            _center(resized, target_width_px, target_height_px)
-            if fit_mode == "contain"
-            else resized
-        )
+        image = image.convert("RGBA")
+    # Exactly one resample; centring afterwards never touches pixels.
+    resized = image.resize((width, height), Image.Resampling.LANCZOS)
+    engine = ENGINE_NAME
+    canvas = (
+        _center(resized, target_width_px, target_height_px)
+        if fit_mode == "contain"
+        else resized
+    )
 
     if fit_mode == "contain":
         canvas = canvas.convert("RGBA")

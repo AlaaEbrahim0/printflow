@@ -119,6 +119,20 @@ def test_missing_required_field_is_a_structured_failure() -> None:
     assert excinfo.value.details["errors"]
 
 
+def test_classify_allows_null_output_path_but_resize_does_not() -> None:
+    classify = json.loads(
+        (REPO_ROOT / "contracts" / "examples" / "worker-job-classify.json").read_text()
+    )
+    assert validate_job(classify, CONTRACTS_DIR)["outputPath"] is None
+
+    resize = json.loads(
+        (REPO_ROOT / "contracts" / "examples" / "worker-job-resize.json").read_text()
+    )
+    resize["outputPath"] = None
+    with pytest.raises(JobContractError):
+        validate_job(resize, CONTRACTS_DIR)
+
+
 def test_unknown_job_type_is_rejected() -> None:
     document = job_document("classify", version_path("a"))
     document["type"] = "shrink"

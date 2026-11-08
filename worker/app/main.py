@@ -73,8 +73,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title="PrintSheet Worker",
         version=__version__,
         description=(
-            "Image-processing worker. Six frozen job types, claimed from the API "
-            "internal endpoints or executed from a job file through app.cli."
+            "Image-processing worker for active crop, enhancement and resize jobs, "
+            "claimed from internal API endpoints or executed through app.cli."
         ),
         lifespan=lifespan,
     )
@@ -84,7 +84,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "service": resolved.service_name,
             "version": __version__,
-            "phase": 1,
+            "phase": 2,
             "contractVersion": CONTRACT_API_VERSION,
             "jobTypes": resolved.capability_list,
         }

@@ -1,4 +1,4 @@
-"""resize: fit modes, one-resample discipline, PrintUnits math, SVG rasterization."""
+"""resize: fit modes, one-resample discipline and PrintUnits math."""
 
 from __future__ import annotations
 
@@ -7,18 +7,11 @@ import pytest
 from PIL import Image
 
 from app.contracts import WORKER_RESULT_SCHEMA, describe_document
-from app.errors import (
-    CODE_MISSING_INPUT_ARTIFACT,
-    CODE_SVG_RASTERIZER_UNAVAILABLE,
-    MissingInputArtifactError,
-    WorkerError,
-)
+from app.errors import UnsupportedParameterError
 from app.processors import resize
 from app.storage import StorageRoot
 from tests.conftest import (
     CONTRACTS_DIR,
-    FakeCommandRunner,
-    FakeRasterizer,
     gray_screenshot,
     job_document,
     make_engines,
@@ -219,56 +212,15 @@ def test_unknown_fit_mode_is_rejected_by_the_contract(storage: StorageRoot, sett
         run_processor(resize.process, document, settings, storage, make_engines(settings))
 
 
-def test_rasterize_from_vector_requires_the_svg_artifact(storage: StorageRoot, settings) -> None:
-    with pytest.raises(MissingInputArtifactError) as excinfo:
+def test_rasterize_from_vector_is_retired(storage: StorageRoot, settings) -> None:
+    with pytest.raises(UnsupportedParameterError) as excinfo:
         run_resize(
             storage,
             settings,
             gray_screenshot(size=(200, 150)),
             parameters("width", 1200, 900, rasterizeFromVector=True),
         )
-    assert excinfo.value.code == CODE_MISSING_INPUT_ARTIFACT
-
-
-def test_rasterize_from_vector_uses_the_injected_rasterizer(
-    storage: StorageRoot, settings
-) -> None:
-    rasterizer = FakeRasterizer(colour=(0, 128, 255, 255))
-    engines = make_engines(settings, FakeCommandRunner(), rasterizer=rasterizer)
-    svg_relative = version_path("source").replace(".png", "/vector.svg")
-    storage.write_bytes(svg_relative, b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
-
-    _, result = run_resize(
-        storage,
-        settings,
-        gray_screenshot(size=(600, 300)),
-        parameters("width", 1200, 600, rasterizeFromVector=True),
-        engines=engines,
-        input_artifacts={"svg": svg_relative},
-    )
-
-    assert rasterizer.requests == [(1200, 600)]
-    assert result["metadata"]["engine"] == "svg"
-    assert result["metadata"]["widthPx"] == 1200
-
-
-def test_rasterize_from_vector_fails_without_a_rasterizer(
-    storage: StorageRoot, settings
-) -> None:
-    engines = make_engines(settings, FakeCommandRunner(), no_rasterizer=True)
-    svg_relative = version_path("source").replace(".png", "/vector.svg")
-    storage.write_bytes(svg_relative, b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
-
-    with pytest.raises(WorkerError) as excinfo:
-        run_resize(
-            storage,
-            settings,
-            gray_screenshot(size=(300, 200)),
-            parameters("width", 1200, 800, rasterizeFromVector=True),
-            engines=engines,
-            input_artifacts={"svg": svg_relative},
-        )
-    assert excinfo.value.code == CODE_SVG_RASTERIZER_UNAVAILABLE
+    assert excinfo.value.details["parameter"] == "rasterizeFromVector"
 
 
 def test_contain_on_a_dark_garment_keeps_transparency(storage: StorageRoot, settings) -> None:

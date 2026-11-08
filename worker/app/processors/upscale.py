@@ -143,8 +143,8 @@ def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
         warnings.extend(scope.save_image(output_relative, result_image))
 
     effective_dpi = effective_dpi_at_target(
-        result_image.width,
-        result_image.height,
+        image_for_engine.width,
+        image_for_engine.height,
         job.context.target_width_cm,
         job.context.target_height_cm,
     )

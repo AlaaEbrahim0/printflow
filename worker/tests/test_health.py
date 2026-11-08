@@ -22,8 +22,14 @@ def test_health_reports_capabilities_and_storage(tmp_path: Path) -> None:
     assert body["status"] == "ok"
     assert body["workerId"] == "test-worker"
     assert body["storageWritable"] is True
-    assert "upscale" in body["capabilities"]
+    assert body["capabilities"] == ["image"]
     assert (tmp_path / "storage").is_dir()
+
+
+def test_gpu_capability_tracks_gpu_setting() -> None:
+    assert Settings(gpu_enabled=False).capability_list == ["image"]
+    assert Settings(gpu_enabled=True).capability_list == ["image", "gpu"]
+    assert Settings(gpu_enabled=True, capabilities="gpu").capability_list == ["gpu"]
 
 
 def test_gpu_jobs_are_forced_to_one() -> None:
