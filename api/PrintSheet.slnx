@@ -7,5 +7,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/PrintSheet.Domain.Tests/PrintSheet.Domain.Tests.csproj" />
+    <Project Path="tests/PrintSheet.Infrastructure.Tests/PrintSheet.Infrastructure.Tests.csproj" />
   </Folder>
 </Solution>

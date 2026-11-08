@@ -7,10 +7,11 @@ COPY src/PrintSheet.Application/PrintSheet.Application.csproj src/PrintSheet.App
 COPY src/PrintSheet.Infrastructure/PrintSheet.Infrastructure.csproj src/PrintSheet.Infrastructure/
 COPY src/PrintSheet.Api/PrintSheet.Api.csproj src/PrintSheet.Api/
 COPY tests/PrintSheet.Domain.Tests/PrintSheet.Domain.Tests.csproj tests/PrintSheet.Domain.Tests/
+COPY tests/PrintSheet.Infrastructure.Tests/PrintSheet.Infrastructure.Tests.csproj tests/PrintSheet.Infrastructure.Tests/
 RUN dotnet restore PrintSheet.slnx
 
 COPY . .
-RUN dotnet publish src/PrintSheet.Api/PrintSheet.Api.csproj -c Release -o /app/publish --no-restore
+RUN dotnet publish src/PrintSheet.Api/PrintSheet.Api.csproj -c Release -o /app/publish
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 RUN apt-get update \
