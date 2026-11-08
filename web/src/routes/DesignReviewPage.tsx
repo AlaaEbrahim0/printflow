@@ -12,6 +12,7 @@ import { useAsync, useJobPoller } from '../hooks/useAsync'
 import { formatPixels, shortId, statusLabel, stepLabel } from '../lib/format'
 import { reviewReadiness } from '../components/batch/reviewReadiness'
 import { pipelineStatus } from '../components/batch/pipelineStatus'
+import { WORKBENCH_DEFAULTS } from '../lib/defaults'
 import { DEFAULT_PREVIEW_BACKGROUND, previewBackgroundFor, type PreviewBackground } from '../lib/preview'
 import { useSettings } from '../state/SettingsContext'
 import './design-review.css'
@@ -116,12 +117,13 @@ export default function DesignReviewPage() {
   const { dpiThresholds } = useSettings()
   const { state, reload } = useAsync(
     async (signal) => {
-      const [design, suggestions, jobs] = await Promise.all([
+      const [design, suggestions, jobs, batch] = await Promise.all([
         api.designs.get(designId, { signal }),
         api.designs.suggestions(designId, { signal }),
         api.batches.jobs(batchId, { limit: 200 }, { signal }),
+        api.batches.get(batchId, { signal }),
       ])
-      return { design, suggestions, jobs }
+      return { design, suggestions, jobs, batch }
     },
     [batchId, designId],
   )
@@ -226,7 +228,7 @@ export default function DesignReviewPage() {
 
   const canPropose = !proposal && !busy && job?.status !== 'queued' && job?.status !== 'running'
   const currentDetails = versionFor(design, current.id)
-  const readiness = reviewReadiness(design)
+  const readiness = reviewReadiness(design, data?.batch.workingDpi ?? WORKBENCH_DEFAULTS.workingDpi)
   const pipeline = pipelineStatus(design.versions, design.currentVersionId)
   const sourceDpi = data?.suggestions.status === 'ready'
     ? data.suggestions.source?.effectiveDpiAtTarget

@@ -38,14 +38,14 @@ function design(overrides: Partial<DesignDetail> = {}): DesignDetail {
 
 describe('reviewReadiness', () => {
   it('is packable when the current version is an approved final resize', () => {
-    const readiness = reviewReadiness(design())
+    const readiness = reviewReadiness(design(), 300)
     expect(readiness.packable).toBe(true)
     expect(readiness.headline).toBe('Ready to pack')
     expect(readiness.steps.every((step) => step.done)).toBe(true)
   })
 
   it('blocks when there is no target size and says which step to fix first', () => {
-    const readiness = reviewReadiness(design({ targetWidthCm: null, targetHeightCm: null }))
+    const readiness = reviewReadiness(design({ targetWidthCm: null, targetHeightCm: null }), 300)
     expect(readiness.packable).toBe(false)
     const target = readiness.steps.find((step) => step.id === 'target')
     expect(target?.done).toBe(false)
@@ -69,6 +69,7 @@ describe('reviewReadiness', () => {
           fileUrl: '/v2.png',
         },
       }),
+      300,
     )
     expect(readiness.packable).toBe(false)
     const resize = readiness.steps.find((step) => step.id === 'resize')
@@ -91,6 +92,7 @@ describe('reviewReadiness', () => {
           fileUrl: '/v4.png',
         },
       }),
+      300,
     )
     expect(readiness.packable).toBe(false)
     const approved = readiness.steps.find((step) => step.id === 'approved')
@@ -99,7 +101,7 @@ describe('reviewReadiness', () => {
   })
 
   it('blocks an excluded design even when the version itself is fine', () => {
-    const readiness = reviewReadiness(design({ status: 'excluded' }))
+    const readiness = reviewReadiness(design({ status: 'excluded' }), 300)
     expect(readiness.packable).toBe(false)
     const included = readiness.steps.find((step) => step.id === 'included')
     expect(included?.done).toBe(false)
@@ -107,7 +109,7 @@ describe('reviewReadiness', () => {
   })
 
   it('treats a better-source request as blocking, not as ready', () => {
-    const readiness = reviewReadiness(design({ status: 'needs-better-source' }))
+    const readiness = reviewReadiness(design({ status: 'needs-better-source' }), 300)
     expect(readiness.packable).toBe(false)
     expect(readiness.steps.find((step) => step.id === 'included')?.blockedBy).toContain(
       'better source',
@@ -116,12 +118,34 @@ describe('reviewReadiness', () => {
 
   it('treats a zero target as a set target rather than a missing one', () => {
     // Falsy checks would wrongly report this as unset; the API treats 0 as set.
-    const readiness = reviewReadiness(design({ targetWidthCm: 0, targetHeightCm: 0 }))
+    const readiness = reviewReadiness(design({ targetWidthCm: 0, targetHeightCm: 0 }), 300)
     expect(readiness.steps.find((step) => step.id === 'target')?.done).toBe(true)
   })
 
+  it('blocks when the target changed after the resize was approved', () => {
+    // The API's RecomputeStatus only keeps `ready` while the current resize's
+    // pixels still equal the target. Checking stepType alone would claim this
+    // design is packable, and the pack would then be rejected server-side.
+    const readiness = reviewReadiness(
+      design({ targetWidthCm: 40, targetHeightCm: 16 }),
+      300,
+    )
+    expect(readiness.packable).toBe(false)
+    const resize = readiness.steps.find((step) => step.id === 'resize')
+    expect(resize?.done).toBe(false)
+    expect(resize?.blockedBy).toContain('print size changed')
+  })
+
+  it('blocks when the resize matches the target at a different DPI', () => {
+    // 3543x1417 px is 30x12 cm at 300 DPI; at 150 DPI the same target needs
+    // half the pixels, so the stored resize no longer matches.
+    const readiness = reviewReadiness(design(), 150)
+    expect(readiness.packable).toBe(false)
+    expect(readiness.steps.find((step) => step.id === 'resize')?.done).toBe(false)
+  })
+
   it('lists exactly the four conditions in workflow order', () => {
-    expect(reviewReadiness(design()).steps.map((step) => step.id)).toEqual([
+    expect(reviewReadiness(design(), 300).steps.map((step) => step.id)).toEqual([
       'target',
       'resize',
       'approved',
