@@ -228,6 +228,52 @@ public sealed class Design
         return Result.Success();
     }
 
+    /// <summary>
+    /// Adds an externally prepared, already-approved resize version whose file
+    /// is the operator's exported ready-to-pack PNG. The target dimensions must
+    /// match its pixels exactly so the packer never resamples it.
+    /// </summary>
+    public Result MarkReady(DesignVersion prepared, DateTimeOffset at)
+    {
+        if (prepared.DesignId != Id)
+        {
+            return Result.Failure(ErrorCodes.InvalidRequest, "The prepared version does not belong to this design.");
+        }
+
+        if (prepared.StepType != StepType.Resize || prepared.Status != VersionStatus.Approved)
+        {
+            return Result.Failure(
+                ErrorCodes.InvalidRequest,
+                "A ready-to-pack version must be an approved resize.");
+        }
+
+        if (prepared.ParentId != CurrentVersionId)
+        {
+            return Result.Failure(
+                ErrorCodes.InvalidRequest,
+                "The ready-to-pack version must be derived from the current original.");
+        }
+
+        if (PendingVersionId is not null)
+        {
+            return Result.Failure(
+                ErrorCodes.ProposalInFlight,
+                "A proposed version already exists for this design.");
+        }
+
+        var targetError = ValidateResizeMatchesTarget(prepared);
+        if (targetError is not null)
+        {
+            return Result.Failure(targetError);
+        }
+
+        _versions.Add(prepared);
+        CurrentVersionId = prepared.Id;
+        RecomputeStatus();
+        UpdatedAt = at;
+        return Result.Success();
+    }
+
     public Result ApproveVersion(Guid versionId, DateTimeOffset at)
     {
         var version = FindVersion(versionId);

@@ -188,6 +188,8 @@ export interface UploadDesignInput {
   garmentColorHex?: string | null
   targetWidthCm?: number | null
   targetHeightCm?: number | null
+  /** Operator-prepared PNG: background removed, exported at the exact print size. */
+  readyToPack?: boolean
 }
 
 export interface UploadOptions {
@@ -229,6 +231,7 @@ export function uploadDesign(
   if (input.garmentColorHex) form.append('garmentColorHex', input.garmentColorHex)
   if (input.targetWidthCm != null) form.append('targetWidthCm', String(input.targetWidthCm))
   if (input.targetHeightCm != null) form.append('targetHeightCm', String(input.targetHeightCm))
+  if (input.readyToPack) form.append('readyToPack', 'true')
 
   const path = `${API_ROOT}/batches/${encodeURIComponent(batchId)}/designs`
 

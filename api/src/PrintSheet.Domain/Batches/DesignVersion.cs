@@ -169,6 +169,57 @@ public sealed class DesignVersion
             createdAt));
     }
 
+    /// <summary>
+    /// An operator-prepared PNG that is already background-removed and exported
+    /// at the exact target pixel size. It is stored as a separate immutable
+    /// resize version (the file is copied, never referenced from the original)
+    /// and starts approved because importing it is the explicit declaration
+    /// that this is the ready-to-pack artwork. No pixels are re-encoded.
+    /// </summary>
+    public static Result<DesignVersion> CreateImportedResize(
+        Guid id,
+        Guid designId,
+        Guid parentId,
+        string filePath,
+        int widthPx,
+        int heightPx,
+        bool hasAlpha,
+        string parametersJson,
+        DateTimeOffset createdAt)
+    {
+        var validation = ValidateFileMetadata(id, designId, filePath, widthPx, heightPx, parametersJson);
+        if (!validation.IsSuccess)
+        {
+            return Result<DesignVersion>.Failure(validation.Error!);
+        }
+
+        if (parentId == Guid.Empty)
+        {
+            return Result<DesignVersion>.Failure(
+                ErrorCodes.InvalidRequest,
+                "An imported ready version requires the original as its parent.");
+        }
+
+        return Result<DesignVersion>.Success(new DesignVersion(
+            id,
+            designId,
+            parentId,
+            StepType.Resize,
+            VersionStatus.Approved,
+            filePath,
+            maskPath: null,
+            svgPath: null,
+            widthPx,
+            heightPx,
+            hasAlpha,
+            parametersJson,
+            jobId: null,
+            createdAt)
+        {
+            ApprovedAt = createdAt,
+        });
+    }
+
     internal Result Approve(DateTimeOffset at)
     {
         if (Status != VersionStatus.Proposed)

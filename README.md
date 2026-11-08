@@ -3,7 +3,8 @@
 Internal, review-driven DTF print preparation. Staff upload a batch of customer
 designs, the system proposes trim, crop, Real-ESRGAN enhancement and final print
 sizing, and a human approves every step. Background removal and vectorization
-were retired in contract v2.0.0. Approved designs are
+were retired in contract v2.0.0; staff finish those in Photoshop and can import
+the exported PNGs directly as ready-to-pack artwork. Approved designs are
 nested onto a master sheet that is exactly **58 cm wide** (6850 px at 300 DPI);
 sheet height — and therefore print cost — is minimized. Every step creates an
 immutable version, originals are never overwritten, and export is blocked
@@ -225,6 +226,23 @@ complements rather than replaces those tests.
    choice.
 9. A batch packs only when every non-excluded design is ready.
 10. Any design, target-size or batch-geometry change invalidates the sheet.
+11. Ready-to-pack imports keep the operator's exact pixels: the upload is
+    preserved as the original, a separate approved resize version is current,
+    and supplied centimetres must match the pixels or the import is rejected.
+
+---
+
+## Two intake paths
+
+| Path | When | What happens |
+| --- | --- | --- |
+| Enhancement intake | The source needs help. Target cm required. | Original stored immutably, `classify` queued, trim/crop/enhance/resize proposed for approval. |
+| Ready-to-pack intake | Background removal and final sizing were done in Photoshop. | Original stored immutably, a copy becomes an approved `resize` version and is current, target cm derived from pixels at the batch DPI, no job queued. |
+
+In the workbench, the design review page offers **Download for Photoshop** for
+the current and proposed versions; the batch page imports the finished PNGs in
+one multi-file step. Nothing is launched automatically — the operator opens the
+file in Photoshop and saves the export back into the batch.
 
 ---
 

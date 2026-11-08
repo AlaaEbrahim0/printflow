@@ -68,6 +68,12 @@ cd packer
   readability; the worker rejects them as `retired`.
 - Classify jobs have no raster output and may carry `outputPath: null`; every
   other worker job must provide a relative output path.
+- Intake supports two modes. Enhancement intake requires target centimetres and
+  queues classification. Ready-to-pack intake (`readyToPack=true`) is the
+  operator's Photoshop-exported PNG: the API copies it into a separate approved
+  `resize` version, derives target centimetres from pixels at the batch working
+  DPI when they are omitted, and queues no job. Supplied centimetres must map to
+  exactly the uploaded pixels.
 
 ## Change policy
 

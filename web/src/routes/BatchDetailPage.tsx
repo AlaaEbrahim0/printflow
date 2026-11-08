@@ -8,8 +8,15 @@ import { Banner, ErrorBanner } from '../components/ui/Banner'
 import { Chip } from '../components/ui/Chip'
 import { EmptyState, ErrorState, Loading } from '../components/ui/States'
 import { useAsync, useJobPoller } from '../hooks/useAsync'
-import { formatCentimeters } from '../lib/format'
+import { centimetersForPixels, formatCentimeters, formatPixels } from '../lib/format'
+import { defaultDesignName, readImageSize } from '../lib/upload'
 import { useSettings } from '../state/SettingsContext'
+
+interface ReadyImportFile {
+  file: File
+  widthPx: number | null
+  heightPx: number | null
+}
 
 function isBatchNotFound(error: unknown): boolean {
   return error instanceof ApiError && error.code === 'batch-not-found'
@@ -18,7 +25,13 @@ function isBatchNotFound(error: unknown): boolean {
 export default function BatchDetailPage() {
   const { batchId = '' } = useParams()
   const fileInput = useRef<HTMLInputElement>(null)
+  const readyInput = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
+  const [readyFiles, setReadyFiles] = useState<ReadyImportFile[]>([])
+  const [importingReady, setImportingReady] = useState(false)
+  const [readyProgress, setReadyProgress] = useState<{ done: number; total: number; current: string } | null>(null)
+  const [readyError, setReadyError] = useState<unknown>(null)
+  const [readyNotice, setReadyNotice] = useState<string | null>(null)
   const [garmentColorKind, setGarmentColorKind] = useState<GarmentColorKind>('light')
   const [garmentColorHex, setGarmentColorHex] = useState('#ffffff')
   const [uploading, setUploading] = useState(false)
@@ -71,6 +84,75 @@ export default function BatchDetailPage() {
       setUploadError(error)
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function selectReadyFiles(files: FileList | null) {
+    setReadyError(null)
+    setReadyNotice(null)
+    const selected = Array.from(files ?? [])
+    if (selected.length === 0) {
+      setReadyFiles([])
+      return
+    }
+    const entries = await Promise.all(
+      selected.map(async (readyFile) => {
+        const size = await readImageSize(readyFile)
+        return {
+          file: readyFile,
+          widthPx: size?.widthPx ?? null,
+          heightPx: size?.heightPx ?? null,
+        }
+      }),
+    )
+    setReadyFiles(entries)
+  }
+
+  async function importReady(event: FormEvent) {
+    event.preventDefault()
+    if (readyFiles.length === 0) {
+      setReadyError(new Error('Choose the ready-to-pack PNGs exported from Photoshop.'))
+      return
+    }
+
+    setImportingReady(true)
+    setReadyError(null)
+    setReadyNotice(null)
+    const failures: string[] = []
+    let imported = 0
+    try {
+      for (const [index, entry] of readyFiles.entries()) {
+        setReadyProgress({
+          done: index,
+          total: readyFiles.length,
+          current: entry.file.name,
+        })
+        try {
+          await api.designs.upload(batchId, {
+            file: entry.file,
+            name: defaultDesignName(entry.file),
+            readyToPack: true,
+          })
+          imported += 1
+        } catch (error: unknown) {
+          failures.push(`${entry.file.name}: ${error instanceof Error ? error.message : 'import failed'}`)
+        }
+      }
+
+      if (imported > 0) {
+        setReadyNotice(
+          `${imported} ready-to-pack ${imported === 1 ? 'design' : 'designs'} imported. Print size was derived from the exported pixels at ${batch?.workingDpi ?? 300} DPI.`,
+        )
+      }
+      setReadyFiles([])
+      if (readyInput.current) readyInput.current.value = ''
+      if (failures.length > 0) {
+        setReadyError(new Error(failures.join('; ')))
+      }
+      reload()
+    } finally {
+      setImportingReady(false)
+      setReadyProgress(null)
     }
   }
 
@@ -223,6 +305,59 @@ export default function BatchDetailPage() {
           </div>
         </section>
       </div>
+
+      <section className="card">
+        <div className="card-heading">
+          <h2 className="card-title">Import ready-to-pack PNGs</h2>
+          <span className="mono muted">background removed · sized in Photoshop</span>
+        </div>
+        <p className="hint">
+          These are treated as final artwork. The upload is preserved as the original, a separate
+          ready version keeps the same pixels without resampling, and each design becomes ready
+          immediately. Print size is derived from the exported pixels at {batch.workingDpi} DPI.
+        </p>
+        <form className="stack-sm" onSubmit={importReady}>
+          <div className="row">
+            <input
+              ref={readyInput}
+              type="file"
+              multiple
+              accept="image/png,.png"
+              aria-label="Ready-to-pack PNG files"
+              onChange={(event) => void selectReadyFiles(event.target.files)}
+              disabled={importingReady}
+            />
+            <button type="submit" className="btn primary" disabled={readyFiles.length === 0 || importingReady}>
+              {importingReady
+                ? `Importing ${readyProgress?.done ?? 0}/${readyProgress?.total ?? readyFiles.length}…`
+                : readyFiles.length === 0
+                  ? 'Import ready designs'
+                  : `Import ${readyFiles.length} ready ${readyFiles.length === 1 ? 'design' : 'designs'}`}
+            </button>
+          </div>
+          {readyProgress ? (
+            <p className="mono muted" aria-live="polite">
+              Importing {readyProgress.current} ({readyProgress.done + 1}/{readyProgress.total})
+            </p>
+          ) : null}
+          {readyFiles.length > 0 ? (
+            <ul className="ready-import-list">
+              {readyFiles.map((entry) => (
+                <li key={`${entry.file.name}-${entry.file.lastModified}-${entry.file.size}`}>
+                  <span>{entry.file.name}</span>
+                  <span className="mono muted">
+                    {entry.widthPx != null && entry.heightPx != null
+                      ? `${formatPixels(entry.widthPx)} × ${formatPixels(entry.heightPx)} · ${formatCentimeters(centimetersForPixels(entry.widthPx, batch.workingDpi), 2)} × ${formatCentimeters(centimetersForPixels(entry.heightPx, batch.workingDpi), 2)}`
+                      : 'print size will be derived by the API'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {readyError ? <ErrorBanner error={readyError} title="Ready-to-pack import failed" /> : null}
+          {readyNotice ? <Banner kind="good" title="Ready-to-pack import">{readyNotice}</Banner> : null}
+        </form>
+      </section>
 
       <div className="card-heading">
         <h2 className="card-title">Designs ({batch.designs.length})</h2>

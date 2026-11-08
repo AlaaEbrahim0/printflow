@@ -117,7 +117,18 @@ export interface paths {
          * Upload an original design file
          * @description The only endpoint that accepts file bytes over HTTP. The API stores the
          *     upload as an immutable `original` DesignVersion and never modifies it.
-         *     A classifier suggestion is queued automatically.
+         *
+         *     For enhancement intake a classifier suggestion is queued automatically
+         *     and `targetWidthCm`/`targetHeightCm` are required.
+         *
+         *     With `readyToPack=true` the file is an operator-prepared PNG (background
+         *     removed, exported at the final print size). The API copies it into a
+         *     separate approved `resize` version, makes it current, derives the target
+         *     centimetres from the pixels at the batch working DPI when they are
+         *     omitted, and does not queue classification. Supplied centimetres must
+         *     resolve to exactly the uploaded pixel dimensions; otherwise the request
+         *     fails with `invalid-target-size` so the packer never resamples finished
+         *     artwork.
          */
         post: operations["uploadDesign"];
         delete?: never;
@@ -1569,6 +1580,11 @@ export interface operations {
                     garmentColorHex?: string | null;
                     targetWidthCm?: number | null;
                     targetHeightCm?: number | null;
+                    /**
+                     * @description Treat the upload as final Photoshop-exported artwork. Requires the exact final pixel size; target centimetres are optional and derived from pixels when omitted.
+                     * @default false
+                     */
+                    readyToPack?: boolean;
                 };
             };
         };

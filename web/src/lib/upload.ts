@@ -63,6 +63,24 @@ export function validateUploadFile(
   return null
 }
 
+export interface ImageSize {
+  widthPx: number
+  heightPx: number
+}
+
+/** Reads pixel dimensions locally so ready-to-pack print sizes can be previewed. */
+export async function readImageSize(file: File): Promise<ImageSize | null> {
+  if (typeof createImageBitmap !== 'function') return null
+  try {
+    const bitmap = await createImageBitmap(file)
+    const size = { widthPx: bitmap.width, heightPx: bitmap.height }
+    bitmap.close()
+    return size
+  } catch {
+    return null
+  }
+}
+
 export function defaultDesignName(file: File): string {
   const index = file.name.lastIndexOf('.')
   const stem = index === -1 ? file.name : file.name.slice(0, index)

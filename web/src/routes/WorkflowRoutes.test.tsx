@@ -121,6 +121,7 @@ describe('core workbench routes', () => {
     await waitFor(() => expect([...mock.batches.values()].some((batch) => batch.name === 'New shop order')).toBe(true))
     expect(await screen.findByRole('heading', { name: 'New shop order' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Add customer artwork' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Import ready-to-pack PNGs' })).toBeInTheDocument()
   })
 
   it('loads a batch and applies include/exclude changes through the API', async () => {
@@ -156,6 +157,22 @@ describe('core workbench routes', () => {
 
     await waitFor(() => expect(mock.designs.get(designId)?.currentVersionId).toBe(proposalId))
     expect(mock.designs.get(designId)?.pendingVersionId).toBeNull()
+  })
+
+  it('offers full-resolution Photoshop downloads for current and proposed artwork', async () => {
+    const mock = startTestMockApi()
+    const batch = batchNamed(mock, 'ACME summer drop 01')
+    const designId = batch.designIds[0]!
+    renderAt(`/batches/${batch.id}/designs/${designId}`)
+
+    const currentLink = await screen.findByRole('link', { name: 'Download for Photoshop' })
+    expect(currentLink).toHaveAttribute('download')
+    expect(currentLink.getAttribute('href')).toContain('/versions/')
+    expect(currentLink.getAttribute('href')).toContain('/file')
+
+    const proposalLink = screen.getByRole('link', { name: 'Download proposal for Photoshop' })
+    expect(proposalLink).toHaveAttribute('download')
+    expect(proposalLink.getAttribute('href')).toContain('/file')
   })
 
   it('loads a packed sheet and exposes its integrity and export gates', async () => {

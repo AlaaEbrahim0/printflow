@@ -67,6 +67,27 @@
   color: var(--accent);
 }
 
+.ready-import-list {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.ready-import-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
 .workflow-controls {
   display: grid;
   gap: 16px;

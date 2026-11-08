@@ -1003,6 +1003,7 @@ export class MockStore {
       assetKey?: string
       widthPx?: number
       heightPx?: number
+      readyToPack?: boolean
     },
   ): DesignDetail {
     const batch = this.requireBatch(batchId)
@@ -1013,6 +1014,14 @@ export class MockStore {
     const now = isoNow()
     const widthPx = input.widthPx ?? asset.widthPx
     const heightPx = input.heightPx ?? asset.heightPx
+    const deriveCm = (pixels: number) =>
+      Math.round(((pixels * 2.54) / batch.workingDpi) * 10000) / 10000
+    const targetWidthCm = input.readyToPack
+      ? (input.targetWidthCm ?? deriveCm(widthPx))
+      : (input.targetWidthCm ?? null)
+    const targetHeightCm = input.readyToPack
+      ? (input.targetHeightCm ?? deriveCm(heightPx))
+      : (input.targetHeightCm ?? null)
     const original: MockVersionRecord = {
       id: versionId,
       designId,
@@ -1034,30 +1043,44 @@ export class MockStore {
       hasMask: false,
       hasSvg: false,
     }
+    const readyVersionId = input.readyToPack ? uuid() : null
+    const readyVersion: MockVersionRecord | null = readyVersionId
+      ? {
+          ...original,
+          id: readyVersionId,
+          parentId: versionId,
+          stepType: 'resize',
+          parameters: { source: 'ready-import', preparedFromVersionId: versionId },
+        }
+      : null
+
     const design: MockDesignRecord = {
       id: designId,
       batchId: batch.id,
       name: (input.name ?? asset.label).slice(0, 200),
-      status: 'received',
+      status: input.readyToPack ? 'ready' : 'received',
       garmentColor: garmentColorFor(input.garmentColorKind, input.garmentColorHex),
       allowRotation: true,
-      targetWidthCm: input.targetWidthCm ?? null,
-      targetHeightCm: input.targetHeightCm ?? null,
+      targetWidthCm,
+      targetHeightCm,
       originalVersionId: versionId,
-      currentVersionId: versionId,
+      currentVersionId: readyVersionId ?? versionId,
       pendingVersionId: null,
       betterSourceRequested: false,
       notes: null,
-      versionIds: [versionId],
+      versionIds: readyVersionId ? [versionId, readyVersionId] : [versionId],
       createdAt: now,
       updatedAt: now,
       suggestions: null,
     }
     this.versions.set(versionId, original)
+    if (readyVersion) this.versions.set(readyVersion.id, readyVersion)
     this.designs.set(designId, design)
     batch.designIds.push(designId)
     batch.updatedAt = now
-    this.enqueueJob({ batchId: batch.id, designId, type: 'classify', parameters: {} })
+    if (!input.readyToPack) {
+      this.enqueueJob({ batchId: batch.id, designId, type: 'classify', parameters: {} })
+    }
     if (batch.sheet) this.invalidateSheets(designId)
     this.recomputeBatchStatus(batch)
     return this.designDetail(designId)

@@ -447,6 +447,31 @@ describe('packing, integrity and export', () => {
     )
   })
 
+  it('imports a ready-to-pack PNG, derives its print size and skips classification', () => {
+    const batch = batchByName('Empty intake queue')
+    const detail = store().uploadDesign(batch.id, {
+      name: 'Photoshop ready',
+      readyToPack: true,
+      widthPx: 2362,
+      heightPx: 2953,
+    })
+
+    expect(detail.status).toBe('ready')
+    expect(detail.targetWidthCm).toBeCloseTo(20, 1)
+    expect(detail.targetHeightCm).toBeCloseTo(25, 1)
+    expect(Math.round((detail.targetWidthCm! * 300) / 2.54)).toBe(2362)
+    expect(Math.round((detail.targetHeightCm! * 300) / 2.54)).toBe(2953)
+    expect(detail.currentVersion!.stepType).toBe('resize')
+    expect(detail.currentVersion!.status).toBe('approved')
+    expect(detail.versions.some((version) => version.stepType === 'original')).toBe(true)
+    expect(
+      [...store().jobs.values()].some(
+        (job) => job.designId === detail.id && job.type === 'classify',
+      ),
+    ).toBe(false)
+    expect(store().batches.get(batch.id)!.status).toBe('ready-to-pack')
+  })
+
   it('refuses the layered formats that ADR 0003 leaves unvalidated', () => {
     const northgate = batchByName('Northgate cafe merch')
     expect(problem(() => store().createExport(northgate.id, 'layered-psb')).code).toBe(

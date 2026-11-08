@@ -145,6 +145,31 @@ public static class BatchEndpoints
                 "Target width and height must be decimal centimetres.");
         }
 
+        var readyToPack = false;
+        var readyRaw = form["readyToPack"].ToString();
+        if (!string.IsNullOrWhiteSpace(readyRaw))
+        {
+            if (readyRaw.Equals("true", StringComparison.OrdinalIgnoreCase) || readyRaw == "1")
+            {
+                readyToPack = true;
+            }
+            else if (!readyRaw.Equals("false", StringComparison.OrdinalIgnoreCase) && readyRaw != "0")
+            {
+                return ApiResults.Problem(
+                    ErrorCodes.InvalidRequest,
+                    "readyToPack must be true or false.");
+            }
+        }
+
+        if (targetWidthCm.HasValue != targetHeightCm.HasValue)
+        {
+            return ApiResults.Problem(
+                ErrorCodes.InvalidTargetSize,
+                readyToPack
+                    ? "Provide both target dimensions or neither; ready-to-pack imports derive them from pixels."
+                    : "Provide both target dimensions or neither.");
+        }
+
         await using var stream = file.OpenReadStream();
         var command = new UploadDesignCommand(
             stream,
@@ -154,7 +179,8 @@ public static class BatchEndpoints
             kind,
             form["garmentColorHex"].ToString(),
             targetWidthCm,
-            targetHeightCm);
+            targetHeightCm,
+            readyToPack);
 
         var result = await intake.UploadAsync(batchId, command, "operator", cancellationToken);
         if (!result.IsSuccess)

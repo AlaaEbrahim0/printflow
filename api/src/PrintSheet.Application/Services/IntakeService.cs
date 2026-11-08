@@ -5,6 +5,7 @@ using PrintSheet.Application.Common;
 using PrintSheet.Domain.Batches;
 using PrintSheet.Domain.Common;
 using PrintSheet.Domain.Jobs;
+using PrintSheet.Domain.Units;
 
 namespace PrintSheet.Application.Services;
 
@@ -126,6 +127,23 @@ public sealed class IntakeService
                 return Result<(Batch, Design)>.Failure(garmentResult.Error!);
             }
 
+            var targetWidthCm = command.TargetWidthCm;
+            var targetHeightCm = command.TargetHeightCm;
+            var targetDerivedFromPixels = false;
+            if (command.ReadyToPack)
+            {
+                var targetError = ResolveReadyTarget(
+                    inspection,
+                    batch.Geometry.WorkingDpi,
+                    ref targetWidthCm,
+                    ref targetHeightCm,
+                    out targetDerivedFromPixels);
+                if (targetError is not null)
+                {
+                    return Result<(Batch, Design)>.Failure(targetError);
+                }
+            }
+
             var designId = Guid.NewGuid();
             var versionId = Guid.NewGuid();
             var extension = NormalizeExtension(inspection.FileExtension, format);
@@ -173,8 +191,8 @@ public sealed class IntakeService
                 name,
                 garmentResult.Value!,
                 allowRotation: true,
-                command.TargetWidthCm,
-                command.TargetHeightCm,
+                targetWidthCm,
+                targetHeightCm,
                 notes: null,
                 versionResult.Value!,
                 batch.Geometry.WorkingDpi,
@@ -186,53 +204,133 @@ public sealed class IntakeService
             }
 
             var design = designResult.Value!;
+            Guid? preparedVersionId = null;
+            if (command.ReadyToPack)
+            {
+                var preparedId = Guid.NewGuid();
+                var preparedPath =
+                    $"{batch.Id}/designs/{designId}/versions/{preparedId}{extension}";
+
+                // Always copy: the original stays immutable and the ready
+                // version owns a separate file with the same bytes.
+                await using (var original = await _files.OpenReadAsync(filePath, cancellationToken))
+                {
+                    await _files.WriteAsync(preparedPath, original, cancellationToken);
+                }
+
+                var preparedParametersJson = JsonSerializer.Serialize(
+                    new
+                    {
+                        source = "ready-import",
+                        originalFileName = command.FileName,
+                        preparedFromVersionId = versionId,
+                        widthPx = inspection.WidthPx,
+                        heightPx = inspection.HeightPx,
+                        targetWidthCm,
+                        targetHeightCm,
+                        targetDerivedFromPixels,
+                        workingDpi = batch.Geometry.WorkingDpi,
+                    },
+                    ApplicationJson.Options);
+
+                var preparedResult = DesignVersion.CreateImportedResize(
+                    preparedId,
+                    designId,
+                    versionId,
+                    preparedPath,
+                    inspection.WidthPx,
+                    inspection.HeightPx,
+                    inspection.HasAlpha,
+                    preparedParametersJson,
+                    _clock.UtcNow);
+
+                if (!preparedResult.IsSuccess)
+                {
+                    await _files.DeleteAsync(preparedPath, cancellationToken);
+                    return Result<(Batch, Design)>.Failure(preparedResult.Error!);
+                }
+
+                var readyResult = design.MarkReady(preparedResult.Value!, _clock.UtcNow);
+                if (!readyResult.IsSuccess)
+                {
+                    await _files.DeleteAsync(preparedPath, cancellationToken);
+                    return Result<(Batch, Design)>.Failure(readyResult.Error!);
+                }
+
+                preparedVersionId = preparedId;
+            }
+
             var added = batch.AddDesign(design, actor, _clock.UtcNow);
             if (!added.IsSuccess)
             {
                 return Result<(Batch, Design)>.Failure(added.Error!);
             }
 
-            var classifyContext = new
+            if (preparedVersionId is { } readyVersionId)
             {
-                workingDpi = batch.Geometry.WorkingDpi,
-                targetWidthCm = design.TargetWidthCm,
-                targetHeightCm = design.TargetHeightCm,
-                sourceVersionId = versionId,
-                originalPath = filePath,
-                garmentColor = new
+                batch.RecordAudit(
+                    "ready-to-pack-import",
+                    actor,
+                    reason: null,
+                    designId,
+                    readyVersionId,
+                    JsonSerializer.Serialize(
+                        new
+                        {
+                            source = "external-photoshop-export",
+                            targetWidthCm,
+                            targetHeightCm,
+                            widthPx = inspection.WidthPx,
+                            heightPx = inspection.HeightPx,
+                        },
+                        ApplicationJson.Options),
+                    _clock.UtcNow);
+            }
+            else
+            {
+                var classifyContext = new
                 {
-                    kind = design.GarmentColor.Kind.ToContract(),
-                    hex = design.GarmentColor.Hex,
-                },
-            };
+                    workingDpi = batch.Geometry.WorkingDpi,
+                    targetWidthCm = design.TargetWidthCm,
+                    targetHeightCm = design.TargetHeightCm,
+                    sourceVersionId = versionId,
+                    originalPath = filePath,
+                    garmentColor = new
+                    {
+                        kind = design.GarmentColor.Kind.ToContract(),
+                        hex = design.GarmentColor.Hex,
+                    },
+                };
 
-            var classifyParameters = new
-            {
-                targetWidthCm = design.TargetWidthCm,
-                targetHeightCm = design.TargetHeightCm,
-            };
+                var classifyParameters = new
+                {
+                    targetWidthCm = design.TargetWidthCm,
+                    targetHeightCm = design.TargetHeightCm,
+                };
 
-            var jobResult = Job.Create(
-                Guid.NewGuid(),
-                batch.Id,
-                design.Id,
-                JobType.Classify,
-                JobCapability.Image,
-                JsonSerializer.Serialize(classifyParameters, ApplicationJson.Options),
-                JsonSerializer.Serialize(classifyContext, ApplicationJson.Options),
-                filePath,
-                outputPath: null,
-                inputArtifactsJson: "{}",
-                outputArtifactsJson: "{}",
-                Job.DefaultMaxAttempts,
-                _clock.UtcNow);
+                var jobResult = Job.Create(
+                    Guid.NewGuid(),
+                    batch.Id,
+                    design.Id,
+                    JobType.Classify,
+                    JobCapability.Image,
+                    JsonSerializer.Serialize(classifyParameters, ApplicationJson.Options),
+                    JsonSerializer.Serialize(classifyContext, ApplicationJson.Options),
+                    filePath,
+                    outputPath: null,
+                    inputArtifactsJson: "{}",
+                    outputArtifactsJson: "{}",
+                    Job.DefaultMaxAttempts,
+                    _clock.UtcNow);
 
-            if (!jobResult.IsSuccess)
-            {
-                return Result<(Batch, Design)>.Failure(jobResult.Error!);
+                if (!jobResult.IsSuccess)
+                {
+                    return Result<(Batch, Design)>.Failure(jobResult.Error!);
+                }
+
+                _jobs.Add(jobResult.Value!);
             }
 
-            _jobs.Add(jobResult.Value!);
             await _batches.SaveChangesAsync(cancellationToken);
             return Result<(Batch, Design)>.Success((batch, design));
         }
@@ -244,6 +342,56 @@ public sealed class IntakeService
             }
         }
     }
+
+    /// <summary>
+    /// A ready-to-pack PNG is already at its final pixel size. When the caller
+    /// omits physical dimensions, derive them from the pixels at the batch's
+    /// working DPI; when it supplies them, require an exact pixel match so the
+    /// packer never has to resample the operator's finished artwork.
+    /// </summary>
+    private static DomainError? ResolveReadyTarget(
+        ImageInspection inspection,
+        int workingDpi,
+        ref decimal? targetWidthCm,
+        ref decimal? targetHeightCm,
+        out bool derivedFromPixels)
+    {
+        derivedFromPixels = false;
+
+        if (targetWidthCm is null && targetHeightCm is null)
+        {
+            targetWidthCm = RoundCentimeters(
+                PrintUnits.CentimetersForPixels(inspection.WidthPx, workingDpi));
+            targetHeightCm = RoundCentimeters(
+                PrintUnits.CentimetersForPixels(inspection.HeightPx, workingDpi));
+            derivedFromPixels = true;
+            return null;
+        }
+
+        if (targetWidthCm is null || targetHeightCm is null)
+        {
+            return DomainError.Create(
+                ErrorCodes.InvalidTargetSize,
+                "Provide both target dimensions or neither; ready-to-pack imports can derive them from pixels.");
+        }
+
+        var expectedWidth = PrintUnits.PixelsForCentimeters(targetWidthCm.Value, workingDpi);
+        var expectedHeight = PrintUnits.PixelsForCentimeters(targetHeightCm.Value, workingDpi);
+        if (inspection.WidthPx != expectedWidth || inspection.HeightPx != expectedHeight)
+        {
+            return DomainError.Create(
+                ErrorCodes.InvalidTargetSize,
+                $"The ready PNG is {inspection.WidthPx}x{inspection.HeightPx} px, but "
+                + $"{targetWidthCm}x{targetHeightCm} cm at {workingDpi} DPI requires "
+                + $"{expectedWidth}x{expectedHeight} px. Omit the target dimensions to derive "
+                + "them from the exported pixels.");
+        }
+
+        return null;
+    }
+
+    private static decimal RoundCentimeters(decimal centimeters)
+        => decimal.Round(centimeters, 4, MidpointRounding.AwayFromZero);
 
     private static string NormalizeExtension(string extension, string format)
     {

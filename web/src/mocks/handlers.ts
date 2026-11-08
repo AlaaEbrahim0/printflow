@@ -119,6 +119,7 @@ const upload = http.post(`${V1}/batches/:batchId/designs`, async ({ request, par
       garmentColorHex,
       targetWidthCm,
       targetHeightCm,
+      readyToPack: String(form.get('readyToPack') ?? '') === 'true',
     })
     return jsonBody(detail, 201)
   }),

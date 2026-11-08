@@ -32,7 +32,8 @@ public sealed record UploadDesignCommand(
     GarmentColorKind GarmentColorKind,
     string? GarmentColorHex,
     decimal? TargetWidthCm,
-    decimal? TargetHeightCm);
+    decimal? TargetHeightCm,
+    bool ReadyToPack = false);
 
 public sealed record TrimStepCommand(
     string Mode,

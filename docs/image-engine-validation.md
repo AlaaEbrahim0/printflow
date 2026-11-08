@@ -1,7 +1,8 @@
 # Image Engine Validation
 
-**Status:** fixture and one user-provided line-art sample tested; representative
-photo-quality validation remains open.
+**Status:** fixture, one user-provided line-art sample and nine authorized shop
+designs measured on AC power; representative photo-quality validation remains
+open.
 
 **Current priority:** enhancement/upscaling quality, GPU execution, and clear
 human-review guidance. Vectorization and packing are secondary.
@@ -26,6 +27,13 @@ No unattended print-ready claim is made.
 
 ## Results
 
+### AC-powered GPU timings (2026-11-08 re-measurement)
+
+The earlier battery run held the GTX at 300 MHz. On AC power with a performance
+profile the same 360 × 240 → 1440 × 960 x4 job took **12.7 s** of worker time
+(15.1 s end to end) and the GPU boosted to **1935 MHz**, versus 33.1 s on
+battery. Treat GPU timings recorded on battery as 2.5–4× pessimistic.
+
 | Input and path | Result | Quality assessment |
 |---|---|---|
 | User-provided 316 × 198 line-art print sample; Real-ESRGAN x4 | Succeeded on the GTX in 5.337 s; output 1264 × 792. The source remains **40.1 DPI** at the 20 × 12.5 cm target and receives `very-low-effective-dpi`. | Visually enlarged and cleaned, but the model cannot restore reliable source detail. Do not treat its pixel dimensions as real resolution or print-ready quality. Prefer obtaining a better source or proposing a vector trace; keep human approval. |
@@ -39,10 +47,56 @@ The user-provided image was copied to temporary storage for these local runs;
 the original was not modified, no sample image was added to the repository, and
 no external image service was used.
 
+### Shop sample sweep (2026-11-08, AC power)
+
+Nine authorized non-branded shop designs (cartoon with text, dark figure,
+color collage, monochrome owl, signature, flat crest, color portrait, logo
+text, flat ball) were run directly through `realesrgan-ncnn-vulkan -s 4` with
+`realesrgan-x4plus`, 256 px tiles, on the GTX at ~1920 MHz:
+
+| Source | Output | Time |
+|---|---|---|
+| 316 × 198 signature | 1264 × 792 | 6.2 s |
+| 709 × 1181 flat ball | 2836 × 4724 | 20.7 s |
+| 1024 × 1536 mono owl | 4096 × 6144 | 35.3 s |
+| 1200 × 1200 cartoon with text | 4800 × 4800 | 30.8 s |
+| 1239 × 1269 color collage | 4956 × 5076 | 39.4 s |
+| 1280 × 1376 flat crest | 5120 × 5504 | 36.2 s |
+| 1432 × 1600 color portrait | 5728 × 6400 | 60.9 s |
+| 1600 × 654 logo text | 6400 × 2616 | 24.9 s |
+| 1600 × 1600 dark figure | 6400 × 6400 | 52.2 s |
+
+Every run returned the exact expected x4 dimensions. Time scales with source
+area at roughly 30–35 MPix/min on this GPU, so a 1600 × 1600 design is about a
+minute. Two quality caveats remain visible and are the reason approval stays
+manual:
+
+- Small text in the cartoon and logo samples gains crispness but can pick up
+  invented edge detail; the operator must compare glyph shapes against the
+  original.
+- Flat vector-like crests and the ball logo are better served by asking for a
+  vector source than by upscaling; the model adds texture to regions that
+  should stay perfectly flat.
+
+Samples were processed from a temporary folder; nothing was added to the
+repository.
+
+## Ready-to-pack intake
+
+Because background removal and final sizing happen in Photoshop, the workbench
+also accepts finished artwork. `POST /api/v1/batches/{id}/designs` with
+`readyToPack=true` copies the uploaded PNG into a separate approved `resize`
+version, makes it current, derives the target centimetres from the pixels at the
+batch working DPI, and queues no job. A live check with a 1417 × 1417 PNG at
+300 DPI produced an 11.9973 × 11.9973 cm target, a `ready` design, no jobs, and
+a clean pack plus five-check integrity pass and PNG export. Supplying centimetres
+that do not match the pixels is rejected with `invalid-target-size` so the
+packer never resamples finished artwork.
+
 ## Follow-up
 
-This validates one real line-art sample and engine behavior, not the range of
-shop artwork. Photo enhancement on representative, authorized shop photos and
-color artwork still needs review. The most useful next samples are low-quality
-photos/screenshots and edge cases where operators currently spend time cleaning
-halos, thin strokes, or backgrounds.
+This validates engine behavior and the shop-design sweep above, not the full
+range of shop artwork. Remaining useful samples are low-quality photos and
+screenshots where operators currently spend time cleaning halos, thin strokes or
+backgrounds, plus color-heavy artwork at print size. Ready-to-pack intake is the
+supported path once background removal and final sizing are done in Photoshop.

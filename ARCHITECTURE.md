@@ -177,7 +177,9 @@ versions. A single-operator MVP still gets the guard.
 The frozen OpenAPI 3.0.3 spec is `contracts/openapi/printsheet-api.yaml`.
 Highlights:
 
-- Batches: create/list/get/update; multipart intake.
+- Batches: create/list/get/update; multipart intake in two modes — enhancement
+  (targets required, classify queued) and `readyToPack` (Photoshop-exported
+  final PNG, approved resize version, no job).
 - Designs: metadata, garment color, target size, exclude/include, better-source
   flag.
 - Versions: list/download, approve, reject (returns next actions), revert.

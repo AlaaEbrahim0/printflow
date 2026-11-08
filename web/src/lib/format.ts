@@ -43,6 +43,10 @@ export function formatCentimeters(cm: number | null | undefined, digits = 1): st
   return `${cm.toFixed(digits)} cm`
 }
 
+export function centimetersForPixels(pixels: number, dpi: number): number {
+  return (pixels * 2.54) / dpi
+}
+
 export function formatPixels(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—'
   return `${Math.round(value)} px`

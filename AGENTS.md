@@ -658,12 +658,17 @@ If context is running low, prioritize in this order:
    profile. The 2026-11-08 battery run was 3–4× slower because the GPU never
    left 300 MHz; this is host power policy, not a worker bug.
 3. Compare enhancement quality and time against authorized non-branded shop
-   photos and color art. This is blocked on representative samples; only
-   generated photos and one provided line-art sample have been reviewed.
+   photos and color art. Nine shop designs were measured on AC power (see
+   `docs/image-engine-validation.md`); the remaining gap is low-quality photos
+   and screenshots rather than flat artwork.
 4. Keep enhancement a reviewable proposal and the final Photoshop review/update
    human-led; measure operator time saved, not unattended automation.
 5. The Phase 1–3 worktree is committed in logical slices on `main` (contracts,
    API, worker, packer, web, runtime, docs); keep feature work on top of it.
+6. Two intake paths now exist: enhancement intake (targets required, classify
+   queued) and ready-to-pack intake (`readyToPack=true`, approved resize
+   version, no job). The operator downloads current/proposed PNGs for
+   Photoshop from the design review page and re-imports the finished PNGs.
 
 **Open assumptions to confirm with user later:**
 
@@ -679,14 +684,31 @@ If context is running low, prioritize in this order:
 - The MVP allows one current sheet per batch; very tall batches must be split
   by excluding designs or accepted as one tall sheet/one export.
 - Background removal and vectorization are intentionally retired, not merely
-  hidden. Confirm with the shop that operators will handle those cases in
-  Photoshop; historical artifacts remain downloadable.
+  hidden. Operators handle those cases in Photoshop and import the finished
+  PNGs through ready-to-pack intake; historical artifacts remain downloadable.
 
 ---
 
 ## 15. Handoff log
 
 Append newest entries at the top. Keep them short and factual.
+
+### 2026-11-08 — Photoshop handoff and ready-to-pack intake
+
+- Added `readyToPack` intake: an operator's Photoshop-exported PNG becomes an
+  approved `resize` version with a separate immutable file, derives target
+  centimetres from pixels at the batch DPI when omitted, and queues no job.
+  Mismatched centimetres fail with `invalid-target-size`.
+- Added batch UI multi-file ready import with local pixel previews, plus
+  "Download for Photoshop" links for the current and proposed versions on the
+  design review page. No editor launch: the operator saves the file and opens
+  it locally.
+- Live verified: 1417 × 1417 PNG → 11.9973 × 11.9973 cm, `ready`, zero jobs,
+  pack + five-check integrity pass + PNG export. Negative cases rejected.
+- AC-powered GPU re-measured at 1935 MHz: 12.7 s for 360 × 240 ×4 versus 33.1 s
+  on battery. Nine shop designs x4 took 6–61 s each.
+- Gates green: contracts (5 schemas / 15 examples, OpenAPI v2.0.0), API 13 + 5,
+  worker 195, packer 159, web build/lint and 111 tests.
 
 ### 2026-11-08 — Phase 1–3 worktree committed
 

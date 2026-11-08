@@ -280,7 +280,9 @@ stateDiagram-v2
 
 Rules:
 
-- A new design starts `received` with the original as current and approved.
+- A new design starts `received` with the original as current and approved,
+  unless it was imported as ready-to-pack, in which case the approved `resize`
+  version created at intake is current and the design starts `ready`.
 - `ready` ⇔ the current version is `approved`, `stepType = resize`, and its
   `widthPx`/`heightPx` equal the pixels for the design's target cm at the
   batch DPI.
@@ -314,6 +316,10 @@ Invariants:
    longer current becomes `rejected` with `reason = stale-parent`. It is never
    rebased onto the new current version.
 6. Version files are write-once. Reject/revert never delete a file.
+7. A ready-to-pack import adds an approved `resize` version directly (never a
+   proposal) because the operator declared the file final by exporting it. It
+   still requires `parentId = currentVersionId`, still creates a new immutable
+   file, and still leaves the original untouched.
 
 ### 5.3 Batch status
 
@@ -424,6 +430,28 @@ actor, timestamp, entity IDs and a before/after summary.
 5. Invalidate the current sheet if one exists.
 
 Uploads never overwrite. Re-uploading the same artwork creates a new design.
+
+#### 6.1.1 Ready-to-pack intake
+
+`UploadReadyDesign(batchId, file)` — the same endpoint with
+`readyToPack=true`, used when staff already removed the background and set the
+final size in Photoshop.
+
+1. Validate and store the original exactly as above; the original stays
+   immutable and `approved`.
+2. Resolve the target. If `targetWidthCm`/`targetHeightCm` are omitted, derive
+   them from the pixels at the batch working DPI. If they are supplied, they
+   must resolve to exactly the uploaded pixel dimensions, otherwise fail with
+   `invalid-target-size`.
+3. Copy the bytes into a second immutable file for a new version and create it
+   as an **approved** `resize` version whose `parentId` is the original.
+4. Point `currentVersionId` at that version. The design is `ready`
+   immediately because its current resize matches the target exactly.
+5. Queue no `classify` job and write a `ready-to-pack-import` audit entry.
+
+The packer therefore consumes the operator's finished pixels with no
+resampling. Nothing is inferred about the artwork: the import is the explicit
+statement that this file is final.
 
 ### 6.2 Processing proposal
 

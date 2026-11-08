@@ -27,6 +27,18 @@ function versionFor(design: DesignDetail, versionId: string): DesignVersion | un
   return design.versions.find((version) => version.id === versionId)
 }
 
+function photoshopFileName(
+  design: DesignDetail,
+  version: Pick<DesignVersion, 'id' | 'stepType'>,
+): string {
+  const safeName =
+    design.name
+      .replace(/[^a-z0-9-_]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'design'
+  return `${safeName}-${version.stepType}-${version.id.slice(0, 8)}.png`
+}
+
 function formatElapsed(milliseconds: number): string {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000))
   const minutes = Math.floor(totalSeconds / 60)
@@ -265,9 +277,22 @@ export default function DesignReviewPage() {
           <p className="mono muted">
             {stepLabel(current.stepType)} · {formatPixels(current.widthPx)} × {formatPixels(current.heightPx)} · {shortId(current.id)}
           </p>
-          {currentDetails?.artifacts?.svgUrl ? (
-            <a href={currentDetails.artifacts.svgUrl} target="_blank" rel="noreferrer">View vector artifact</a>
-          ) : null}
+          <div className="row">
+            <a
+              className="btn"
+              href={current.fileUrl}
+              download={photoshopFileName(design, current)}
+            >
+              Download for Photoshop
+            </a>
+            {currentDetails?.artifacts?.svgUrl ? (
+              <a href={currentDetails.artifacts.svgUrl} target="_blank" rel="noreferrer">View vector artifact</a>
+            ) : null}
+          </div>
+          <p className="hint">
+            Finish background removal and final sizing in Photoshop, then import the exported PNGs
+            as a ready-to-pack batch.
+          </p>
         </section>
 
         <section className="card">
@@ -300,6 +325,13 @@ export default function DesignReviewPage() {
                 <button type="button" className="btn" disabled={busy} onClick={() => void rejectProposal()}>
                   Reject proposal
                 </button>
+                <a
+                  className="btn"
+                  href={proposal.fileUrl}
+                  download={photoshopFileName(design, proposal)}
+                >
+                  Download proposal for Photoshop
+                </a>
               </div>
             </>
           ) : (
@@ -385,6 +417,8 @@ export default function DesignReviewPage() {
                 ) : null}
                 <p className="hint">
                   AI can invent texture or edges. Compare the result with the original before approval.
+                  For manual cleanup, download the current or proposed PNG for Photoshop, then import
+                  the exported ready PNGs in the batch.
                 </p>
                 <div className="row">
                   <SelectField
