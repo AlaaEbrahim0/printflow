@@ -1,11 +1,18 @@
 """Measure the shipped packer on every kit case, for a like-for-like baseline.
 
 Writes ``results/production.json`` so the optimizing agent can compare its own
-numbers against what the product does today, case by case.
+numbers against what the product does today, case by case. It defaults to
+production's *shipped* settings (``cellMm=2``, 40 orderings, 5 s budget, from
+``PackerSettings.Default``) because that is what a real shop gets; pass
+``--time-budget-ms 60000`` to reproduce ``results/production-60s.json``, which is
+the fair comparison against the baseline's own 60 s budget.
 
     python -m printsheet_nest.production_suite
-    python -m printsheet_nest.production_suite --orderings 30 --out results/production.json
+    python -m printsheet_nest.production_suite --time-budget-ms 60000 --out results/production-60s.json
     python -m printsheet_nest.production_suite --only shop-ten synthetic-04
+
+Production's sheet height is governed by the time budget, not by ``cellMm`` — see
+BRIEF.md §6 before comparing numbers from different budgets.
 
 The production packer has no wall-clock cap *inside* a single ordering — it only
 checks its budget between orderings — so one case can run for minutes. This

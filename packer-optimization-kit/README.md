@@ -28,8 +28,13 @@ python -m printsheet_nest.cli run --solver my_package.mine:solve --out results/m
 
 # 3. Compare against the reference solvers already recorded.
 cat results/baseline.json      # fast raster greedy bottom-left (the floor to beat)
-cat results/production.json    # the shipped packer, judged by the same referee
+cat results/production.json    # the shipped packer at its shipped 5 s budget
+cat results/production-60s.json # the same packer given the baseline's 60 s budget
 ```
+
+Read `BRIEF.md` §6 before drawing conclusions from those two production files:
+production's height depends on its time budget, it fails three of the six cases
+outright, and the two files answer different questions.
 
 `run` prints a table and, with `--out`, writes machine-readable JSON so you can
 track iterations. Use `--only shop-ten,synthetic-04` while iterating.

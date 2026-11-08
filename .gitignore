@@ -52,3 +52,6 @@ fixtures/**/contact-sheet.png
 
 # Docker
 *.pid
+
+# Local agent tooling config (machine-specific, may contain credentials)
+.codex/

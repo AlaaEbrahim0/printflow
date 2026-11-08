@@ -4,7 +4,13 @@
     "cases": 6,
     "feasible": 3,
     "totalSheetHeightPx": 19484,
-    "meanElapsedMs": 617394.6
+    "meanElapsedMs": 617394.6,
+    "params": {
+      "cellMm": 5.0,
+      "randomizedOrderings": 30,
+      "timeBudgetMs": 60000
+    },
+    "note": "Production at a 60 s budget -- the same budget baseline.json was given -- recorded before the harness was corrected to production's shipped cellMm=2.0 / 40 orderings. These parameters are what actually ran, not the shipped ones. Two checks show the difference does not matter for height: (a) a cellMm sweep on synthetic-12 gave an identical layout and height at cellMm 2.0 and 5.0; (b) crosscheck with cellMm=2.0 / 40 orderings / 60 s reproduces shop-ten at 8157 px, matching this file exactly. Production's height is governed by the time budget, not by cellMm or the ordering count -- see BRIEF.md section 6."
   },
   "results": [
     {

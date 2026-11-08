@@ -34,7 +34,7 @@ def _uuid(seed: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("case", help="case directory, e.g. cases/shop-ten")
-    parser.add_argument("--orderings", type=int, default=30)
+    parser.add_argument("--orderings", type=int, default=40)
     args = parser.parse_args(argv)
 
     root = Path(__file__).resolve().parent.parent.parent
@@ -53,7 +53,10 @@ def main(argv: list[str] | None = None) -> int:
         "edgeMarginMm": case.params.edge_margin_mm,
         "dpi": case.params.dpi,
         "alphaThreshold": case.params.alpha_threshold,
-        "cellMm": 5.0,
+        # Production defaults (PackerSettings.Default): cellMm 2, orderings 40,
+        # budget 5 s. Matching them keeps this a check of the referee against
+        # the search the product actually runs.
+        "cellMm": 2.0,
         "randomizedOrderings": args.orderings,
         "timeBudgetMs": case.params.time_budget_ms,
         "seed": case.params.seed,

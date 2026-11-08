@@ -35,8 +35,12 @@ The consequences that shape the algorithm:
 > resulting sheet height in pixels.
 
 Lower is better, and that is the only objective. Wall-clock time is a
-constraint (a production run must finish in seconds to a couple of minutes),
-not something to trade against height beyond that budget.
+constraint, not something to trade against height beyond it: a run must finish
+within `params.time_budget_ms`, and in practice an operator will not wait
+minutes. Note that production itself is far outside that: its budget is only
+consulted *between* orderings, so a "5 second" run takes 48 s on `shop-ten` and
+over 39 minutes on `synthetic-30`. Do not treat its timings as the standard —
+treat the budget as the standard.
 
 There is no reward for elegance. A CP-SAT model, simulated annealing, a beam
 search, a learned policy, a hand-tuned heuristic — all are equally acceptable.
@@ -109,6 +113,7 @@ packer-optimization-kit/
 │   ├── harness.py      # run + score
 │   ├── cli.py          # `python -m printsheet_nest.cli ...`
 │   ├── production.py   # runs the *shipped* packer on a case (calibration)
+│   ├── production_suite.py  # records results/production.json
 │   └── crosscheck.py   # proves the referee agrees with production
 ├── cases/              # generated inputs (PNGs + case.json), regenerable
 ├── results/            # scores from previous runs
@@ -148,8 +153,9 @@ score = sheet_height_px         otherwise
 ```
 
 Aggregate across cases by summing the heights of the feasible cases. A run that
-fails any case is a regression, regardless of its total: production must never
-be able to place something you cannot.
+fails any case is a regression, regardless of its total: the baseline is
+feasible on all six, so there is no case where "not placing it" is an acceptable
+answer.
 
 Reading and judging happen **outside** the timer, so you cannot gain by doing
 less verification — the referee always runs.
@@ -180,38 +186,70 @@ It is safe by construction — pooling uses `any` and the clearance is padded in
 whole cells, so a coarse clearance implies a legal pixel clearance — but it
 leaves real value on the table.
 
-Recorded results (`results/baseline.json` and `results/production.json`):
+Recorded results. **Two production runs exist and they answer different
+questions**, because production's sheet height is a function of its time budget
+(see below):
 
-| Case | Baseline height (px) | Production height (px) | Production verdict |
-|---|---|---|---|
-| `shop-ten` | 8238 | 8157 | feasible |
-| `synthetic-04` | 3846 | 4754 | feasible |
-| `synthetic-08` | 6755 | 6573 | feasible |
-| `synthetic-12` | 9710 | 9925 | **infeasible** |
-| `synthetic-20` | 14723 | 15393 | **infeasible** |
-| `synthetic-30` | 21497 | 20816 | **infeasible** |
+* `results/production.json` — production at its **shipped defaults**
+  (`timeBudgetMs=5000`). This is what a real shop gets today.
+* `results/production-60s.json` — production at **60 s**, the same budget the
+  baseline is given. This is the like-for-like comparison. It was recorded with
+  the older `cellMm=5.0` / 30-ordering harness; its `summary.note` says so, and
+  both the `cellMm` sweep below and a 60 s `crosscheck` reproduce its heights
+  exactly, because the budget — not `cellMm` — decides production's height.
 
-Two things to read off that table.
+| Case | Baseline (60 s) | Production (60 s) | Production (shipped 5 s) | Verdict |
+|---|---|---|---|---|
+| `shop-ten` | 8238 | **8157** | 8548 | feasible |
+| `synthetic-04` | **3846** | 4754 | 4754 | feasible |
+| `synthetic-08` | 6755 | **6573** | 6573 | feasible |
+| `synthetic-12` | **9710** | 9925 ✗ | 9925 ✗ | **infeasible** |
+| `synthetic-20` | **14723** | 15393 ✗ | 15393 ✗ | **infeasible** |
+| `synthetic-30` | **21497** | 20816 ✗ | 20816 ✗ | **infeasible** |
 
-**Production is only "shorter" on the cases it fails.** On `synthetic-12/20/30`
-it reports a smaller height than the baseline, but the referee rejects the
-layout, so the height is not a legal sheet and the run would deadlock the
-workbench at export. Compare only *feasible* layouts — the three cases both
-solvers actually solve:
+Three things to read off that table.
 
-| Case | Baseline | Production | Winner |
-|---|---|---|---|
-| `shop-ten` | 8238 | 8157 | production, by 81 px (1.0%) |
-| `synthetic-04` | 3846 | 4754 | baseline, by 908 px (23.6%) |
-| `synthetic-08` | 6755 | 6573 | production, by 182 px (2.8%) |
+**At equal budget, production wins two of the three cases it can solve.** It is
+81 px (1.0%) shorter on `shop-ten` and 182 px (2.7%) shorter on
+`synthetic-08`, and loses badly on `synthetic-04` (908 px, 23.6%). So production
+is a real, if modest, bar on the cases it survives — it is not weak everywhere.
 
-So production is modestly better on the two real-ish cases and much worse on
-`synthetic-04`. Neither number is impressive: all three leave large areas empty.
+**It fails outright on the three largest cases.** On `synthetic-12/20/30` the
+referee rejects the layout (§6.1), so those heights describe illegal sheets and
+are not a bar at all. That is exactly half the suite (3 of 6), and it is the
+three with the most designs — exactly where an operator has the most to gain.
 
-**The baseline is slower than production but correct on all six.** Mean wall
-clock is 21.2 s for the baseline versus ~617 s for production, but production's
-number is dominated by `synthetic-30` at 2 375 s (39 minutes) — it has no
-intra-ordering time cap, only a between-ordering one.
+**At the shipped budget it is worse everywhere.** `timeBudgetMs=5000` costs
+`shop-ten` 391 px (4.8%) versus the 60 s run, which is why the shipped column is
+8548. This matters for how you read the product: the number a shop sees is the
+5 s column, not the 60 s one.
+
+The opportunity is large regardless: the three feasible cases leave most of the
+roll empty (density 0.33–0.51), and production cannot place the large ones at
+all.
+
+**Production's height is set by its time budget, not its cell size.** The search
+only consults `timeBudgetMs` *between* orderings, so a bigger budget buys more
+orderings and a shorter sheet. Measured on `shop-ten`:
+
+| `cellMm` | orderings | budget | height | wall clock |
+|---|---|---|---|---|
+| 2.0 | 40 | 5 000 ms | 8548 | 48.5 s |
+| 2.0 | 40 | 60 000 ms | **8157** | 100.9 s |
+| 5.0 | 40 | 5 000 ms | 8548 | 47.1 s |
+
+`cellMm` makes no difference at all; the budget decides everything. A single
+ordering is never interrupted, which is why a "5 second" budget still takes 48 s
+of wall clock here and why `synthetic-30` ran past 39 minutes.
+
+**The baseline is also far *faster* than production on the three large cases.**
+Mean wall clock is 21.2 s for the baseline versus 560 736 s for production across
+all six cases, and production was slower on each of the three infeasible ones.
+Production's mean is dominated by `synthetic-20` at 687 s and `synthetic-30`
+at 2 249 s — neither produces a legal sheet. The baseline is also faster on
+the three feasible cases (`shop-ten` 13.98 s vs 50.8 s, `synthetic-04` 3.5 s vs 20.9 s,
+`synthetic-08` 9.8 s vs 10.2 s). So the baseline is not trading speed for quality — it is
+both faster and, on the case production cannot solve, the only one that works.
 
 ### 6.1 Production's gap-certification bug (measured, reproducible)
 
@@ -262,9 +300,20 @@ export is refused with `sheet-integrity-failed`. The operator is stuck until
 they hand-edit placements. This is why correctness is a scored constraint and
 not an afterthought, and why the kit's referee is independent of the solver.
 
-Read `results/production.json` for the shipped packer's numbers on every case.
-Beating the baseline is not the goal; beating production *while staying
-feasible* is.
+Read both production result files before you start. The honest reading:
+
+* where production is feasible, it is a **real bar** — it beats the baseline by
+  1.0% on `shop-ten` and 2.7% on `synthetic-08`, at the same 60 s budget;
+* where production is feasible, it is also **beatable** — the baseline is 23.6%
+  shorter on `synthetic-04`;
+* on the three largest cases production produces an **illegal sheet**, so
+  "matching production" there means failing. Your solver must place those
+  designs, and the baseline already does.
+
+So the two bars are: never fail a case (production fails three), and never be
+taller than the baseline (production is taller on two of three it solves, shorter
+on two). Clearing both is the minimum; the score that matters is how much of the
+roll you leave free.
 
 ## 7. Where the value is
 
@@ -336,16 +385,22 @@ A submission is acceptable when all of the following hold:
 1. `python -m pytest tests -q` passes (the referee and baseline tests still
    pass; add your own tests alongside them).
 2. `python -m printsheet_nest.cli run --solver <yours>` reports **6/6 feasible**.
-3. The summed sheet height across the six cases is **strictly lower** than
-   production's total in `results/production.json`.
-4. No case is individually worse than production by more than 2%.
-5. The solver is deterministic given `case.params.seed`, and respects
+3. The summed sheet height across the six cases is **strictly lower** than the
+   baseline's `totalSheetHeightPx` in `results/baseline.json` (64 769 px).
+4. No case is individually taller than the **baseline** on that same case. The
+   baseline is feasible everywhere, so it is the only reference that can be
+   compared case-for-case.
+5. No case is individually taller than **production at the same 60 s budget**
+   (`results/production-60s.json`) on the three cases production
+   solves. Production's heights on `synthetic-12/20/30` describe illegal sheets
+   and are not a bar.
+6. The solver is deterministic given `case.params.seed`, and respects
    `params.time_budget_ms` (checked between search iterations is fine).
-6. Every placement it returns is legal under `referee.judge` — not "probably
+7. Every placement it returns is legal under `referee.judge` — not "probably
    legal", not "legal after a fixup", but legal as returned.
 
 Report your numbers in `results/<yourname>.json` and state, per case, the height
-you reached versus production and versus the baseline.
+you reached versus the baseline and versus production at both budgets.
 
 ## 10. Porting back to production
 
@@ -357,6 +412,13 @@ The kit is a research harness; the product still runs
 * `printsheet_packer.integrity` stays exactly as it is — it is the shipped
   verifier and it already agrees with this kit's referee, pixel for pixel
   (see `python -m printsheet_nest.crosscheck cases/shop-ten`);
+* **the collision certificate must be fixed as part of the port.** The current
+  `build_footprint` buffers by `margin_px / 2 + 1`, which under-certifies a
+  Chebyshev gap by ~29% (§6.1). A solver that is correct in the kit will be
+  correct in production only if the buffer radius becomes
+  `margin_px / sqrt(2)` (or the collision test is done in square terms).
+  `packer/tests/test_masks.py` holds a strict `xfail` that flips to a failure
+  the moment this is fixed, so you will know;
 * the production packer must keep honouring `noInterlocking`, `cellMm`,
   `randomizedOrderings`, `timeBudgetMs`, and `seed` from the request contract.
 
