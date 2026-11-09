@@ -2,6 +2,7 @@ import { NavLink, Route, Routes, BrowserRouter } from 'react-router-dom'
 import BatchDetailPage from './routes/BatchDetailPage'
 import BatchListPage from './routes/BatchListPage'
 import DesignReviewPage from './routes/DesignReviewPage'
+import JobsPage from './routes/JobsPage'
 import SettingsPage from './routes/SettingsPage'
 import SheetPage from './routes/SheetPage'
 import { SettingsProvider } from './state/SettingsContext'
@@ -26,6 +27,9 @@ export function WorkbenchRoutes() {
           <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
             Batches
           </NavLink>
+          <NavLink to="/jobs" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Jobs
+          </NavLink>
           <NavLink to="/settings" className={({ isActive }) => (isActive ? 'active' : '')}>
             Settings
           </NavLink>
@@ -43,6 +47,8 @@ export function WorkbenchRoutes() {
           <Route path="/batches/:batchId/designs/:designId" element={<DesignReviewPage />} />
           <Route path="/batches/:batchId/sheet" element={<SheetPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/jobs" element={<JobsPage />} />
+          <Route path="/batches/:batchId/jobs" element={<JobsPage />} />
           <Route
             path="*"
             element={
