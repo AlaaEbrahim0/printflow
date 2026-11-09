@@ -45,6 +45,45 @@ export function sizeInCentimeters(size: PixelSize, dpi: number): CentimeterSize 
   }
 }
 
+/** Width divided by height. `null` when the raster has no usable dimensions. */
+export function aspectRatioOf(size: PixelSize): number | null {
+  if (size.widthPx <= 0 || size.heightPx <= 0) return null
+  return size.widthPx / size.heightPx
+}
+
+/** Two decimal places keeps the linked side within a fraction of a pixel at 300 DPI. */
+export function roundCentimeters(value: number, decimals = 2): number {
+  if (!Number.isFinite(value)) return 0
+  const factor = 10 ** decimals
+  return roundHalfAwayFromZero(value * factor) / factor
+}
+
+/** Height that keeps `widthCm` at the artwork aspect ratio (width / height). */
+export function heightForWidth(widthCm: number, aspectRatio: number): number {
+  if (!Number.isFinite(widthCm) || !Number.isFinite(aspectRatio) || aspectRatio <= 0) return 0
+  return roundCentimeters(widthCm / aspectRatio)
+}
+
+/** Width that keeps `heightCm` at the artwork aspect ratio (width / height). */
+export function widthForHeight(heightCm: number, aspectRatio: number): number {
+  if (!Number.isFinite(heightCm) || !Number.isFinite(aspectRatio) || aspectRatio <= 0) return 0
+  return roundCentimeters(heightCm * aspectRatio)
+}
+
+/**
+ * Whether an already-saved target follows the artwork ratio. Used to choose
+ * the initial lock state without silently rewriting an intentional size.
+ */
+export function matchesAspectRatio(
+  size: CentimeterSize,
+  aspectRatio: number,
+  tolerance = 0.005,
+): boolean {
+  if (size.widthCm <= 0 || size.heightCm <= 0 || aspectRatio <= 0) return true
+  const actual = size.widthCm / size.heightCm
+  return Math.abs(actual - aspectRatio) <= aspectRatio * tolerance
+}
+
 /**
  * Effective DPI of a source raster at a printed target size: the lower of the
  * horizontal and vertical density. `null` when the inputs are not usable.

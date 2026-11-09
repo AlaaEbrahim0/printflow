@@ -14,6 +14,15 @@ import { reviewReadiness } from '../components/batch/reviewReadiness'
 import { pipelineStatus } from '../components/batch/pipelineStatus'
 import { WORKBENCH_DEFAULTS } from '../lib/defaults'
 import { DEFAULT_PREVIEW_BACKGROUND, previewBackgroundFor, type PreviewBackground } from '../lib/preview'
+import {
+  aspectRatioOf,
+  heightForWidth,
+  matchesAspectRatio,
+  roundCentimeters,
+  sizeInCentimeters,
+  targetPixels,
+  widthForHeight,
+} from '../lib/units'
 import { useSettings } from '../state/SettingsContext'
 import './design-review.css'
 
@@ -108,6 +117,7 @@ export default function DesignReviewPage() {
   const [upscaleScale, setUpscaleScale] = useState<2 | 4>(4)
   const [targetWidthCm, setTargetWidthCm] = useState<number | null>(null)
   const [targetHeightCm, setTargetHeightCm] = useState<number | null>(null)
+  const [aspectLinked, setAspectLinked] = useState(true)
   const [allowRotation, setAllowRotation] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -148,13 +158,42 @@ export default function DesignReviewPage() {
   const design = data?.design ?? null
   const proposal = design ? proposedVersion(design) : undefined
   const current = design?.currentVersion ?? null
+  const workingDpi = data?.batch.workingDpi ?? WORKBENCH_DEFAULTS.workingDpi
+  const artworkAspect = current
+    ? aspectRatioOf({ widthPx: current.widthPx, heightPx: current.heightPx })
+    : null
+
+  // While linked, height is derived during render rather than copied into
+  // state: a crop or upscale that changes the artwork ratio relinks the size
+  // immediately, with no effect and no cascading render.
+  const linkedHeightCm =
+    aspectLinked && artworkAspect !== null && targetWidthCm !== null && targetWidthCm > 0
+      ? heightForWidth(targetWidthCm, artworkAspect)
+      : null
+  const effectiveWidthCm = targetWidthCm
+  const effectiveHeightCm = linkedHeightCm ?? targetHeightCm
 
   useEffect(() => {
     if (!design) return
     setBackground(previewBackgroundFor(design.garmentColor))
-    setTargetWidthCm(design.targetWidthCm ?? null)
-    setTargetHeightCm(design.targetHeightCm ?? null)
+    const savedWidth = design.targetWidthCm ?? null
+    const savedHeight = design.targetHeightCm ?? null
+    setTargetWidthCm(savedWidth)
+    setTargetHeightCm(savedHeight)
     setAllowRotation(design.allowRotation)
+    const ratio = design.currentVersion
+      ? aspectRatioOf({
+          widthPx: design.currentVersion.widthPx,
+          heightPx: design.currentVersion.heightPx,
+        })
+      : null
+    // An intentionally non-ratio size that was already saved must not be
+    // silently rewritten on load; the operator can still relink explicitly.
+    setAspectLinked(
+      savedWidth === null || savedHeight === null || ratio === null
+        ? true
+        : matchesAspectRatio({ widthCm: savedWidth, heightCm: savedHeight }, ratio),
+    )
   }, [design?.id])
 
   useEffect(() => {
@@ -202,6 +241,50 @@ export default function DesignReviewPage() {
     await submitJob(() => api.steps.crop(designId, { rect }))
   }
 
+  function updateTargetWidth(value: number | null) {
+    // While linked, the height follows from this width during render.
+    setTargetWidthCm(value)
+  }
+
+  function updateTargetHeight(value: number | null) {
+    setTargetHeightCm(value)
+    // While linked, height is derived from width, so typing a height drives the
+    // width instead of fighting the derived value.
+    if (aspectLinked && value !== null && value > 0 && artworkAspect !== null) {
+      setTargetWidthCm(widthForHeight(value, artworkAspect))
+    }
+  }
+
+  function toggleAspectLink(linked: boolean) {
+    if (!linked) {
+      // Freeze the currently displayed height so the field does not jump when
+      // the operator takes manual control.
+      if (linkedHeightCm !== null) setTargetHeightCm(linkedHeightCm)
+      setAspectLinked(false)
+      return
+    }
+
+    if (artworkAspect !== null) {
+      if (targetWidthCm !== null && targetWidthCm > 0) {
+        setTargetHeightCm(heightForWidth(targetWidthCm, artworkAspect))
+      } else if (targetHeightCm !== null && targetHeightCm > 0) {
+        setTargetWidthCm(widthForHeight(targetHeightCm, artworkAspect))
+      }
+    }
+    setAspectLinked(true)
+  }
+
+  function useArtworkSize() {
+    if (!current) return
+    const artwork = sizeInCentimeters(
+      { widthPx: current.widthPx, heightPx: current.heightPx },
+      workingDpi,
+    )
+    setTargetWidthCm(roundCentimeters(artwork.widthCm))
+    setTargetHeightCm(roundCentimeters(artwork.heightCm))
+    setAspectLinked(true)
+  }
+
   async function rejectProposal() {
     if (!proposal) return
     setBusy(true)
@@ -228,7 +311,17 @@ export default function DesignReviewPage() {
 
   const canPropose = !proposal && !busy && job?.status !== 'queued' && job?.status !== 'running'
   const currentDetails = versionFor(design, current.id)
-  const readiness = reviewReadiness(design, data?.batch.workingDpi ?? WORKBENCH_DEFAULTS.workingDpi)
+  const targetSize =
+    effectiveWidthCm !== null && effectiveHeightCm !== null
+      ? { widthCm: effectiveWidthCm, heightCm: effectiveHeightCm }
+      : null
+  const outputPixels = targetSize ? targetPixels(targetSize, workingDpi) : null
+  const canSubmitSize =
+    effectiveWidthCm !== null &&
+    effectiveHeightCm !== null &&
+    effectiveWidthCm > 0 &&
+    effectiveHeightCm > 0
+  const readiness = reviewReadiness(design, workingDpi)
   const pipeline = pipelineStatus(design.versions, design.currentVersionId)
   const sourceDpi = data?.suggestions.status === 'ready'
     ? data.suggestions.source?.effectiveDpiAtTarget
@@ -351,6 +444,9 @@ export default function DesignReviewPage() {
             background={background}
             widthPx={current.widthPx}
             heightPx={current.heightPx}
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
             testId="current-design-preview"
           />
           <p className="mono muted">
@@ -573,17 +669,77 @@ export default function DesignReviewPage() {
               </summary>
               <div className="pipeline-content stack-sm">
                 <div className="row">
-                  <NumberField label="Width" suffix="cm" value={targetWidthCm} min={0.1} step={0.1} onValueChange={setTargetWidthCm} />
-                  <NumberField label="Height" suffix="cm" value={targetHeightCm} min={0.1} step={0.1} onValueChange={setTargetHeightCm} />
-                  <CheckboxField label="Allow 90° rotation when packing" checked={allowRotation} onChange={setAllowRotation} />
+                  <NumberField
+                    label="Width"
+                    suffix="cm"
+                    value={targetWidthCm}
+                    min={0.1}
+                    step={0.1}
+                    onValueChange={updateTargetWidth}
+                  />
+                  <NumberField
+                    label="Height"
+                    suffix="cm"
+                    value={effectiveHeightCm}
+                    min={0.1}
+                    step={0.1}
+                    onValueChange={updateTargetHeight}
+                  />
                   <button
                     type="button"
                     className="btn"
-                    disabled={!canPropose || targetWidthCm === null || targetHeightCm === null}
+                    onClick={useArtworkSize}
+                    disabled={busy}
+                    data-testid="use-artwork-size"
+                  >
+                    Use artwork size
+                  </button>
+                  <CheckboxField
+                    label={
+                      artworkAspect === null
+                        ? 'Keep width and height at the artwork ratio'
+                        : `Keep width and height at the artwork ratio (${artworkAspect.toFixed(3)} : 1)`
+                    }
+                    checked={aspectLinked}
+                    onChange={toggleAspectLink}
+                  />
+                  <CheckboxField
+                    label="Allow 90° rotation when packing"
+                    checked={allowRotation}
+                    onChange={setAllowRotation}
+                  />
+                </div>
+                <p className="mono muted" data-testid="print-resolution">
+                  Resolution: {workingDpi} DPI — the batch's snapshotted working
+                  resolution, used for every pixel calculation below.
+                </p>
+                {outputPixels ? (
+                  <p className="mono muted" data-testid="resize-output-pixels">
+                    Output at this size: {formatPixels(outputPixels.widthPx)} ×{' '}
+                    {formatPixels(outputPixels.heightPx)} px · current file{' '}
+                    {formatPixels(current.widthPx)} × {formatPixels(current.heightPx)} px
+                  </p>
+                ) : null}
+                <p className="hint">
+                  {aspectLinked
+                    ? 'Changing either side updates the other so the printed artwork keeps its shape. The packer never stretches a design.'
+                    : 'Free size. The resize step will contain the artwork inside this box and pad the remainder, never stretch it.'}
+                </p>
+                <p className="mono muted">
+                  Current effective DPI: {design.effectiveDpi == null ? 'not available' : `${Math.round(design.effectiveDpi)} DPI`}
+                  {design.effectiveDpi != null && design.effectiveDpi < dpiThresholds.warnBelow
+                    ? ` · ${design.effectiveDpi < dpiThresholds.strongWarnBelow ? 'strong warning' : 'warning'}`
+                    : ''}
+                </p>
+                <div className="row">
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={!canPropose || !canSubmitSize}
                     onClick={() => {
-                      if (targetWidthCm === null || targetHeightCm === null) return
-                      const widthCm = targetWidthCm
-                      const heightCm = targetHeightCm
+                      if (effectiveWidthCm === null || effectiveHeightCm === null) return
+                      const widthCm = effectiveWidthCm
+                      const heightCm = effectiveHeightCm
                       void (async () => {
                         await mutate(
                           async () => {
@@ -607,12 +763,6 @@ export default function DesignReviewPage() {
                     Save size &amp; create proposal
                   </button>
                 </div>
-                <p className="mono muted">
-                  Current effective DPI: {design.effectiveDpi == null ? 'not available' : `${Math.round(design.effectiveDpi)} DPI`}
-                  {design.effectiveDpi != null && design.effectiveDpi < dpiThresholds.warnBelow
-                    ? ` · ${design.effectiveDpi < dpiThresholds.strongWarnBelow ? 'strong warning' : 'warning'}`
-                    : ''}
-                </p>
               </div>
             </details>
           </li>

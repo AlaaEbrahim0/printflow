@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import type { DesignSummary } from '../../api/client'
+import { versionThumbnailUrl, type DesignSummary } from '../../api/client'
 import { AlphaPreview } from '../preview/AlphaPreview'
 import { Chip, StatusChip } from '../ui/Chip'
 import { DEFAULT_PREVIEW_BACKGROUND } from '../../lib/preview'
@@ -18,6 +18,7 @@ export interface DesignGridCardProps {
   onToggleInclude: (design: DesignSummary) => void
   onResume: (design: DesignSummary) => void
   onRequestBetterSource: (design: DesignSummary) => void
+  onDelete: (design: DesignSummary) => void
 }
 
 export function DesignGridCard({
@@ -29,6 +30,7 @@ export function DesignGridCard({
   onToggleInclude,
   onResume,
   onRequestBetterSource,
+  onDelete,
 }: DesignGridCardProps) {
   const excluded = design.status === 'excluded'
   const current = design.currentVersion
@@ -60,12 +62,17 @@ export function DesignGridCard({
           on the review screen, never a hidden default on a thumbnail. */}
       <div className="design-thumb">
         <AlphaPreview
-          fileUrl={current?.fileUrl ?? null}
+          fileUrl={
+            current ? versionThumbnailUrl(design.id, current.id, 640) : null
+          }
           alt={`${design.name} — current version over checkerboard`}
           background={DEFAULT_PREVIEW_BACKGROUND}
           widthPx={current?.widthPx}
           heightPx={current?.heightPx}
           cellPx={8}
+          loading="lazy"
+          decoding="async"
+          fetchPriority="low"
           testId={`design-preview-${design.id}`}
         />
       </div>
@@ -152,6 +159,15 @@ export function DesignGridCard({
             Request better source
           </button>
         )}
+        <button
+          type="button"
+          className={`btn sm ghost${excluded ? '' : ''}`}
+          onClick={() => onDelete(design)}
+          disabled={busy}
+          data-testid={`delete-images-${design.id}`}
+        >
+          Delete images
+        </button>
         <button
           type="button"
           className={`btn sm${excluded ? '' : ' ghost'}`}

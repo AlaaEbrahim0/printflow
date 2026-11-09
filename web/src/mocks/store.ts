@@ -1604,14 +1604,31 @@ export class MockStore {
 
   listJobs(batchId: string, query: { status?: Job['status']; type?: Job['type']; limit?: number }) {
     this.requireBatch(batchId)
-    const items = [...this.jobs.values()]
-      .filter((job) => job.batchId === batchId)
+    return this.filterJobs(
+      (job) => job.batchId === batchId,
+      query,
+      50,
+    )
+  }
+
+  listAllJobs(query: { status?: Job['status']; type?: Job['type']; limit?: number }) {
+    return this.filterJobs(() => true, query, 200)
+  }
+
+  private filterJobs(
+    where: (job: MockJobRecord) => boolean,
+    query: { status?: Job['status']; type?: Job['type']; limit?: number },
+    defaultLimit: number,
+  ) {
+    const matching = [...this.jobs.values()]
+      .filter(where)
       .filter((job) => !query.status || job.status === query.status)
       .filter((job) => !query.type || job.type === query.type)
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-      .slice(0, query.limit ?? 50)
-      .map((job) => this.toJob(job))
-    return { items, total: items.length }
+    return {
+      items: matching.slice(0, query.limit ?? defaultLimit).map((job) => this.toJob(job)),
+      total: matching.length,
+    }
   }
 
   toJob(job: MockJobRecord): Job {

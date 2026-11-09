@@ -174,6 +174,10 @@ function patch<T>(path: string, body: unknown, options: RequestOptions = {}): Pr
   return request<T>(path, { method: 'PATCH', body: JSON.stringify(body), signal: options.signal })
 }
 
+function deleteMethod<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return request<T>(path, { method: 'DELETE', signal: options.signal })
+}
+
 export interface UploadProgress {
   loadedBytes: number
   totalBytes: number
@@ -308,6 +312,19 @@ export function versionFileUrl(designId: string, versionId: string): string {
   return `${API_ROOT}/designs/${encodeURIComponent(designId)}/versions/${encodeURIComponent(versionId)}/file`
 }
 
+/**
+ * Derived, server-rendered preview of an immutable version. The full-resolution
+ * file is untouched; the browser gets a small PNG whose longest side is at most
+ * `maxPx`.
+ */
+export function versionThumbnailUrl(
+  designId: string,
+  versionId: string,
+  maxPx = 640,
+): string {
+  return withQuery(versionFileUrl(designId, versionId), { maxPx })
+}
+
 export function sheetPreviewUrl(batchId: string): string {
   return `${API_ROOT}/batches/${encodeURIComponent(batchId)}/sheet/preview`
 }
@@ -345,6 +362,17 @@ export const api = {
       query?: { status?: JobStatus; type?: JobType; limit?: number },
       options?: RequestOptions,
     ) => get<JobList>(withQuery(`${API_ROOT}/batches/${encoded(batchId)}/jobs`, query), options),
+    delete: (batchId: string, options?: RequestOptions) =>
+      deleteMethod<void>(`${API_ROOT}/batches/${encoded(batchId)}`, options),
+    deleteDesignImages: (
+      batchId: string,
+      designId: string,
+      options?: RequestOptions,
+    ) =>
+      deleteMethod<void>(
+        `${API_ROOT}/batches/${encoded(batchId)}/designs/${encoded(designId)}`,
+        options,
+      ),
   },
   designs: {
     get: (designId: string, options?: RequestOptions) =>
@@ -407,6 +435,10 @@ export const api = {
       post<JobAccepted>(`${API_ROOT}/designs/${encoded(designId)}/steps/resize`, body, options),
   },
   jobs: {
+    list: (
+      query?: { status?: JobStatus; type?: JobType; limit?: number },
+      options?: RequestOptions,
+    ) => get<JobList>(withQuery(`${API_ROOT}/jobs`, query), options),
     get: (jobId: string, options?: RequestOptions) =>
       get<Job>(`${API_ROOT}/jobs/${encoded(jobId)}`, options),
     cancel: (jobId: string, options?: RequestOptions) =>
