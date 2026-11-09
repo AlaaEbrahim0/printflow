@@ -92,12 +92,46 @@ public static class DesignEndpoints
             : Results.Ok(found.Value.Design.Versions.Select(version => version.ToDto()).ToList());
     }
 
-    private static Task<IResult> FileAsync(
+    private static async Task<IResult> FileAsync(
         Guid designId,
         Guid versionId,
+        int? maxPx,
+        HttpRequest request,
+        HttpResponse response,
         DesignService designs,
         CancellationToken cancellationToken)
-        => ServeAsync(designId, versionId, artifact: null, designs, cancellationToken);
+    {
+        if (maxPx is < 32 or > 2048)
+        {
+            return ApiResults.Problem(
+                ErrorCodes.InvalidRequest,
+                "maxPx must be between 32 and 2048.");
+        }
+
+        var file = await designs.OpenVersionFileAsync(
+            designId,
+            versionId,
+            maxPx,
+            cancellationToken);
+        if (!file.IsSuccess)
+        {
+            return ApiResults.Problem(file.Error!);
+        }
+
+        // Version files are immutable, so both the original and any thumbnail
+        // may be cached by the browser indefinitely.
+        var etag = $"\"{versionId:N}-{(maxPx is null ? "full" : maxPx.Value.ToString())}\"";
+        response.Headers.ETag = etag;
+        response.Headers.CacheControl = "public, max-age=31536000, immutable";
+
+        if (request.Headers.IfNoneMatch.Contains(etag))
+        {
+            await file.Value!.Stream.DisposeAsync();
+            return Results.StatusCode(StatusCodes.Status304NotModified);
+        }
+
+        return Results.Stream(file.Value!.Stream, file.Value.ContentType);
+    }
 
     private static Task<IResult> MaskAsync(
         Guid designId,
@@ -116,13 +150,11 @@ public static class DesignEndpoints
     private static async Task<IResult> ServeAsync(
         Guid designId,
         Guid versionId,
-        string? artifact,
+        string artifact,
         DesignService designs,
         CancellationToken cancellationToken)
     {
-        var file = artifact is null
-            ? await designs.OpenVersionFileAsync(designId, versionId, cancellationToken)
-            : await designs.OpenArtifactAsync(designId, versionId, artifact, cancellationToken);
+        var file = await designs.OpenArtifactAsync(designId, versionId, artifact, cancellationToken);
 
         return file.IsSuccess
             ? Results.Stream(file.Value!.Stream, file.Value.ContentType)

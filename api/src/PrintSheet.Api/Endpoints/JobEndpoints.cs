@@ -15,6 +15,7 @@ public static class JobEndpoints
 {
     public static void MapJobEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapGet("/api/v1/jobs", ListAllAsync).WithTags("Jobs");
         app.MapGet("/api/v1/jobs/{jobId:guid}", GetAsync).WithTags("Jobs");
         app.MapPost("/api/v1/jobs/{jobId:guid}/cancel", CancelAsync).WithTags("Jobs");
         app.MapGet("/api/v1/batches/{batchId:guid}/jobs", ListAsync).WithTags("Jobs");
@@ -51,6 +52,32 @@ public static class JobEndpoints
             : ApiResults.Problem(result.Error!);
     }
 
+    private static async Task<IResult> ListAllAsync(
+        JobService jobs,
+        string? status,
+        string? type,
+        int limit = 200,
+        CancellationToken cancellationToken = default)
+    {
+        var filters = ParseFilters(status, type);
+        if (filters.Error is not null)
+        {
+            return filters.Error;
+        }
+
+        var result = await jobs.ListAllAsync(
+            filters.Status,
+            filters.Type,
+            limit,
+            cancellationToken);
+
+        return result.IsSuccess
+            ? Results.Ok(new JobListDto(
+                result.Value.Items.Select(job => job.ToDto()).ToList(),
+                result.Value.Total))
+            : ApiResults.Problem(result.Error!);
+    }
+
     private static async Task<IResult> ListAsync(
         Guid batchId,
         JobService jobs,
@@ -59,12 +86,37 @@ public static class JobEndpoints
         int limit = 50,
         CancellationToken cancellationToken = default)
     {
+        var filters = ParseFilters(status, type);
+        if (filters.Error is not null)
+        {
+            return filters.Error;
+        }
+
+        var result = await jobs.ListForBatchAsync(
+            batchId,
+            filters.Status,
+            filters.Type,
+            limit,
+            cancellationToken);
+
+        return result.IsSuccess
+            ? Results.Ok(new JobListDto(
+                result.Value.Items.Select(job => job.ToDto()).ToList(),
+                result.Value.Total))
+            : ApiResults.Problem(result.Error!);
+    }
+
+    private static (Domain.Batches.JobStatus? Status, Domain.Batches.JobType? Type, IResult? Error)
+        ParseFilters(string? status, string? type)
+    {
         Domain.Batches.JobStatus? parsedStatus = null;
         if (!string.IsNullOrWhiteSpace(status))
         {
             if (!ApiResults.TryParseJobStatus(status, out var value))
             {
-                return ApiResults.Problem(ErrorCodes.InvalidRequest, $"Unknown job status '{status}'.");
+                return (null, null, ApiResults.Problem(
+                    ErrorCodes.InvalidRequest,
+                    $"Unknown job status '{status}'."));
             }
 
             parsedStatus = value;
@@ -75,24 +127,15 @@ public static class JobEndpoints
         {
             if (!ApiResults.TryParseJobType(type, out var value))
             {
-                return ApiResults.Problem(ErrorCodes.InvalidRequest, $"Unknown job type '{type}'.");
+                return (null, null, ApiResults.Problem(
+                    ErrorCodes.InvalidRequest,
+                    $"Unknown job type '{type}'."));
             }
 
             parsedType = value;
         }
 
-        var result = await jobs.ListForBatchAsync(
-            batchId,
-            parsedStatus,
-            parsedType,
-            limit,
-            cancellationToken);
-
-        return result.IsSuccess
-            ? Results.Ok(new JobListDto(
-                result.Value.Items.Select(job => job.ToDto()).ToList(),
-                result.Value.Total))
-            : ApiResults.Problem(result.Error!);
+        return (parsedStatus, parsedType, null);
     }
 
     private static async Task<IResult> ClaimAsync(

@@ -11,7 +11,11 @@ public static class ApiResults
     public static IResult Problem(DomainError error)
         => Problem(error.Code, error.Message, StatusFor(error.Code), error.Details);
 
-    public static IResult Problem(string code, string message, int status = 422)
+    public static IResult Problem(string code, string message)
+        => Problem(code, message, StatusFor(code), null);
+
+    /// <summary>Explicit status for the few codes whose status depends on the caller.</summary>
+    public static IResult Problem(string code, string message, int status)
         => Problem(code, message, status, null);
 
     public static IResult Problem(
