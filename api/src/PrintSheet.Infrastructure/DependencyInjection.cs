@@ -37,7 +37,9 @@ public static class DependencyInjection
             Root = configuration["Storage:Root"] ?? "storage",
         });
         services.AddSingleton<IFileStore, LocalFileStore>();
+        services.AddMemoryCache(options => options.SizeLimit = 256L * 1024 * 1024);
         services.AddSingleton<IImageInspector, SkiaImageInspector>();
+        services.AddSingleton<IImageThumbnailer, SkiaImageThumbnailer>();
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton(_ => CreateIntakeOptions(configuration));
 

@@ -14,6 +14,10 @@ export interface AlphaPreviewProps {
   cellPx?: number
   className?: string
   testId?: string
+  /** Grids pass `lazy`; the review page keeps the current version eager. */
+  loading?: 'eager' | 'lazy'
+  decoding?: 'async' | 'sync' | 'auto'
+  fetchPriority?: 'high' | 'low' | 'auto'
   children?: ReactNode
 }
 
@@ -27,6 +31,9 @@ export function AlphaPreview({
   cellPx,
   className = '',
   testId = 'preview-surface',
+  loading = 'eager',
+  decoding = 'async',
+  fetchPriority = 'auto',
   children,
 }: AlphaPreviewProps) {
   const surfaceStyle = backgroundStyle(background, cellPx)
@@ -52,6 +59,9 @@ export function AlphaPreview({
           width={widthPx}
           height={heightPx}
           style={imageStyle}
+          loading={loading}
+          decoding={decoding}
+          fetchPriority={fetchPriority}
           draggable={false}
         />
       ) : (
