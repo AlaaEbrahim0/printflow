@@ -229,6 +229,9 @@ export default function BatchDetailPage() {
         </div>
         <div className="row">
           <Chip tone="info">{batch.readyCount}/{readiness.included.length} ready</Chip>
+          <Link className="btn" to={`/batches/${batch.id}/jobs`} data-testid="batch-jobs-link">
+            Jobs
+          </Link>
           <Link className="btn" to={`/batches/${batch.id}/sheet`}>Packing sheet</Link>
         </div>
       </header>
