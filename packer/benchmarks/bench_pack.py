@@ -36,7 +36,6 @@ from PIL import Image
 from printsheet_packer.contracts import parse_pack_request
 from printsheet_packer.export import build_manifest, hash_sources, write_manifest
 from printsheet_packer.integrity import ReportContext, build_report
-from printsheet_packer.masks import cell_size_px
 from printsheet_packer.nesting import Packer
 from printsheet_packer.pipeline import load_masks, measure_layout
 from printsheet_packer.render import preview_from_renderer
@@ -163,7 +162,7 @@ def run_one(count: int, args: argparse.Namespace, storage: Path) -> dict[str, An
         "orderings": layout.orderings_tried,
         "occupancy": round(layout.occupancy_ratio, 4),
         "passed": report["passed"],
-        "cellPx": cell_size_px(request.cell_mm, request.dpi),
+        "cellPx": layout.cell_px,
         "phasesMs": {key: round(value, 1) for key, value in phases.items()},
     }
 
@@ -218,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
             print(" ".join(cells))
         peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
         print(f"\npeak RSS {peak:.0f} MB; passed={[row['passed'] for row in rows]}")
-        print(f"cellPx={rows[-1]['cellPx']}  (grid quantization for cellMm={args.cell_mm})")
+        print(f"cellPx={rows[-1]['cellPx']}  (search cell for cellMm={args.cell_mm})")
     return 0
 
 

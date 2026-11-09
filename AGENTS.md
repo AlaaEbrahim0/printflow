@@ -273,10 +273,12 @@ python3.12 -m venv .venv
 ### Packer (`packer/`)
 
 - Standalone package + CLI; no imports from API/worker.
-- Implements exact alpha-polygon placement, full-raster containment, sheet
-  rendering, the five blocking integrity checks (including
-  `all-designs-placed`) and supported export artifacts. It Lanczos-resizes only
-  when an explicit target box differs from the approved pixels, and warns.
+- Implements conservative bitmap placement (max-pooled occupancy grid plus FFT
+  free-space search), full-raster containment, sheet rendering, the five
+  blocking integrity checks (including `all-designs-placed`) and supported
+  export artifacts. Exact alpha silhouettes are built lazily; the search never
+  buffers them. It Lanczos-resizes only when an explicit target box differs
+  from the approved pixels, and warns.
 - The contract validator loads all schemas into a `referencing` registry so
   packer responses can resolve the integrity-report `$ref`.
 - `printsheet-packer-runner` (or `python -m printsheet_packer.runner`) claims
@@ -523,6 +525,16 @@ flow complements, but does not replace, packer property/adversarial tests.
   counts as occupied. Do not raise this silently.
 - Occupancy grid rounds **up** (conservative): it may overestimate, never
   underestimate.
+- The packer search cell is a power of two keeping the roll at roughly 128
+  cells wide (`TARGET_CELLS_WIDE`, 64 px at 58 cm/300 DPI) and is capped at
+  `COARSEST_SEARCH_CELL_MM = 5.0`. Do not feed exact per-pixel polygons or
+  Shapely buffers back into the placement search; that is the path that took
+  minutes on real artwork. Exact geometry is lazy and the full-resolution
+  integrity gate stays authoritative.
+- Clearance must be Chebyshev. The search certifies it by single-sided
+  dilation (`d * cell_px + 1 >= margin_px`), and `collision_radius_px()` is
+  `margin_px / sqrt(2)` for any polygon-buffer fallback. `margin_px / 2 + 1`
+  is ~29% short on a diagonal and can produce a layout the gate rejects.
 - Rotations are exactly 0/90/180/270. Never use PIL `rotate()` with arbitrary
   angles or resampling for packing.
 - Export integrity failures must block, not warn. If a check is skipped, the
@@ -556,7 +568,7 @@ If context is running low, prioritize in this order:
 
 ## 14. Live status
 
-**Last updated:** 2026-11-08 (contract v2.0.0 alignment and runtime verification)
+**Last updated:** 2026-11-09 (packer raster search and gap-certificate fix)
 
 **Done and verified:**
 
@@ -568,37 +580,35 @@ If context is running low, prioritize in this order:
 - Worker processing covers classify, trim/crop, upscale and resize; 195 tests
   pass. Retired background-removal/vectorize jobs fail with a structured
   `retired` reason while historical schema documents stay readable.
-- Packer exact-polygon nesting/integrity/export implementation is integrated.
-  Lease-based API runner has targeted tests for pack, integrity, export, path
-  safety, failure payloads and lease loss; the complete packer suite has 159
-  passing tests. Full source rasters remain inside sheet bounds, integrity
-  rejects clipped source padding, and `all-designs-placed` blocks export when a
-  selected design is unplaced.
-- **Known defect: the packer's gap certificate is too weak on diagonals.** The
-  search accepts a placement when
-  `geometry.buffer(margin_px / 2 + 1, join_style="mitre")` copies do not
-  intersect — a *radial* offset — while the blocking `minimum-gap` check
-  requires a *Chebyshev* gap. A radial buffer of `r` only certifies
-  `2r / sqrt(2)` in Chebyshev terms, so it needs `r >= margin_px / sqrt(2)`;
-  production uses `r = margin_px / 2 + 1`, which is ~29% short. Consequence:
-  the packer can emit a layout its own gate rejects, leaving the operator
-  unable to export (`sheet-integrity-failed`) without hand-editing placements.
-  Reproduced on the `synthetic-12` case: a pair accepted at 363 px Euclidean is
-  only 273 px Chebyshev against a 354 px requirement. Verified with the packer's
-  own `verify_layout`, not just the external referee. Fixing the radius to
-  `margin_px / sqrt(2)` closes the gap exactly (measured at 60 px and 354 px).
-  Not yet fixed in production; `packer-optimization-kit/BRIEF.md` §3 and §6.1
-  document the measurement and the required correctness bar.
-- **Scale of the gap defect:** the production packer certifies a radial (Euclidean)
-  buffer gap while its own integrity gate requires a Chebyshev gap. A radial
-  buffer of `r` certifies a Chebyshev gap of only `2r / sqrt(2)` on a diagonal,
-  so it needs `r >= margin_px / sqrt(2)`. Production uses `r = margin_px / 2 + 1`,
-  which is ~29% short. This means the search can emit a layout its own gate then
-  rejects — the operator cannot export (`sheet-integrity-failed`) without
-  hand-editing placements. Confirmed on `synthetic-12`: a pair accepted at 363 px
-  Euclidean is only 273 px Chebyshev against a 354 px requirement. All six
-  production results in `results/production.json` record the outcomes. Fix radius
-  to `margin_px / sqrt(2)` closes the gap exactly (verified at 60 px and 354 px).
+- Packer conservative-bitmap nesting/integrity/export implementation is
+  integrated. Lease-based API runner has targeted tests for pack, integrity,
+  export, path safety, failure payloads and lease loss; the complete packer
+  suite has 161 passing tests. Full source rasters remain inside sheet bounds,
+  integrity rejects clipped source padding, and `all-designs-placed` blocks
+  export when a selected design is unplaced.
+- **Packer performance defect fixed (2026-11-09).** The old placement search
+  unioned exact Shapely alpha silhouettes and buffered them for all four
+  rotations. On real full-resolution artwork that took minutes before a single
+  design was placed. The search now runs on a max-pooled occupancy bitmap and
+  finds positions by FFT cross-correlation of the free grid against each
+  rotated query mask. Exact `DesignMask.geometry` is lazy, so the search never
+  builds silhouette polygons. The search cell is a power of two that keeps the
+  roll at roughly 128 cells (`TARGET_CELLS_WIDE`; 64 px at 58 cm/300 DPI) and
+  is capped at `COARSEST_SEARCH_CELL_MM = 5.0`.
+- **Packer diagonal gap-certificate defect fixed.** The blocking `minimum-gap`
+  check measures a Chebyshev gap, while a radial (mitre) buffer of `r` only
+  certifies `2r / sqrt(2)`. `collision_radius_px(margin_px)` is now
+  `margin_px / sqrt(2)` (the old `margin_px / 2 + 1` was ~29% short), and the
+  raster path certifies clearance by single-sided dilation so empty cells imply
+  at least `d * cell_px + 1` pixels. The previous strict-xfail regression test
+  now passes normally.
+- **Live user-batch validation (2026-11-09).** Ten ready PNGs from
+  `~/Downloads/test` (3000–3500 px per side) pack with 31 orderings and a
+  20 s budget: search ~5 s, whole `run_pack` ~16 s (integrity ~11 s), sheet
+  6850 × 11190 px, all ten designs placed, all five integrity checks passing.
+  CLI `pack` and `verify` both exit 0. Full packer benchmark on synthetic
+  blobs: 1 design 0.7 s, 10 designs 10.3 s, 40 designs 67 s with 1.26 GB peak
+  RSS; all five checks pass.
 - Web workflow routes (including partial-selection packing previews) are
   implemented. `npm test`: 200 passed across 16 files. `npm run build` succeeds;
   `npm run lint` exits successfully with existing React-hook/fast-refresh
@@ -621,7 +631,7 @@ If context is running low, prioritize in this order:
   The native GPU worker uses port 8001 and claims GPU jobs only, so it can run
   alongside the Compose CPU worker on port 8000.
 - `make test` passes after the v2.0.0 alignment: contracts, 11 API domain tests,
-  5 infrastructure tests, 195 worker tests, 159 packer tests, and the web
+  5 infrastructure tests, 195 worker tests, 161 packer tests, and the web
   build/lint. Separately, `npm test` passes all 109 web tests.
 - Compose `make e2e-fixtures` passes intake, resize approval, packing,
   five-check integrity, and PNG export (batch
@@ -695,7 +705,10 @@ If context is running low, prioritize in this order:
    human-led; measure operator time saved, not unattended automation.
 5. The Phase 1–3 worktree is committed in logical slices on `main` (contracts,
    API, worker, packer, web, runtime, docs); keep feature work on top of it.
-6. Two intake paths now exist: enhancement intake (targets required, classify
+6. The raster search and diagonal-gap fix are in the worktree; rebuild the
+   Compose packer image and rerun `make e2e-fixtures` before relying on the
+   live API path.
+7. Two intake paths now exist: enhancement intake (targets required, classify
    queued) and ready-to-pack intake (`readyToPack=true`, approved resize
    version, no job). The operator downloads current/proposed PNGs for
    Photoshop from the design review page and re-imports the finished PNGs.
@@ -722,6 +735,29 @@ If context is running low, prioritize in this order:
 ## 15. Handoff log
 
 Append newest entries at the top. Keep them short and factual.
+
+### 2026-11-09 — Packer raster search and diagonal gap fix
+
+- Root cause of "packing runs forever": exact Shapely silhouette union and
+  mitre-buffer collision search on full-resolution artwork. On the user's ten
+  ready PNGs (3000–3500 px per side), `load_masks` alone took 17 s and
+  `Packer.__init__` exceeded 5 minutes before being killed.
+- Replaced the polygon placement search with a conservative max-pooled
+  occupancy bitmap and FFT cross-correlation free-space search. `DesignMask`
+  geometry is now lazy; the search never builds it. The search cell keeps the
+  roll at roughly 128 cells wide (64 px at 58 cm/300 DPI) and is capped at
+  5 mm, so the configured occupancy cell cannot make packing pathological.
+- Clearance is certified by single-sided Chebyshev dilation
+  (`d * cell_px + 1 >= margin_px`). Fixed `build_footprint`'s collision buffer
+  to `margin_px / sqrt(2)` via `collision_radius_px()`, replacing the
+  `margin_px / 2 + 1` radius that was ~29% short on diagonals; the previous
+  strict-xfail regression test now passes.
+- Live validation on the user batch: 31 orderings, 20 s budget, search ~5 s,
+  whole `run_pack` ~16 s (integrity ~11 s), 6850 × 11190 px sheet, all ten
+  designs placed, all five checks pass; CLI `pack` and `verify` exit 0.
+  Benchmark on synthetic blobs: 1 design 0.7 s, 10 designs 10.3 s, 40 designs
+  67 s / 1.26 GB peak RSS, all five checks passing.
+- Packer suite: 161 passed; ruff clean. No contract changes.
 
 ### 2026-11-08 — Photoshop handoff and ready-to-pack intake
 
