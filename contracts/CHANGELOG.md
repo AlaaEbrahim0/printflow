@@ -1,5 +1,24 @@
 # Contract Changelog
 
+## Additive changes — 2026-11-09
+
+No breaking change; the OpenAPI version stays `2.0.0`. Both additions are new
+optional surface, so existing clients keep working unchanged.
+
+- `GET /api/v1/designs/{designId}/versions/{versionId}/file` accepts an optional
+  `maxPx` query parameter (32–2048). With it, the API returns a derived,
+  alpha-preserving PNG whose longest side is at most `maxPx`; smaller versions
+  are never enlarged. Without it, the immutable full-resolution file is
+  returned exactly as before. Thumbnails are read-only derivatives keyed by the
+  immutable version id, served with `Cache-Control: public, max-age=31536000,
+  immutable` and an `ETag`, and revalidated with `304 Not Modified`.
+- `GET /api/v1/jobs` lists jobs across every batch (optional `status`, `type`,
+  and `limit`), for the global work-queue screen. `GET
+  /api/v1/batches/{batchId}/jobs` is unchanged.
+- Documented status codes now match the implementation: a missing batch, design,
+  version, job, sheet or export returns `404 Not Found` rather than `422
+  Unprocessable Entity`. Request validation failures remain `422`.
+
 ## 2.0.0 — 2026-11-08
 
 Breaking API change: removed the vectorization and background-removal proposal

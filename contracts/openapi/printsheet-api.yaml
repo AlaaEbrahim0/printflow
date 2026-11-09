@@ -171,6 +171,45 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
+    delete:
+      tags: [Batches]
+      operationId: deleteBatch
+      summary: Delete the entire batch and every file on disk for it
+      description: |
+        Removes the batch record and all its children (designs, versions, sheets,
+        exports, audits). File storage is cleared in one operation: image versions,
+        masks, SVGs, job artifacts, export artifacts and sheets. The jobs table
+        rows are removed separately. Any batch that still has queued or running
+        jobs is left untouched until they settle.
+      responses:
+        '204':
+          description: Batch deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/batches/{batchId}/designs/{designId}:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+      - $ref: '#/components/parameters/DesignId'
+    delete:
+      tags: [Batches, Designs]
+      operationId: deleteDesignImages
+      summary: Delete every file on disk for a design
+      description: |
+        Removes the design's image versions, masks and SVGs from shared storage
+        and marks the design excluded. The design record is retained for
+        history, but no pixels remain on disk and the design cannot be packed.
+        A design with active jobs is left untouched until they settle.
+      responses:
+        '204':
+          description: Design images deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /api/v1/batches/{batchId}/designs:
     parameters:
       - $ref: '#/components/parameters/BatchId'
@@ -504,6 +543,17 @@ paths:
       tags: [Versions]
       operationId: downloadVersionFile
       summary: Download an immutable version file
+      description: |
+        Returns the full-resolution PNG by default. With `maxPx`, the API
+        renders a downscaled, alpha-preserving PNG preview whose longest side is
+        at most `maxPx`; smaller versions are never enlarged. Thumbnails are
+        derived read-only artifacts — the immutable version file is untouched.
+      parameters:
+        - name: maxPx
+          in: query
+          required: false
+          description: Longest-side limit for a derived PNG thumbnail (32–2048).
+          schema: { type: integer, minimum: 32, maximum: 2048 }
       responses:
         '200':
           description: PNG file
@@ -761,6 +811,34 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/jobs:
+    get:
+      tags: [Jobs]
+      operationId: listJobs
+      summary: List jobs across every batch
+      description: |
+        Newest jobs across all batches, for the global work queue screen. Live
+        (queued or running) jobs are included in the same page; callers should
+        refresh while anything is live.
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/JobStatus' }
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/JobType' }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 200 }
+      responses:
+        '200':
+          description: Job page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobList' }
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 

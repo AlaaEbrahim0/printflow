@@ -90,7 +90,15 @@ export interface paths {
         get: operations["getBatch"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete the entire batch and every file on disk for it
+         * @description Removes the batch record and all its children (designs, versions, sheets,
+         *     exports, audits). File storage is cleared in one operation: image versions,
+         *     masks, SVGs, job artifacts, export artifacts and sheets. The jobs table
+         *     rows are removed separately. Any batch that still has queued or running
+         *     jobs is left untouched until they settle.
+         */
+        delete: operations["deleteBatch"];
         options?: never;
         head?: never;
         /**
@@ -100,6 +108,32 @@ export interface paths {
          *     an existing batch.
          */
         patch: operations["updateBatch"];
+        trace?: never;
+    };
+    "/api/v1/batches/{batchId}/designs/{designId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: components["parameters"]["BatchId"];
+                designId: components["parameters"]["DesignId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete every file on disk for a design
+         * @description Removes the design's image versions, masks and SVGs from shared storage
+         *     and marks the design excluded. The design record is retained for
+         *     history, but no pixels remain on disk and the design cannot be packed.
+         *     A design with active jobs is left untouched until they settle.
+         */
+        delete: operations["deleteDesignImages"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/batches/{batchId}/designs": {
@@ -361,7 +395,13 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Download an immutable version file */
+        /**
+         * Download an immutable version file
+         * @description Returns the full-resolution PNG by default. With `maxPx`, the API
+         *     renders a downscaled, alpha-preserving PNG preview whose longest side is
+         *     at most `maxPx`; smaller versions are never enlarged. Thumbnails are
+         *     derived read-only artifacts — the immutable version file is untouched.
+         */
         get: operations["downloadVersionFile"];
         put?: never;
         post?: never;
@@ -594,6 +634,28 @@ export interface paths {
          *     Approving this version makes the design ready.
          */
         post: operations["proposeResize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List jobs across every batch
+         * @description Newest jobs across all batches, for the global work queue screen. Live
+         *     (queued or running) jobs are included in the same page; callers should
+         *     refresh while anything is live.
+         */
+        get: operations["listJobs"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1529,6 +1591,28 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    deleteBatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: components["parameters"]["BatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Batch deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     updateBatch: {
         parameters: {
             query?: never;
@@ -1556,6 +1640,29 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    deleteDesignImages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batchId: components["parameters"]["BatchId"];
+                designId: components["parameters"]["DesignId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Design images deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     uploadDesign: {
@@ -1918,7 +2025,10 @@ export interface operations {
     };
     downloadVersionFile: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Longest-side limit for a derived PNG thumbnail (32–2048). */
+                maxPx?: number;
+            };
             header?: never;
             path: {
                 designId: components["parameters"]["DesignId"];
@@ -2232,6 +2342,31 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    listJobs: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["JobStatus"];
+                type?: components["schemas"]["JobType"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Job page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobList"];
+                };
+            };
             422: components["responses"]["UnprocessableEntity"];
         };
     };
