@@ -705,9 +705,9 @@ If context is running low, prioritize in this order:
    human-led; measure operator time saved, not unattended automation.
 5. The Phase 1–3 worktree is committed in logical slices on `main` (contracts,
    API, worker, packer, web, runtime, docs); keep feature work on top of it.
-6. The raster search and diagonal-gap fix are in the worktree; rebuild the
-   Compose packer image and rerun `make e2e-fixtures` before relying on the
-   live API path.
+6. The raster search and diagonal-gap fix are committed and the Compose packer
+   image was rebuilt; `make e2e-fixtures` passes on the new image. Keep the
+   native GPU worker and Compose CPU worker roles separate.
 7. Two intake paths now exist: enhancement intake (targets required, classify
    queued) and ready-to-pack intake (`readyToPack=true`, approved resize
    version, no job). The operator downloads current/proposed PNGs for
@@ -757,7 +757,10 @@ Append newest entries at the top. Keep them short and factual.
   designs placed, all five checks pass; CLI `pack` and `verify` exit 0.
   Benchmark on synthetic blobs: 1 design 0.7 s, 10 designs 10.3 s, 40 designs
   67 s / 1.26 GB peak RSS, all five checks passing.
-- Packer suite: 161 passed; ruff clean. No contract changes.
+- Packer suite: 161 passed; ruff clean. No contract changes. Committed as
+  `fe7e23a`. Rebuilt the Compose packer image and `make e2e-fixtures` passed
+  (batch `d7144197-1277-40ae-8545-1edcc97c5f16`, integrity passed, export
+  written).
 
 ### 2026-11-08 — Photoshop handoff and ready-to-pack intake
 
