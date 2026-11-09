@@ -568,7 +568,7 @@ If context is running low, prioritize in this order:
 
 ## 14. Live status
 
-**Last updated:** 2026-11-09 (packer raster search and gap-certificate fix)
+**Last updated:** 2026-11-09 (thumbnail pipeline, global jobs screen, aspect-linked print size)
 
 **Done and verified:**
 
@@ -688,6 +688,53 @@ If context is running low, prioritize in this order:
   must be resubmitted after fixes; they are not silently retried.
 - API health, Compose smoke and the live failed-job response shape were checked
   against the rebuilt v2.0.0 stack.
+- **Batch grid no longer downloads full-resolution PNGs (2026-11-09).** A batch
+  of 25 ready-to-pack PNGs totalling ~200 MB made the design grid unusable
+  because every card loaded a full PNG. `GET .../versions/{id}/file` now accepts
+  an optional `maxPx` (32–2048) and renders a derived, alpha-preserving PNG with
+  `SkiaSharp` whose longest side is at most `maxPx`; smaller sources are never
+  enlarged. Decoding is gated to two concurrent renders, encoded bytes are
+  cached in memory (256 MB, keyed by the immutable version id), and responses
+  carry an `ETag` plus `Cache-Control: public, max-age=31536000, immutable` with
+  `304 Not Modified` revalidation. The design grid requests `maxPx=640` with
+  `loading="lazy" decoding="async" fetchpriority="low"`; the design review page
+  keeps the full-resolution file `eager`/`high` because that screen exists to
+  judge pixels.
+- **Measured on the user's 10-PNG batch (2026-11-09).** The same batch that was
+  slow to load transfers 42.35 MB of full PNGs but only 2.62 MB of 640 px
+  thumbnails — 93.8% less, 16.2× smaller — with all ten cards rendering. Cold
+  thumbnail render ~250 ms, cached ~15–22 ms, and a conditional request returns
+  `304` with zero bytes. All ten thumbnails stay RGBA with the longest side at
+  exactly 640 px and the source aspect ratio preserved (max deviation 0.0012).
+  Skia ignores the PNG "quality" argument (identical bytes for every value), so
+  these are lossless PNGs; WebP would be ~48% smaller but is not worth losing
+  fidelity in artwork review.
+- **Global jobs screen (2026-11-09).** `GET /api/v1/jobs` lists jobs across all
+  batches so `/jobs` shows running work instead of only per-batch history. The
+  screen sorts live jobs first, polls every 2 s, shows a live count, links each
+  row to its batch and design, offers cancel with a conflict-safe refresh, and
+  keeps a batch-scoped view at `/batches/:id/jobs`. Batch detail links to it.
+- **Print size now follows the artwork aspect ratio (2026-11-09).** The design
+  review size step links width and height by default (lock/unlock checkbox),
+  offers "Use artwork size", and derives the linked side during render so a crop
+  or upscale relinks the size immediately with no effect. An already-saved
+  non-ratio size is preserved on load and shown as unlinked rather than silently
+  rewritten. Resolution is displayed as the batch's read-only snapshotted
+  working DPI, and the output pixel size at the chosen dimensions is shown.
+- **Not-found responses now match the contract (2026-11-09).** The two-argument
+  `ApiResults.Problem(code, message)` overload defaulted to `422`, so a missing
+  batch or design returned `422` where OpenAPI documents `404`. It now routes
+  through the existing `StatusFor` mapping; request-validation failures remain
+  `422`. The web client already treated `404` as not-found, so the UI improves
+  rather than changes behavior.
+- **Current gates (2026-11-09).** API build 0 warnings/0 errors; 13 domain + 9
+  infrastructure tests pass. Web `npm test`: 214 passed across 17 files (three
+  consecutive runs). `npm run build` succeeds; `npm run lint` exits 0 with the
+  same 17 pre-existing hook/fast-refresh warnings. `scripts/validate_contracts.py`
+  green. Compose rebuilt, `make up` + `make smoke` pass, and `make e2e-fixtures`
+  passes (batch `6dd8c4a0-ea49-470f-a9d2-c0841df85d24`). Live checks confirmed
+  `maxPx` validation (`422` outside 32–2048), thumbnail caching/`304`, global job
+  listing and filtering, and `404` for missing batch/design.
 
 **In progress / immediate next:**
 
@@ -712,6 +759,19 @@ If context is running low, prioritize in this order:
    queued) and ready-to-pack intake (`readyToPack=true`, approved resize
    version, no job). The operator downloads current/proposed PNGs for
    Photoshop from the design review page and re-imports the finished PNGs.
+8. The thumbnail pipeline, global jobs screen, aspect-linked print size and
+   `404` status fix are implemented and validated against the live stack but
+   **not yet committed**. Commit them in logical slices on top of `2a45f3f`,
+   preserving the unrelated in-flight work in the same worktree (batch/design
+   deletion endpoints, the 50 MB upload limit, and the untracked `win-scripts/`
+   directory, which must be left alone).
+9. The user's 25-PNG / ~200 MB batch was not on disk; the measurement above used
+   the ten PNGs (51 MB on disk, 42.35 MB served) in `~/Downloads/test`. If the
+   25-PNG set becomes available, re-run the grid transfer comparison to confirm
+   the saving holds at that scale.
+10. `GET /api/v1/jobs` returns every job newest-first with `limit` up to 200 and
+    no offset. If job history grows large, add pagination before the global
+    screen needs to page through it.
 
 **Open assumptions to confirm with user later:**
 
@@ -735,6 +795,39 @@ If context is running low, prioritize in this order:
 ## 15. Handoff log
 
 Append newest entries at the top. Keep them short and factual.
+
+### 2026-11-09 — Thumbnails, global jobs, aspect-linked sizing
+
+- Batch grid was loading every full-resolution PNG. Added `IImageThumbnailer`
+  (`SkiaImageThumbnailer`) and an optional `maxPx` (32–2048) on the version-file
+  endpoint. Two concurrent decodes, 256 MB in-memory cache keyed by immutable
+  version id, `ETag` + immutable `Cache-Control`, `304` on revalidation. Grid
+  cards use 640 px lazy thumbnails; the review page keeps full resolution.
+- Measured on the user's ten PNGs in `~/Downloads/test`: 42.35 MB → 2.62 MB for
+  the grid (93.8% saved, 16.2×). Cold render ~250 ms, cached ~15–22 ms. All ten
+  remain RGBA at 640 px longest side with aspect preserved. Skia ignores PNG
+  `quality` (identical bytes for every value), so output is lossless; WebP was
+  ~48% smaller but rejected to keep review fidelity.
+- Added global `GET /api/v1/jobs` (status/type/limit) plus `/jobs` and
+  `/batches/:id/jobs` screens: live jobs first, 2 s polling, live count, batch
+  and design links, cancel with 409-safe refresh.
+- Design review now links print width/height to the artwork aspect ratio by
+  default with an explicit unlock, "Use artwork size", read-only batch DPI, and
+  derived output pixels. The linked side is computed during render, so a crop or
+  upscale relinks immediately without an effect; a saved non-ratio size is
+  preserved and shown unlinked.
+- Fixed a real contract mismatch: `ApiResults.Problem(code, message)` defaulted
+  to `422`, so missing batch/design returned `422` where OpenAPI documents
+  `404`. Now routed through `StatusFor`; validation errors stay `422`.
+- Also fixed an intermittent web test race: two assertions on the 1 s job poller
+  used `waitFor`'s default 1 s timeout, so a loaded worker could lose by a tick.
+  Raised those two waits to 4 s; three consecutive full runs are green.
+- Gates: API build 0 warnings/errors, 22 API tests pass; web 214 tests across 17
+  files, build green, lint at the same 17 pre-existing warnings; contracts
+  valid; Compose rebuilt with `make up`, `make smoke` and `make e2e-fixtures`
+  passing (batch `6dd8c4a0-ea49-470f-a9d2-c0841df85d24`).
+- Contract changes are additive, so the version stays 2.0.0; recorded in
+  `contracts/CHANGELOG.md`.
 
 ### 2026-11-09 — Packer raster search and diagonal gap fix
 
@@ -975,6 +1068,28 @@ breaking 2.0.0 change on 2026-11-08 after two additive clarifications on
 When a contract changes, add a dated entry here naming the schema/operation,
 the version bump, and which tracks must adapt (API A, worker B, packer C,
 web D). Also update `contracts/CHANGELOG.md` and the examples.
+
+### 2026-11-09 — Additive: `maxPx` thumbnails, global jobs list, honest 404s
+
+No version bump: the contract stays `2.0.0`. Both additions are new optional
+surface and the status fix makes the implementation match what was already
+documented, so no existing client breaks.
+
+- **API (track A):** `GET /api/v1/designs/{designId}/versions/{versionId}/file`
+  accepts optional `maxPx` (32–2048) and returns a derived alpha-preserving PNG
+  with `ETag`/immutable `Cache-Control`; without `maxPx` the response is byte-
+  identical to before. New `GET /api/v1/jobs` lists jobs across all batches
+  (`status`, `type`, `limit` ≤ 200). Not-found conditions for batch, design,
+  version, job, sheet and export now return `404` instead of `422`; validation
+  failures remain `422`.
+- **Web (track D):** design grid uses `versionThumbnailUrl(..., 640)` with lazy
+  loading; the review page keeps the full-resolution file. New `/jobs` and
+  `/batches/:batchId/jobs` screens consume `api.jobs.list`. `DesignSummary`
+  gained no fields.
+- **Worker (track B) / packer (track C):** no changes. Thumbnails are an
+  API-only read-side derivative and never touch stored version files.
+- **Generated types:** `web/src/api/schema.d.ts` regenerated from the OpenAPI
+  document; `scripts/validate_contracts.py` remains green.
 
 ### 2026-11-08 — Contract 2.0.0: retire removal/vectorize, add placement guarantee
 
