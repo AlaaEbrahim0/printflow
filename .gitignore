@@ -46,7 +46,11 @@ yarn-error.log*
 
 # Runtime storage and generated artifacts
 storage/
+models/
 tmp/
+worker/experiments/bench/
+worker/experiments/cache/
+worker/experiments/*.png
 *.tmp
 *.part
 .tools/

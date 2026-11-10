@@ -568,7 +568,7 @@ If context is running low, prioritize in this order:
 
 ## 14. Live status
 
-**Last updated:** 2026-11-09 (thumbnail pipeline, global jobs screen, aspect-linked print size)
+**Last updated:** 2026-11-10 (restored background removal: BiRefNet tiled ONNX, color-to-alpha, non-destructive mask artifacts)
 
 **Done and verified:**
 
@@ -796,7 +796,15 @@ If context is running low, prioritize in this order:
 
 Append newest entries at the top. Keep them short and factual.
 
-### 2026-11-09 — Thumbnails, global jobs, aspect-linked sizing
+### 2026-11-10 — Restored background removal: BiRefNet tiled ONNX & color-to-alpha
+
+- Restored background removal narrowly targeted at logos, text, simple line-art and B&W artwork (MIT-licensed BiRefNet, rejecting CC BY-NC 4.0 BRIA RMBG 2.0).
+- BiRefNet ONNX runs directly through `onnxruntime` without rembg dependency tree (~200 MB avoided).
+- Fixed resolution loss: eliminated useless input upscaling; implemented native-scale tiling with 1200px window, 96px overlap, raised-cosine blending and budget fallback (benchmarked IoU 0.957 vs 0.659 single-pass). Single-pass matches reference bit-parity.
+- Supported modes: `ai` (`birefnet-massive`, `birefnet-general`, `birefnet-general-lite`), `color-to-alpha` (unmultiplied GIMP ramp), `none` (brush-only mask edits).
+- Non-destructive review workflow: outputs 8-bit mask artifact (`outputArtifacts.mask` / `VersionArtifacts.maskUrl`), source never overwritten. "View mask artifact" links in UI for both current and proposed versions.
+- Added pipeline stage 3: "Remove background" with "Cutout model" disambiguation in `DesignReviewPage.tsx`. Ancestry tracked via `pipelineStatus.ts`.
+- Gates: `make test` green across all services (contracts valid, 22 API tests, 214 worker tests, 161 packer tests, web build/lint and 215 web tests). Compose and native run scripts wired to `./models/cutout`.
 
 - Batch grid was loading every full-resolution PNG. Added `IImageThumbnailer`
   (`SkiaImageThumbnailer`) and an optional `maxPx` (32–2048) on the version-file

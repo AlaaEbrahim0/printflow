@@ -67,6 +67,7 @@ services:
       - "${WORKER_PORT:-8000}:8000"
     volumes:
       - ./storage:/data/storage
+      - ./models/cutout:/models/cutout:ro
     healthcheck:
       test:
         [
