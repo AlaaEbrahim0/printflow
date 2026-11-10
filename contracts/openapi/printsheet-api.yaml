@@ -814,6 +814,33 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
+  /api/v1/designs/{designId}/steps/background-removal:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: proposeBackgroundRemoval
+      summary: Propose background removal (AI or color-to-alpha)
+      description: |
+        Produces a non-destructive mask artifact and transparency. The source is never modified.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BackgroundRemovalStepRequest' }
+      responses:
+        '202':
+          description: Background removal job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
   /api/v1/jobs:
     get:
       tags: [Jobs]
@@ -1445,6 +1472,56 @@ components:
         targetHeightCm: { type: number, minimum: 0.01 }
         fitMode: { type: string, enum: [width, height, contain], default: contain }
         dpi: { type: integer, nullable: true, minimum: 72, maximum: 1200 }
+
+    BackgroundRemovalStepRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [ai, color-to-alpha, none]
+        keyColor:
+          type: string
+          nullable: true
+          pattern: '^#[0-9A-Fa-f]{6}$'
+        tolerance:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 255
+        edgeSoftness:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 10
+        aiModel:
+          type: string
+          nullable: true
+          enum: [birefnet-massive, birefnet-general, birefnet-general-lite]
+        brushOps:
+          type: array
+          nullable: true
+          items: { $ref: '#/components/schemas/BrushOp' }
+
+    BrushOp:
+      type: object
+      required: [tool, radiusPx, points]
+      properties:
+        tool:
+          type: string
+          enum: [erase, restore]
+        radiusPx:
+          type: integer
+          minimum: 1
+          maximum: 4096
+        points:
+          type: array
+          minItems: 1
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: integer }
 
     RejectVersionRequest:
       type: object
