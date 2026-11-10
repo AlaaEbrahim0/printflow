@@ -1,4 +1,5 @@
 using PrintSheet.Api.Contracts;
+using PrintSheet.Application.Abstractions;
 using PrintSheet.Application.Batches;
 using PrintSheet.Application.Services;
 using PrintSheet.Domain.Batches;
@@ -17,6 +18,10 @@ public static class BatchEndpoints
         group.MapGet("/{batchId:guid}", GetAsync);
         group.MapPatch("/{batchId:guid}", UpdateAsync);
         group.MapPost("/{batchId:guid}/designs", UploadAsync).DisableAntiforgery();
+        group.MapDelete("/{batchId:guid}", DeleteBatchAsync).DisableAntiforgery();
+        group.MapDelete(
+            "/{batchId:guid}/designs/{designId:guid}",
+            DeleteDesignImagesAsync).DisableAntiforgery();
     }
 
     private static async Task<IResult> ListAsync(
@@ -190,5 +195,30 @@ public static class BatchEndpoints
 
         var (_, design) = result.Value;
         return Results.Created($"/api/v1/designs/{design.Id}", design.ToDetail());
+    }
+
+    private static async Task<IResult> DeleteBatchAsync(
+        Guid batchId,
+        BatchService batches,
+        IFileStore files,
+        IJobRepository jobs,
+        CancellationToken cancellationToken)
+    {
+        var result = await batches.DeleteBatchAsync(batchId, "operator", cancellationToken);
+        return result.IsSuccess
+            ? Results.NoContent()
+            : ApiResults.Problem(result.Error!);
+    }
+
+    private static async Task<IResult> DeleteDesignImagesAsync(
+        Guid batchId,
+        Guid designId,
+        DesignService designs,
+        CancellationToken cancellationToken)
+    {
+        var result = await designs.DeleteDesignImagesAsync(batchId, designId, "operator", cancellationToken);
+        return result.IsSuccess
+            ? Results.NoContent()
+            : ApiResults.Problem(result.Error!);
     }
 }

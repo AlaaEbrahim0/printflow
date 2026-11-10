@@ -35,6 +35,7 @@ public static class DesignEndpoints
         group.MapPost("/{designId:guid}/steps/crop", CropAsync);
         group.MapPost("/{designId:guid}/steps/upscale", UpscaleAsync);
         group.MapPost("/{designId:guid}/steps/resize", ResizeAsync);
+        group.MapPost("/{designId:guid}/steps/background-removal", BackgroundRemovalAsync);
     }
 
     private static async Task<IResult> GetAsync(
@@ -355,13 +356,40 @@ public static class DesignEndpoints
             : ApiResults.Problem(result.Error!);
     }
 
+    private static async Task<IResult> BackgroundRemovalAsync(
+        Guid designId,
+        BackgroundRemovalStepRequest request,
+        StepService steps,
+        CancellationToken cancellationToken)
+    {
+        var result = await steps.ProposeBackgroundRemovalAsync(
+            designId,
+            new BackgroundRemovalStepCommand(
+                request.Mode,
+                request.KeyColor,
+                request.Tolerance,
+                request.EdgeSoftness,
+                request.AiModel,
+                request.BrushOps?
+                    .Select(op => new BrushOpCommand(
+                        op.Tool,
+                        op.RadiusPx,
+                        (op.Points ?? [])
+                            .Select(point => new BrushPointCommand(point[0], point[1]))
+                            .ToArray()))
+                    .ToArray()),
+            cancellationToken);
+        return result.IsSuccess
+            ? Accepted(result.Value!)
+            : ApiResults.Problem(result.Error!);
+    }
+
     private static async Task<IResult> ResizeAsync(
         Guid designId,
         ResizeStepRequest request,
         StepService steps,
         CancellationToken cancellationToken)
-    {
-        var result = await steps.ProposeResizeAsync(
+    {        var result = await steps.ProposeResizeAsync(
             designId,
             new ResizeStepCommand(
                 request.TargetWidthCm,

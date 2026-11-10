@@ -258,6 +258,20 @@ public sealed record ResizeStepRequest(
     string? FitMode,
     int? Dpi);
 
+public sealed record BackgroundRemovalStepRequest(
+    string Mode,
+    string? KeyColor,
+    int? Tolerance,
+    decimal? EdgeSoftness,
+    string? AiModel,
+    IReadOnlyList<BrushOpRequest>? BrushOps);
+
+/// <summary>One erase/restore stroke. Points are source pixel [x, y] pairs.</summary>
+public sealed record BrushOpRequest(
+    string Tool,
+    int RadiusPx,
+    IReadOnlyList<int[]>? Points);
+
 public sealed record RejectVersionRequest(string? Reason);
 
 public sealed record RevertVersionRequest(Guid VersionId);

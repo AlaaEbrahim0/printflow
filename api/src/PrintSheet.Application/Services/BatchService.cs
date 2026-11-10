@@ -10,12 +10,21 @@ public sealed class BatchService
     private readonly IBatchRepository _batches;
     private readonly IAppSettingsStore _settings;
     private readonly IClock _clock;
+    private readonly IFileStore _files;
+    private readonly IJobRepository _jobs;
 
-    public BatchService(IBatchRepository batches, IAppSettingsStore settings, IClock clock)
+    public BatchService(
+        IBatchRepository batches,
+        IAppSettingsStore settings,
+        IClock clock,
+        IFileStore files,
+        IJobRepository jobs)
     {
         _batches = batches;
         _settings = settings;
         _clock = clock;
+        _files = files;
+        _jobs = jobs;
     }
 
     public async Task<(IReadOnlyList<Batch> Items, int Total)> ListAsync(
@@ -102,6 +111,47 @@ public sealed class BatchService
         }
 
         await _batches.SaveChangesAsync(cancellationToken);
+        return Result<Batch>.Success(batch);
+    }
+
+    /// <summary>
+    /// Deletes the entire batch and every file on disk for it. The batch's
+    /// designs, versions, sheets, exports and audits go with it (EF cascade);
+    /// the jobs table rows are removed separately. Active (queued or running)
+    /// jobs are a hard block — the worker would lose its input files.
+    /// </summary>
+    public async Task<Result<Batch>> DeleteBatchAsync(
+        Guid batchId,
+        string actor,
+        CancellationToken cancellationToken)
+    {
+        var batch = await _batches.FindAsync(batchId, cancellationToken);
+        if (batch is null)
+        {
+            return Result<Batch>.Failure(
+                ErrorCodes.BatchNotFound,
+                $"Batch {batchId} was not found.");
+        }
+
+        if (await _jobs.HasAnyActiveJobAsync(batchId, cancellationToken))
+        {
+            return Result<Batch>.Failure(
+                ErrorCodes.BatchInUse,
+                $"Batch {batchId} still has active jobs. Cancel them before deleting the batch.");
+        }
+
+        // One operation deletes the whole directory tree for this batch:
+        // image versions, masks, SVGs, job artifacts, export artifacts, sheets.
+        await _files.DeleteDirectoryAsync(batchId.ToString(), cancellationToken);
+
+        // Remove the jobs rows (a separate table — no cascade from the batch).
+        await _jobs.DeleteByBatchAsync(batchId, cancellationToken);
+
+        // Remove the aggregate; EF cascades to designs, versions, sheets,
+        // exports and audit entries.
+        await _batches.DeleteAsync(batch, cancellationToken);
+        await _batches.SaveChangesAsync(cancellationToken);
+
         return Result<Batch>.Success(batch);
     }
 }

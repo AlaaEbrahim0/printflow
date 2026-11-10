@@ -11,9 +11,9 @@ using PrintSheet.Infrastructure.Persistence;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.WebHost.ConfigureKestrel(options =>
-    options.Limits.MaxRequestBodySize = 64L * 1024 * 1024);
+    options.Limits.MaxRequestBodySize = 50L * 1024 * 1024);
 builder.Services.Configure<FormOptions>(options =>
-    options.MultipartBodyLengthLimit = 64L * 1024 * 1024);
+    options.MultipartBodyLengthLimit = 50L * 1024 * 1024);
 
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();

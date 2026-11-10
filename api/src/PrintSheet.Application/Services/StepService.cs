@@ -115,12 +115,88 @@ public sealed class StepService
             cancellationToken);
     }
 
+    public async Task<Result<JobAccepted>> ProposeBackgroundRemovalAsync(
+        Guid designId,
+        BackgroundRemovalStepCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (command.Mode is not ("ai" or "color-to-alpha" or "none"))
+        {
+            return Invalid("Background removal mode must be ai, color-to-alpha or none.");
+        }
+
+        if (command.Mode == "color-to-alpha" && string.IsNullOrWhiteSpace(command.KeyColor))
+        {
+            return Invalid("color-to-alpha requires a keyColor.");
+        }
+
+        if (command.Tolerance is < 0 or > 255)
+        {
+            return Invalid("Tolerance must be between 0 and 255.");
+        }
+
+        if (command.EdgeSoftness is < 0 or > 10)
+        {
+            return Invalid("Edge softness must be between 0 and 10 pixels.");
+        }
+
+        if (command.Mode != "ai" && command.AiModel is not null)
+        {
+            return Invalid("aiModel only applies to ai mode.");
+        }
+
+        if (command.BrushOps is { Count: > 0 } ops)
+        {
+            foreach (var (op, index) in ops.Select((op, index) => (op, index)))
+            {
+                if (op.Tool is not ("erase" or "restore"))
+                {
+                    return Invalid($"brushOps[{index}].tool must be erase or restore.");
+                }
+
+                if (op.RadiusPx is < 1 or > 2000)
+                {
+                    return Invalid($"brushOps[{index}].radiusPx must be between 1 and 2000.");
+                }
+
+                if (op.Points is null || op.Points.Count == 0)
+                {
+                    return Invalid($"brushOps[{index}] must contain at least one point.");
+                }
+            }
+        }
+
+        var parameters = new
+        {
+            mode = command.Mode,
+            keyColor = command.KeyColor,
+            tolerance = command.Tolerance,
+            edgeSoftness = command.EdgeSoftness,
+            aiModel = command.AiModel,
+            brushOps = command.BrushOps?.Select(op => new
+            {
+                tool = op.Tool,
+                radiusPx = op.RadiusPx,
+                points = op.Points!.Select(point => new[] { point.X, point.Y }).ToArray(),
+            }).ToArray(),
+        };
+
+        return await EnqueueStepAsync(
+            designId,
+            JobType.BackgroundRemoval,
+            StepType.BackgroundRemoval,
+            parameters,
+            JobCapability.Image,
+            validateParent: null,
+            cancellationToken,
+            artifactOutputs: new Dictionary<string, string> { ["mask"] = "mask" });
+    }
+
     public async Task<Result<JobAccepted>> ProposeResizeAsync(
         Guid designId,
         ResizeStepCommand command,
         CancellationToken cancellationToken)
-    {
-        if (command.TargetWidthCm <= 0
+    {        if (command.TargetWidthCm <= 0
             || command.TargetHeightCm <= 0
             || command.TargetWidthCm > 500m
             || command.TargetHeightCm > 500m)
@@ -176,7 +252,8 @@ public sealed class StepService
         JobCapability capability,
         Func<DesignVersion, DomainError?>? validateParent,
         CancellationToken cancellationToken,
-        Func<Batch, Design, Result>? beforeEnqueue = null)
+        Func<Batch, Design, Result>? beforeEnqueue = null,
+        IReadOnlyDictionary<string, string>? artifactOutputs = null)
     {
         var batch = await _batches.FindByDesignAsync(designId, cancellationToken);
         var design = batch?.FindDesign(designId);
@@ -275,7 +352,15 @@ public sealed class StepService
 
         var parametersJson = JsonSerializer.Serialize(jobParameters, ApplicationJson.Options);
         var contextJson = JsonSerializer.Serialize(context, ApplicationJson.Options);
-        const string outputArtifactsJson = "{}";
+        // The mask is the reviewable artifact for background removal; the worker
+        // writes it beside the version image and the API serves it back.
+        var outputArtifactsJson = artifactOutputs is null
+            ? "{}"
+            : JsonSerializer.Serialize(
+                artifactOutputs.ToDictionary(
+                    pair => pair.Key,
+                    pair => $"{(batch.Id)}/designs/{design.Id}/versions/{versionId}.{pair.Value}.png"),
+                ApplicationJson.Options);
 
         var jobResult = Job.Create(
             jobId,
