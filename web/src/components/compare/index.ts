@@ -1,0 +1,1 @@
+export { ImageComparisonSlider, type ImageComparisonSliderProps } from './ImageComparisonSlider'

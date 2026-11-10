@@ -3,16 +3,19 @@ import { Link, useParams } from 'react-router-dom'
 import { api, type CropRect, type DesignDetail, type DesignVersion } from '../api/client'
 import { AlphaPreview } from '../components/preview/AlphaPreview'
 import { BackgroundPicker } from '../components/preview/BackgroundPicker'
+import { PhotopeaIcon } from '../components/photopea/PhotopeaIcon'
 import { ErrorBanner } from '../components/ui/Banner'
 import { Chip, StatusChip } from '../components/ui/Chip'
 import { CheckboxField, ColorField, NumberField, SelectField } from '../components/ui/Field'
 import { EmptyState, ErrorState, Loading } from '../components/ui/States'
+import { ImageComparisonSlider } from '../components/compare'
 import CropTool from '../components/crop/CropTool'
 import { useAsync, useJobPoller } from '../hooks/useAsync'
 import { formatPixels, shortId, statusLabel, stepLabel } from '../lib/format'
 import { reviewReadiness } from '../components/batch/reviewReadiness'
 import { pipelineStatus } from '../components/batch/pipelineStatus'
 import { WORKBENCH_DEFAULTS } from '../lib/defaults'
+import { photopeaEditorPath } from '../lib/photopea'
 import { DEFAULT_PREVIEW_BACKGROUND, previewBackgroundFor, type PreviewBackground } from '../lib/preview'
 import {
   aspectRatioOf,
@@ -136,7 +139,6 @@ export default function DesignReviewPage() {
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
-  const [rejectedActions, setRejectedActions] = useState<string[]>([])
   const { dpiThresholds } = useSettings()
   const { state, reload } = useAsync(
     async (signal) => {
@@ -303,8 +305,7 @@ export default function DesignReviewPage() {
     setBusy(true)
     setError(null)
     try {
-      const response = await api.designs.reject(designId, proposal.id)
-      setRejectedActions(response.nextActions)
+      await api.designs.reject(designId, proposal.id)
       setNotice('Proposal rejected. The previously approved version remains current.')
       reload()
     } catch (caught: unknown) {
@@ -446,140 +447,170 @@ export default function DesignReviewPage() {
         </ul>
       </section>
 
-      <div className="split">
+      {proposal ? (
         <section className="card">
           <div className="card-heading">
-            <h2 className="card-title">Current approved version</h2>
-            <StatusChip status="approved" />
+            <h2 className="card-title">Compare: Current vs Proposal</h2>
+            <div className="row" style={{ gap: 8 }}>
+              <StatusChip status="approved" label="Current" />
+              <StatusChip status="proposed" label="Proposal" />
+            </div>
           </div>
-          <AlphaPreview
-            fileUrl={current.fileUrl}
-            alt={`${design.name}, current approved artwork`}
+          <ImageComparisonSlider
+            beforeUrl={current.fileUrl}
+            afterUrl={proposal.fileUrl}
+            beforeAlt={`${design.name}, current approved artwork`}
+            afterAlt={`${design.name}, proposed ${stepLabel(proposal.stepType)} version`}
+            beforeWidthPx={current.widthPx}
+            beforeHeightPx={current.heightPx}
+            afterWidthPx={proposal.widthPx}
+            afterHeightPx={proposal.heightPx}
             background={background}
-            widthPx={current.widthPx}
-            heightPx={current.heightPx}
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
-            testId="current-design-preview"
+            beforeLabel="Current"
+            afterLabel="Proposal"
+            testId="design-comparison"
           />
-          <p className="mono muted">
-            {stepLabel(current.stepType)} · {formatPixels(current.widthPx)} × {formatPixels(current.heightPx)} · {shortId(current.id)}
-          </p>
-          <div className="row">
+          <dl className="kv proposal-diff" style={{ marginTop: 14 }}>
+            <dt>Pixels</dt>
+            <dd>
+              {proposal.widthPx === current.widthPx && proposal.heightPx === current.heightPx
+                ? `${formatPixels(current.widthPx)} × ${formatPixels(current.heightPx)} — unchanged`
+                : `${formatPixels(current.widthPx)} × ${formatPixels(current.heightPx)} → ${formatPixels(proposal.widthPx)} × ${formatPixels(proposal.heightPx)}`}
+            </dd>
+            <dt>Step</dt>
+            <dd>
+              {stepLabel(current.stepType)} → {stepLabel(proposal.stepType)}
+            </dd>
+            <dt>If approved</dt>
+            <dd>{proposalEffect(proposal.stepType)}</dd>
+          </dl>
+          <div className="row" style={{ marginTop: 12, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={busy}
+              onClick={() => void mutate(() => api.designs.approve(designId, proposal.id), 'Proposal approved and made current.')}
+            >
+              Approve proposal
+            </button>
+            <button type="button" className="btn" disabled={busy} onClick={() => void rejectProposal()}>
+              Reject proposal
+            </button>
             <a
               className="btn"
-              href={current.fileUrl}
-              download={photoshopFileName(design, current)}
+              href={proposal.fileUrl}
+              download={photoshopFileName(design, proposal)}
             >
-              Download for Photoshop
+              Download proposal for Photoshop
             </a>
-            {currentDetails?.artifacts?.maskUrl ? (
-              <a href={currentDetails.artifacts.maskUrl} target="_blank" rel="noreferrer" className="btn">
+            <Link
+              className="btn"
+              to={photopeaEditorPath(batchId, designId, proposal.id)}
+              title="Edit this exact proposal in Photopea, then save a new ready-to-pack design"
+              data-testid="open-photopea-proposal"
+            >
+              <PhotopeaIcon />
+              Open proposal in Photopea
+            </Link>
+            <Link
+              className="btn"
+              to={photopeaEditorPath(batchId, designId, current.id)}
+              title="Edit the current approved version in Photopea, then save a new ready-to-pack design"
+              data-testid="open-photopea-current"
+            >
+              <PhotopeaIcon />
+              Open current in Photopea
+            </Link>
+            {proposalDetails?.artifacts?.maskUrl ? (
+              <a
+                className="btn"
+                href={proposalDetails.artifacts.maskUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
                 View mask artifact
               </a>
             ) : null}
-            {currentDetails?.artifacts?.svgUrl ? (
-              <a href={currentDetails.artifacts.svgUrl} target="_blank" rel="noreferrer">View vector artifact</a>
+            {currentDetails?.artifacts?.maskUrl ? (
+              <a
+                className="btn"
+                href={currentDetails.artifacts.maskUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                View current mask artifact
+              </a>
+            ) : null}
+            {proposalDetails?.artifacts?.svgUrl ? (
+              <a href={proposalDetails.artifacts.svgUrl} target="_blank" rel="noreferrer">View vector artifact</a>
             ) : null}
           </div>
-          <p className="hint">
-            Finish background removal and final sizing in Photoshop, then import the exported PNGs
-            as a ready-to-pack batch.
-          </p>
         </section>
-
-        <section className="card">
-          <div className="card-heading">
-            <h2 className="card-title">Proposal review</h2>
-            {proposal ? <StatusChip status="proposed" /> : <Chip>no pending proposal</Chip>}
-          </div>
-          {proposal ? (
-            <>
-              <AlphaPreview
-                fileUrl={proposal.fileUrl}
-                alt={`${design.name}, proposed ${stepLabel(proposal.stepType)} version`}
-                background={background}
-                widthPx={proposal.widthPx}
-                heightPx={proposal.heightPx}
-                testId="proposed-design-preview"
-              />
-              <p className="mono muted">
-                {stepLabel(proposal.stepType)} · {formatPixels(proposal.widthPx)} × {formatPixels(proposal.heightPx)} · {shortId(proposal.id)}
-              </p>
-              <dl className="kv proposal-diff">
-                <dt>Pixels</dt>
-                <dd>
-                  {proposal.widthPx === current.widthPx && proposal.heightPx === current.heightPx
-                    ? `${formatPixels(current.widthPx)} × ${formatPixels(current.heightPx)} — unchanged`
-                    : `${formatPixels(current.widthPx)} × ${formatPixels(current.heightPx)} → ${formatPixels(proposal.widthPx)} × ${formatPixels(proposal.heightPx)}`}
-                </dd>
-                <dt>Step</dt>
-                <dd>
-                  {stepLabel(current.stepType)} → {stepLabel(proposal.stepType)}
-                </dd>
-                <dt>If approved</dt>
-                <dd>{proposalEffect(proposal.stepType)}</dd>
-              </dl>
-              <div className="row">
-                <button
-                  type="button"
-                  className="btn primary"
-                  disabled={busy}
-                  onClick={() => void mutate(() => api.designs.approve(designId, proposal.id), 'Proposal approved and made current.')}
-                >
-                  Approve proposal
-                </button>
-                <button type="button" className="btn" disabled={busy} onClick={() => void rejectProposal()}>
-                  Reject proposal
-                </button>
-                <a
-                  className="btn"
-                  href={proposal.fileUrl}
-                  download={photoshopFileName(design, proposal)}
-                >
-                  Download proposal for Photoshop
+      ) : (
+        <div className="split">
+          <section className="card">
+            <div className="card-heading">
+              <h2 className="card-title">Current approved version</h2>
+              <StatusChip status="approved" />
+            </div>
+            <AlphaPreview
+              fileUrl={current.fileUrl}
+              alt={`${design.name}, current approved artwork`}
+              background={background}
+              widthPx={current.widthPx}
+              heightPx={current.heightPx}
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              testId="current-design-preview"
+            />
+            <p className="mono muted">
+              {stepLabel(current.stepType)} · {formatPixels(current.widthPx)} × {formatPixels(current.heightPx)} · {shortId(current.id)}
+            </p>
+            <div className="row">
+              <a
+                className="btn"
+                href={current.fileUrl}
+                download={photoshopFileName(design, current)}
+              >
+                Download for Photoshop
+              </a>
+              <Link
+                className="btn"
+                to={photopeaEditorPath(batchId, designId, current.id)}
+                title="Edit this exact version in Photopea, then save a new ready-to-pack design"
+                data-testid="open-photopea-current"
+              >
+                <PhotopeaIcon />
+                Open in Photopea
+              </Link>
+              {currentDetails?.artifacts?.maskUrl ? (
+                <a href={currentDetails.artifacts.maskUrl} target="_blank" rel="noreferrer" className="btn">
+                  View mask artifact
                 </a>
-                {proposalDetails?.artifacts?.maskUrl ? (
-                  <a
-                    className="btn"
-                    href={proposalDetails.artifacts.maskUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    View mask artifact
-                  </a>
-                ) : null}
-              </div>
-            </>
-          ) : (
+              ) : null}
+              {currentDetails?.artifacts?.svgUrl ? (
+                <a href={currentDetails.artifacts.svgUrl} target="_blank" rel="noreferrer">View vector artifact</a>
+              ) : null}
+            </div>
+            <p className="hint">
+              Finish background removal and final sizing in Photoshop or Photopea, then import the
+              exported PNGs as a ready-to-pack design. The original version stays unchanged.
+            </p>
+          </section>
+
+          <section className="card">
+            <div className="card-heading">
+              <h2 className="card-title">Proposal review</h2>
+              <Chip>no pending proposal</Chip>
+            </div>
             <EmptyState title="No proposal awaiting review">
               Choose an optional processing step. Its result will be a new version and will not replace
               the current image unless you approve it.
             </EmptyState>
-          )}
-          {rejectedActions.length > 0 ? (
-            <div className="stack-sm" role="group" aria-label="Next actions after rejection">
-              <strong>What next?</strong>
-              {rejectedActions.includes('adjust-parameters') ? (
-                <button type="button" className="btn" onClick={() => setNotice('Adjust the step controls below, then submit a new proposal.')}>
-                  Adjust parameters
-                </button>
-              ) : null}
-              {rejectedActions.includes('manual-tool') ? (
-                <button type="button" className="btn" onClick={() => setCropOpen(true)}>
-                  Use manual crop tool
-                </button>
-              ) : null}
-              {rejectedActions.includes('skip') ? (
-                <button type="button" className="btn ghost" onClick={() => setRejectedActions([])}>
-                  Skip this step
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </section>
-      </div>
+          </section>
+        </div>
+      )}
 
       <section className="card stack" aria-labelledby="pipeline-title">
         <div>

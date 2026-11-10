@@ -294,8 +294,7 @@ describe('core workbench routes', () => {
     const proposalId = design.pendingVersionId
 
     renderAt(`/batches/${batch.id}/designs/${designId}`)
-    expect(await screen.findByTestId('current-design-preview')).toBeInTheDocument()
-    expect(screen.getByTestId('proposed-design-preview')).toBeInTheDocument()
+    expect(await screen.findByTestId('design-comparison')).toBeInTheDocument()
     expect(screen.getByRole('radiogroup', { name: 'Preview background' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Approve proposal' }))
 
@@ -303,19 +302,15 @@ describe('core workbench routes', () => {
     expect(mock.designs.get(designId)?.pendingVersionId).toBeNull()
   })
 
-  it('offers full-resolution Photoshop downloads for current and proposed artwork', async () => {
+  it('offers full-resolution Photoshop download for proposed artwork when a proposal exists', async () => {
     const mock = startTestMockApi()
     const batch = batchNamed(mock, 'ACME summer drop 01')
     const designId = batch.designIds[0]!
     renderAt(`/batches/${batch.id}/designs/${designId}`)
 
-    const currentLink = await screen.findByRole('link', { name: 'Download for Photoshop' })
-    expect(currentLink).toHaveAttribute('download')
-    expect(currentLink.getAttribute('href')).toContain('/versions/')
-    expect(currentLink.getAttribute('href')).toContain('/file')
-
-    const proposalLink = screen.getByRole('link', { name: 'Download proposal for Photoshop' })
+    const proposalLink = await screen.findByRole('link', { name: 'Download proposal for Photoshop' })
     expect(proposalLink).toHaveAttribute('download')
+    expect(proposalLink.getAttribute('href')).toContain('/versions/')
     expect(proposalLink.getAttribute('href')).toContain('/file')
   })
 

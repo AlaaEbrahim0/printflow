@@ -1,9 +1,11 @@
 import { Link } from 'react-router-dom'
 import { versionThumbnailUrl, type DesignSummary } from '../../api/client'
 import { AlphaPreview } from '../preview/AlphaPreview'
+import { PhotopeaIcon } from '../photopea/PhotopeaIcon'
 import { Chip, StatusChip } from '../ui/Chip'
 import { DEFAULT_PREVIEW_BACKGROUND } from '../../lib/preview'
 import { formatCentimeters, formatPixels, stepLabel } from '../../lib/format'
+import { photopeaEditorPath } from '../../lib/photopea'
 import { dpiWarningLevel, dpiWarningMessage, targetPixels, type DpiThresholds } from '../../lib/units'
 import './batch.css'
 
@@ -138,6 +140,17 @@ export function DesignGridCard({
         >
           Review
         </Link>
+        {current ? (
+          <Link
+            className="btn sm ghost"
+            to={photopeaEditorPath(design.batchId, design.id, current.id)}
+            title="Open the current full-resolution version in Photopea"
+            data-testid={`photopea-link-${design.id}`}
+          >
+            <PhotopeaIcon />
+            Photopea
+          </Link>
+        ) : null}
         {design.status === 'needs-better-source' ? (
           <button
             type="button"
