@@ -253,46 +253,48 @@ export default function BatchDetailPage() {
 
   return (
     <section className="stack">
-      <Dialog
-        title={deleteTarget?.kind === 'design' ? 'Delete design images' : 'Delete batch'}
-        onClose={closeDelete}
-        footer={
-          <>
-            <button
-              type="button"
-              className="btn"
-              onClick={closeDelete}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="btn danger"
-              onClick={confirmDelete}
-              disabled={deleteError !== null}
-            >
-              Delete
-            </button>
-          </>
-        }
-      >
-        {deleteTarget?.kind === 'design' ? (
-          <p>
-            Delete every image on disk for design
-            <code>{deleteTarget.designId.slice(0, 8)}</code>? The image versions,
-            masks and SVGs are removed. The design record stays for history but it
-            is excluded and cannot be packed. Any active jobs for this design are
-            left untouched.
-          </p>
-        ) : (
-          <p>
-            Delete the entire batch <code>{batchId}</code> and every image on disk
-            for it? Designs, versions, sheets, exports and audits are removed
-            alongside the image files. Any queued or running jobs block this.
-          </p>
-        )}
-        {deleteError ? <p className="dim">{String(deleteError)}</p> : null}
-      </Dialog>
+      {deleteTarget ? (
+        <Dialog
+          title={deleteTarget.kind === 'design' ? 'Delete design images' : 'Delete batch'}
+          onClose={closeDelete}
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn"
+                onClick={closeDelete}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn danger"
+                onClick={confirmDelete}
+                disabled={deleteError !== null || !deleteTarget}
+              >
+                Delete
+              </button>
+            </>
+          }
+        >
+          {deleteTarget.kind === 'design' ? (
+            <p>
+              Delete every image on disk for design
+              <code>{deleteTarget.designId.slice(0, 8)}</code>? The image versions,
+              masks and SVGs are removed. The design record stays for history but it
+              is excluded and cannot be packed. Any active jobs for this design are
+              left untouched.
+            </p>
+          ) : (
+            <p>
+              Delete the entire batch <code>{batchId}</code> and every image on disk
+              for it? Designs, versions, sheets, exports and audits are removed
+              alongside the image files. Any queued or running jobs block this.
+            </p>
+          )}
+          {deleteError ? <p className="dim">{String(deleteError)}</p> : null}
+        </Dialog>
+      ) : null}
 
       <header className="page-head">
         <div>
