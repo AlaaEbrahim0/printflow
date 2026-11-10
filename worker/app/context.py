@@ -19,6 +19,7 @@ from pathlib import Path
 from PIL import Image
 
 from app.config import Settings
+from app.engines.birefnet import BirefnetEngine
 from app.engines.command import CommandRunner, SubprocessCommandRunner
 from app.engines.realesrgan import RealesrganEngine
 from app.errors import MissingInputArtifactError
@@ -38,11 +39,15 @@ class Engines:
     """Injectable engine bundle."""
 
     realesrgan: RealesrganEngine
+    cutout: BirefnetEngine
 
 
 def default_engines(settings: Settings, runner: CommandRunner | None = None) -> Engines:
     resolved_runner = runner or SubprocessCommandRunner()
-    return Engines(realesrgan=RealesrganEngine(settings, resolved_runner))
+    return Engines(
+        realesrgan=RealesrganEngine(settings, resolved_runner),
+        cutout=BirefnetEngine(settings),
+    )
 
 
 @dataclass(frozen=True)

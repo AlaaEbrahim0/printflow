@@ -30,6 +30,7 @@ CODE_UNSUPPORTED_PARAMETERS = "unsupported-parameters"
 CODE_CROP_OUT_OF_BOUNDS = "crop-out-of-bounds"
 CODE_FULL_BLEED_NO_AUTO_TRIM = "full-bleed-no-auto-trim"
 CODE_MISSING_INPUT_ARTIFACT = "missing-input-artifact"
+CODE_MASK_MISMATCH = "mask-mismatch"
 CODE_ENGINE_UNAVAILABLE = "engine-unavailable"
 CODE_ENGINE_MODE_UNSUPPORTED = "engine-mode-unsupported"
 CODE_ENGINE_FAILED = "engine-failed"
@@ -137,6 +138,13 @@ class MissingInputArtifactError(WorkerError):
     """A required ``inputArtifacts`` entry (mask/svg) was not supplied."""
 
     code = CODE_MISSING_INPUT_ARTIFACT
+    retryable = False
+
+
+class MaskMismatchError(WorkerError):
+    """A reused mask does not match the source dimensions it must apply to."""
+
+    code = CODE_MASK_MISMATCH
     retryable = False
 
 

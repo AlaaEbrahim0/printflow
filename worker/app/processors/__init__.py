@@ -7,7 +7,7 @@ from collections.abc import Callable
 from app.context import JobScope
 from app.errors import UnsupportedParameterError
 from app.job_models import WorkerJob
-from app.processors import classify, resize, trim, upscale
+from app.processors import background, classify, resize, trim, upscale
 
 Processor = Callable[[WorkerJob, JobScope], dict]
 
@@ -16,6 +16,7 @@ PROCESSORS: dict[str, Processor] = {
     "trim": trim.process,
     "upscale": upscale.process,
     "resize": resize.process,
+    "background-removal": background.process,
 }
 
 
@@ -27,7 +28,7 @@ def processor_for(job_type: str) -> Processor:
             f"no processor is registered for job type {job_type!r}",
             details={
                 "registered": sorted(PROCESSORS),
-                "retired": ["background-removal", "vectorize"],
+                "retired": ["vectorize"],
             },
         ) from exc
 
