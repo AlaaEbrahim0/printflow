@@ -40,6 +40,94 @@ const CUTOUT_MODELS = [
   { value: 'birefnet-general-lite', label: 'BiRefNet General Lite (Fastest)' },
 ] as const
 
+/**
+ * Processing profiles are operator presets. Each one applies a sane default for
+ * the machines' steps so a designer can choose a job type without configuring
+ * every slider. Selecting a profile never deletes a version: it only rewrites the
+ * *proposal* values in the advanced panel. When it differs from what is already
+ * configured, the panel shows an overwrite notice rather than applying silently.
+ */
+export type ProcessingProfileId = 'logo-text' | 'illustration' | 'soft-artwork' | 'manual'
+
+export interface ProcessingProfile {
+  id: ProcessingProfileId
+  label: string
+  description: string
+  defaults: {
+    cutoutMode: 'ai' | 'color-to-alpha'
+    cutoutModel: (typeof CUTOUT_MODELS)[number]['value']
+    cutoutKeyColor: string
+    cutoutTolerance: number
+    cutoutEdgeSoftness: number
+    upscaleModel: (typeof UPSCALE_MODELS)[number]['value']
+    upscaleScale: 2 | 4
+  }
+}
+
+/**
+ * The four editor profiles. The exact order is deliberate: the shop runs logos,
+ * text and line-art first, then illustrations, then soft artwork, and Manual
+ * only as a fallback so the defaults never fight a real image.
+ */
+export const PROCESSING_PROFILES: ProcessingProfile[] = [
+  {
+    id: 'logo-text',
+    label: 'Logo / text',
+    description: 'Flat black-and-white mark on a clear background.',
+    defaults: {
+      cutoutMode: 'color-to-alpha',
+      cutoutModel: 'birefnet-general-lite',
+      cutoutKeyColor: '#000000',
+      cutoutTolerance: 10,
+      cutoutEdgeSoftness: 0,
+      upscaleModel: 'realesrgan-x4plus-anime',
+      upscaleScale: 2,
+    },
+  },
+  {
+    id: 'illustration',
+    label: 'Illustration',
+    description: 'Flat colour art with hard edges.',
+    defaults: {
+      cutoutMode: 'ai',
+      cutoutModel: 'birefnet-general-lite',
+      cutoutKeyColor: '#000000',
+      cutoutTolerance: 12,
+      cutoutEdgeSoftness: 0.5,
+      upscaleModel: 'realesrgan-x4plus-anime',
+      upscaleScale: 2,
+    },
+  },
+  {
+    id: 'soft-artwork',
+    label: 'Soft artwork',
+    description: 'Photographic or blended colour art.',
+    defaults: {
+      cutoutMode: 'ai',
+      cutoutModel: 'birefnet-general',
+      cutoutKeyColor: '#000000',
+      cutoutTolerance: 16,
+      cutoutEdgeSoftness: 1.0,
+      upscaleModel: 'realesrgan-x4plus',
+      upscaleScale: 2,
+    },
+  },
+  {
+    id: 'manual',
+    label: 'Manual',
+    description: 'No preset; you configure every control.',
+    defaults: {
+      cutoutMode: 'ai',
+      cutoutModel: 'birefnet-massive',
+      cutoutKeyColor: '#000000',
+      cutoutTolerance: 12,
+      cutoutEdgeSoftness: 0,
+      upscaleModel: 'realesrgan-x4plus',
+      upscaleScale: 2,
+    },
+  },
+] as const
+
 function proposedVersion(design: DesignDetail): DesignVersion | undefined {
   return design.versions.find((version) => version.status === 'proposed')
 }
@@ -131,15 +219,52 @@ export default function DesignReviewPage() {
   const [cutoutKeyColor, setCutoutKeyColor] = useState('#ffffff')
   const [cutoutTolerance, setCutoutTolerance] = useState(12)
   const [cutoutEdgeSoftness, setCutoutEdgeSoftness] = useState(0)
+  const [alphaFloor, setAlphaFloor] = useState<number | null>(null)
+  const [alphaCurve, setAlphaCurve] = useState<'soft' | 'balanced' | 'strong'>('balanced')
+  const [despeckleLimit, setDespeckleLimit] = useState<number | null>(null)
+  const [mattingUnderbase, setMattingUnderbase] = useState(false)
   const [targetWidthCm, setTargetWidthCm] = useState<number | null>(null)
   const [targetHeightCm, setTargetHeightCm] = useState<number | null>(null)
   const [aspectLinked, setAspectLinked] = useState(true)
   const [allowRotation, setAllowRotation] = useState(true)
+  const [activeProfile, setActiveProfile] = useState<ProcessingProfileId>('manual')
+  const [profileNotice, setProfileNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const { dpiThresholds } = useSettings()
+  const profile = PROCESSING_PROFILES.find((item) => item.id === activeProfile) ?? PROCESSING_PROFILES[3]
+
+  // Switching a profile rewrites the proposal values for the machine steps. It
+  // never deletes a version. We only show the overwrite notice when the profile
+  // moves a control away from what the operator already typed.
+  useEffect(() => {
+    const next = profile.defaults
+    const changed =
+      next.cutoutMode !== cutoutMode ||
+      next.cutoutModel !== cutoutModel ||
+      next.cutoutKeyColor !== cutoutKeyColor ||
+      next.cutoutTolerance !== cutoutTolerance ||
+      next.cutoutEdgeSoftness !== cutoutEdgeSoftness ||
+      next.upscaleModel !== upscaleModel ||
+      next.upscaleScale !== upscaleScale
+    if (changed) {
+      setCutoutMode(next.cutoutMode)
+      setCutoutModel(next.cutoutModel)
+      setCutoutKeyColor(next.cutoutKeyColor)
+      setCutoutTolerance(next.cutoutTolerance)
+      setCutoutEdgeSoftness(next.cutoutEdgeSoftness)
+      setUpscaleModel(next.upscaleModel)
+      setUpscaleScale(next.upscaleScale)
+      setProfileNotice(
+        `This profile applies ${next.cutoutMode === 'ai' ? 'the AI cutout' : 'colour-to-alpha'} defaults over your current advanced settings.`,
+      )
+    } else {
+      setProfileNotice(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProfile])
   const { state, reload } = useAsync(
     async (signal) => {
       const [design, suggestions, jobs, batch] = await Promise.all([
@@ -617,6 +742,21 @@ export default function DesignReviewPage() {
           <h2 className="card-title" id="pipeline-title">Artwork pipeline</h2>
           <p className="hint">Choose a step, review its proposal, then continue. Every step is optional and keeps the original safe.</p>
         </div>
+        <div className="profile-selector" role="group" aria-label="Processing profile">
+          {PROCESSING_PROFILES.map((profile) => (
+            <button
+              key={profile.id}
+              type="button"
+              className={`profile-pill${activeProfile === profile.id ? ' is-active' : ''}`}
+              aria-pressed={activeProfile === profile.id}
+              onClick={() => setActiveProfile(profile.id)}
+            >
+              <span>{profile.label}</span>
+              <small>{profile.description}</small>
+            </button>
+          ))}
+        </div>
+        {profileNotice ? <p className="banner warn" role="status">{profileNotice}</p> : null}
         <ol className="pipeline">
           <li className={`pipeline-step${pipeline.prepared ? ' is-done' : ''}`}>
             <details>
@@ -806,6 +946,47 @@ export default function DesignReviewPage() {
                   >
                     Remove background
                   </button>
+                  <details className="compact-details advanced">
+                    <summary>Advanced cutout options</summary>
+                    <div className="row">
+                      <NumberField
+                        label="Alpha floor"
+                        value={alphaFloor}
+                        min={0}
+                        max={255}
+                        step={1}
+                        onValueChange={(val) => setAlphaFloor(val ?? null)}
+                        hint="Pushes every pixel at or below this level to transparent."
+                      />
+                      <SelectField
+                        label="Alpha curve"
+                        options={[
+                          { value: 'soft', label: 'Soft' },
+                          { value: 'balanced', label: 'Balanced' },
+                          { value: 'strong', label: 'Strong' },
+                        ]}
+                        value={alphaCurve}
+                        onChange={(event) =>
+                          setAlphaCurve(event.target.value as 'soft' | 'balanced' | 'strong')
+                        }
+                      />
+                      <NumberField
+                        label="Despeckle"
+                        value={despeckleLimit}
+                        min={0}
+                        max={255}
+                        step={1}
+                        onValueChange={(val) => setDespeckleLimit(val ?? null)}
+                        hint="Erases isolated specks at or below this level (0 = off)."
+                      />
+                      <CheckboxField
+                        label="Matting underbase"
+                        checked={mattingUnderbase}
+                        onChange={setMattingUnderbase}
+                        hint="Keeps a semi-transparent edge layer so the cutout hands off cleanly."
+                      />
+                    </div>
+                  </details>
                 </div>
               </div>
             </details>

@@ -21,10 +21,10 @@
 }
 
 .progress-track {
-  height: 8px;
+  height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: var(--panel-2);
+  background: var(--line);
 }
 
 .progress-indicator {
@@ -52,7 +52,13 @@
 .pipeline-step {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--panel);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)), var(--panel);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.pipeline-step:hover {
+  border-color: var(--line-strong);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
 
 .pipeline-step summary {
@@ -204,4 +210,80 @@
     animation: none;
     transform: translateX(90%);
   }
+}
+
+.profile-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)), var(--panel);
+}
+
+.profile-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  text-align: center;
+  min-width: 80px;
+}
+
+.profile-pill:hover {
+  border-color: var(--line);
+  color: var(--paper);
+}
+
+.profile-pill.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.profile-pill.is-active small {
+  color: var(--accent);
+}
+
+.advanced {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)), var(--panel);
+  overflow: hidden;
+}
+
+.advanced summary {
+  cursor: pointer;
+  font-weight: 650;
+  padding: 12px 14px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.advanced[open] > summary {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+  color: var(--paper);
+}
+
+.advanced .row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px;
+  padding: 6px 14px 14px;
+}
+
+.advanced .hint {
+  margin-bottom: 6px;
 }
