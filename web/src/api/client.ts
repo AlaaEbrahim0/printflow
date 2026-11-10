@@ -62,6 +62,8 @@ export type TrimStepRequest = components['schemas']['TrimStepRequest']
 export type CropStepRequest = components['schemas']['CropStepRequest']
 export type UpscaleStepRequest = components['schemas']['UpscaleStepRequest']
 export type ResizeStepRequest = components['schemas']['ResizeStepRequest']
+export type BackgroundRemovalStepRequest = components['schemas']['BackgroundRemovalStepRequest']
+export type BrushOp = components['schemas']['BrushOp']
 export type RejectVersionRequest = components['schemas']['RejectVersionRequest']
 export type RejectVersionResponse = components['schemas']['RejectVersionResponse']
 export type RejectNextAction = components['schemas']['RejectNextAction']
@@ -433,6 +435,16 @@ export const api = {
       ),
     resize: (designId: string, body: ResizeStepRequest, options?: RequestOptions) =>
       post<JobAccepted>(`${API_ROOT}/designs/${encoded(designId)}/steps/resize`, body, options),
+    backgroundRemoval: (
+      designId: string,
+      body: BackgroundRemovalStepRequest,
+      options?: RequestOptions,
+    ) =>
+      post<JobAccepted>(
+        `${API_ROOT}/designs/${encoded(designId)}/steps/background-removal`,
+        body,
+        options,
+      ),
   },
   jobs: {
     list: (

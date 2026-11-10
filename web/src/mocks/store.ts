@@ -218,7 +218,7 @@ export class MockStore {
   /** Public entry point used by the step handlers. */
   proposeStep(
     designId: string,
-    type: 'trim' | 'upscale' | 'resize',
+    type: 'trim' | 'upscale' | 'resize' | 'background-removal',
     parameters: Record<string, unknown>,
   ): JobAccepted {
     const stepType: StepType =

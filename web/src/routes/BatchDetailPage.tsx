@@ -14,6 +14,7 @@ import { WorkflowStepper } from '../components/batch/WorkflowStepper'
 import { workflowProgress } from '../components/batch/workflowProgress'
 import { Banner, ErrorBanner } from '../components/ui/Banner'
 import { Chip } from '../components/ui/Chip'
+import { Dialog } from '../components/ui/Dialog'
 import { EmptyState, ErrorState, Loading } from '../components/ui/States'
 import { useAsync, useJobPoller } from '../hooks/useAsync'
 import { centimetersForPixels, formatCentimeters, formatPixels, statusLabel } from '../lib/format'
@@ -60,6 +61,12 @@ export default function BatchDetailPage() {
     (signal) => api.batches.get(batchId, { signal }),
     [batchId],
   )
+
+  const [deleteTarget, setDeleteTarget] = useState<{ kind: 'design'; designId: string } | { kind: 'batch' } | null>(
+    null,
+  )
+
+  const [deleteError, setDeleteError] = useState<unknown>(null)
 
   const batch = state.kind === 'ready' || state.kind === 'reloading' ? state.value : null
   const readiness = batch ? evaluatePackReadiness(batch) : null
@@ -206,6 +213,34 @@ export default function BatchDetailPage() {
     }
   }
 
+  function openDeleteDesign(design: DesignSummary) {
+    setDeleteTarget({ kind: 'design', designId: design.id })
+  }
+
+  function openDeleteBatch() {
+    setDeleteTarget({ kind: 'batch' })
+  }
+
+  function closeDelete() {
+    setDeleteTarget(null)
+    setDeleteError(null)
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return
+    try {
+      if (deleteTarget.kind === 'design') {
+        await api.batches.deleteDesignImages(batchId, deleteTarget.designId)
+      } else {
+        await api.batches.delete(batchId)
+      }
+      closeDelete()
+      void reload()
+    } catch (error: unknown) {
+      setDeleteError(error)
+    }
+  }
+
   if (state.kind === 'loading') return <Loading label="Loading batch…" />
   if (state.kind === 'error') {
     return isBatchNotFound(state.error) ? (
@@ -218,6 +253,47 @@ export default function BatchDetailPage() {
 
   return (
     <section className="stack">
+      <Dialog
+        title={deleteTarget?.kind === 'design' ? 'Delete design images' : 'Delete batch'}
+        onClose={closeDelete}
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn"
+              onClick={closeDelete}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn danger"
+              onClick={confirmDelete}
+              disabled={deleteError !== null}
+            >
+              Delete
+            </button>
+          </>
+        }
+      >
+        {deleteTarget?.kind === 'design' ? (
+          <p>
+            Delete every image on disk for design
+            <code>{deleteTarget.designId.slice(0, 8)}</code>? The image versions,
+            masks and SVGs are removed. The design record stays for history but it
+            is excluded and cannot be packed. Any active jobs for this design are
+            left untouched.
+          </p>
+        ) : (
+          <p>
+            Delete the entire batch <code>{batchId}</code> and every image on disk
+            for it? Designs, versions, sheets, exports and audits are removed
+            alongside the image files. Any queued or running jobs block this.
+          </p>
+        )}
+        {deleteError ? <p className="dim">{String(deleteError)}</p> : null}
+      </Dialog>
+
       <header className="page-head">
         <div>
           <p className="breadcrumb"><Link to="/">Batches</Link> / {batch.name}</p>
@@ -233,6 +309,16 @@ export default function BatchDetailPage() {
             Jobs
           </Link>
           <Link className="btn" to={`/batches/${batch.id}/sheet`}>Packing sheet</Link>
+          {batch ? (
+            <button
+              type="button"
+              className="btn danger sm"
+              onClick={openDeleteBatch}
+              data-testid="delete-batch"
+            >
+              Delete batch
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -540,6 +626,7 @@ export default function BatchDetailPage() {
                       onRequestBetterSource={(item) =>
                         void runDesignAction(item, () => api.designs.requestBetterSource(item.id))
                       }
+                      onDelete={(item) => openDeleteDesign(item)}
                     />
                   ))}
                 </div>

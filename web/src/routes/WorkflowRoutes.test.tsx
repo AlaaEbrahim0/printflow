@@ -69,6 +69,34 @@ describe('core workbench routes', () => {
     })
   })
 
+  it('proposes background removal with BiRefNet AI model', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Cutout batch',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Logo cutout sample',
+        chain: [],
+      }],
+    }])
+    const batch = [...mock.batches.values()][0]!
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+    await user.click(screen.getByRole('button', { name: 'Remove background' }))
+
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'background-removal',
+      )
+      expect(job?.parameters).toMatchObject({
+        mode: 'ai',
+        aiModel: 'birefnet-massive',
+      })
+    })
+  })
+
   it('links print width and height to the artwork aspect ratio at the batch DPI', async () => {
     const user = userEvent.setup()
     const mock = startTestMockApi([{

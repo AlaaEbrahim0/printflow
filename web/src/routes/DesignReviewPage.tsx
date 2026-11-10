@@ -5,7 +5,7 @@ import { AlphaPreview } from '../components/preview/AlphaPreview'
 import { BackgroundPicker } from '../components/preview/BackgroundPicker'
 import { ErrorBanner } from '../components/ui/Banner'
 import { Chip, StatusChip } from '../components/ui/Chip'
-import { CheckboxField, NumberField, SelectField } from '../components/ui/Field'
+import { CheckboxField, ColorField, NumberField, SelectField } from '../components/ui/Field'
 import { EmptyState, ErrorState, Loading } from '../components/ui/States'
 import CropTool from '../components/crop/CropTool'
 import { useAsync, useJobPoller } from '../hooks/useAsync'
@@ -29,6 +29,12 @@ import './design-review.css'
 const UPSCALE_MODELS = [
   { value: 'realesrgan-x4plus', label: 'Real-ESRGAN · photos / general artwork' },
   { value: 'realesrgan-x4plus-anime', label: 'Real-ESRGAN · anime-style artwork' },
+] as const
+
+const CUTOUT_MODELS = [
+  { value: 'birefnet-massive', label: 'BiRefNet Massive (Highest quality · default)' },
+  { value: 'birefnet-general', label: 'BiRefNet General (Standard)' },
+  { value: 'birefnet-general-lite', label: 'BiRefNet General Lite (Fastest)' },
 ] as const
 
 function proposedVersion(design: DesignDetail): DesignVersion | undefined {
@@ -115,6 +121,13 @@ export default function DesignReviewPage() {
     'realesrgan-x4plus',
   )
   const [upscaleScale, setUpscaleScale] = useState<2 | 4>(4)
+  const [cutoutMode, setCutoutMode] = useState<'ai' | 'color-to-alpha'>('ai')
+  const [cutoutModel, setCutoutModel] = useState<(typeof CUTOUT_MODELS)[number]['value']>(
+    'birefnet-massive',
+  )
+  const [cutoutKeyColor, setCutoutKeyColor] = useState('#ffffff')
+  const [cutoutTolerance, setCutoutTolerance] = useState(12)
+  const [cutoutEdgeSoftness, setCutoutEdgeSoftness] = useState(0)
   const [targetWidthCm, setTargetWidthCm] = useState<number | null>(null)
   const [targetHeightCm, setTargetHeightCm] = useState<number | null>(null)
   const [aspectLinked, setAspectLinked] = useState(true)
@@ -311,6 +324,7 @@ export default function DesignReviewPage() {
 
   const canPropose = !proposal && !busy && job?.status !== 'queued' && job?.status !== 'running'
   const currentDetails = versionFor(design, current.id)
+  const proposalDetails = proposal ? versionFor(design, proposal.id) : undefined
   const targetSize =
     effectiveWidthCm !== null && effectiveHeightCm !== null
       ? { widthCm: effectiveWidthCm, heightCm: effectiveHeightCm }
@@ -460,6 +474,11 @@ export default function DesignReviewPage() {
             >
               Download for Photoshop
             </a>
+            {currentDetails?.artifacts?.maskUrl ? (
+              <a href={currentDetails.artifacts.maskUrl} target="_blank" rel="noreferrer" className="btn">
+                View mask artifact
+              </a>
+            ) : null}
             {currentDetails?.artifacts?.svgUrl ? (
               <a href={currentDetails.artifacts.svgUrl} target="_blank" rel="noreferrer">View vector artifact</a>
             ) : null}
@@ -521,6 +540,16 @@ export default function DesignReviewPage() {
                 >
                   Download proposal for Photoshop
                 </a>
+                {proposalDetails?.artifacts?.maskUrl ? (
+                  <a
+                    className="btn"
+                    href={proposalDetails.artifacts.maskUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View mask artifact
+                  </a>
+                ) : null}
               </div>
             </>
           ) : (
@@ -653,10 +682,108 @@ export default function DesignReviewPage() {
             </details>
           </li>
 
+          <li className={`pipeline-step${pipeline.cutout ? ' is-done' : ''}`}>
+            <details open={!pipeline.cutout && pipeline.enhanced}>
+              <summary>
+                <span className="pipeline-number">3</span>
+                <span>
+                  <strong>Remove background</strong>
+                  <small>
+                    {pipeline.cutout
+                      ? 'Background cut out — review the transparent preview and mask'
+                      : 'BiRefNet AI cutout · color key · non-destructive mask'}
+                  </small>
+                </span>
+                {pipeline.cutout ? <Chip tone="good">done</Chip> : null}
+              </summary>
+              <div className="pipeline-content stack-sm">
+                <p className="hint">
+                  Narrowly targeted at logos, simple illustrations, text, and black-and-white designs.
+                  Tiled at native resolution to preserve fine lettering and hairlines.
+                </p>
+                <div className="row">
+                  <SelectField
+                    label="Mode"
+                    options={[
+                      { value: 'ai', label: 'AI cutout (BiRefNet)' },
+                      { value: 'color-to-alpha', label: 'Color to alpha (Flat background)' },
+                    ]}
+                    value={cutoutMode}
+                    onChange={(event) => setCutoutMode(event.target.value as 'ai' | 'color-to-alpha')}
+                  />
+                  {cutoutMode === 'ai' ? (
+                    <SelectField
+                      label="Cutout model"
+                      options={CUTOUT_MODELS}
+                      value={cutoutModel}
+                      onChange={(event) =>
+                        setCutoutModel(
+                          event.target.value as
+                            | 'birefnet-massive'
+                            | 'birefnet-general'
+                            | 'birefnet-general-lite',
+                        )
+                      }
+                    />
+                  ) : (
+                    <>
+                      <ColorField
+                        label="Key color"
+                        value={cutoutKeyColor}
+                        onChange={(event) => setCutoutKeyColor(event.target.value)}
+                      />
+                      <NumberField
+                        label="Tolerance"
+                        value={cutoutTolerance}
+                        min={0}
+                        max={255}
+                        step={1}
+                        onValueChange={(val) => setCutoutTolerance(val ?? 12)}
+                      />
+                    </>
+                  )}
+                  <NumberField
+                    label="Edge softness"
+                    suffix="px"
+                    value={cutoutEdgeSoftness}
+                    min={0}
+                    max={10}
+                    step={0.5}
+                    onValueChange={(val) => setCutoutEdgeSoftness(val ?? 0)}
+                  />
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={!canPropose}
+                    onClick={() =>
+                      void submitJob(() =>
+                        api.steps.backgroundRemoval(designId, {
+                          mode: cutoutMode,
+                          ...(cutoutMode === 'ai'
+                            ? {
+                                aiModel: cutoutModel,
+                                edgeSoftness: cutoutEdgeSoftness > 0 ? cutoutEdgeSoftness : undefined,
+                              }
+                            : {
+                                keyColor: cutoutKeyColor,
+                                tolerance: cutoutTolerance,
+                                edgeSoftness: cutoutEdgeSoftness > 0 ? cutoutEdgeSoftness : undefined,
+                              }),
+                        }),
+                      )
+                    }
+                  >
+                    Remove background
+                  </button>
+                </div>
+              </div>
+            </details>
+          </li>
+
           <li className={`pipeline-step${pipeline.sized ? ' is-done' : ''}`}>
             <details open={!pipeline.sized}>
               <summary>
-                <span className="pipeline-number">3</span>
+                <span className="pipeline-number">4</span>
                 <span>
                   <strong>Set print size</strong>
                   <small>

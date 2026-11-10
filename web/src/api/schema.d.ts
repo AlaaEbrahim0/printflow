@@ -640,6 +640,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/designs/{designId}/steps/background-removal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                designId: components["parameters"]["DesignId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Propose background removal (AI or color-to-alpha)
+         * @description Produces a non-destructive mask artifact and transparency. The source is never modified.
+         */
+        post: operations["proposeBackgroundRemoval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs": {
         parameters: {
             query?: never;
@@ -1043,6 +1065,22 @@ export interface components {
              */
             fitMode: "width" | "height" | "contain";
             dpi?: number | null;
+        };
+        BackgroundRemovalStepRequest: {
+            /** @enum {string} */
+            mode: "ai" | "color-to-alpha" | "none";
+            keyColor?: string | null;
+            tolerance?: number | null;
+            edgeSoftness?: number | null;
+            /** @enum {string|null} */
+            aiModel?: "birefnet-massive" | "birefnet-general" | "birefnet-general-lite" | null;
+            brushOps?: components["schemas"]["BrushOp"][] | null;
+        };
+        BrushOp: {
+            /** @enum {string} */
+            tool: "erase" | "restore";
+            radiusPx: number;
+            points: number[][];
         };
         RejectVersionRequest: {
             reason?: string | null;
@@ -2332,6 +2370,35 @@ export interface operations {
         };
         responses: {
             /** @description Resize job accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    proposeBackgroundRemoval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                designId: components["parameters"]["DesignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackgroundRemovalStepRequest"];
+            };
+        };
+        responses: {
+            /** @description Background removal job accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
