@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyCommand,
+  applyMaskDelta,
   createMaskDelta,
   invertCommand,
   pushHistory,
@@ -93,14 +94,35 @@ describe('document core contracts', () => {
     const after = mask(8, 1, 0b11110000)
     const delta = createMaskDelta(before, after)
     expect(delta?.bytes).toEqual(new Uint8Array([0xff]))
-    const restored = new Uint8Array(after.bytes)
-    for (let i = 0; i < restored.length; i += 1) restored[i] ^= delta!.bytes[i]
-    expect(restored).toEqual(before.bytes)
+    expect(applyMaskDelta(after, delta!)).toEqual(before)
     let state = history()
     state = pushHistory(state, 'brush', { type: 'set-selection', before, after, delta, coalesceKey: 'brush' })
     state = pushHistory(state, 'brush', { type: 'set-selection', before: after, after: before, delta: createMaskDelta(after, before), coalesceKey: 'brush' })
     expect(state.entries).toHaveLength(1)
     expect(state.entries[0].command).toMatchObject({ before: after, after: before })
+  })
+
+  it('measures 36MP XOR deltas with raw fallback', () => {
+    const width = 6000
+    const height = 6000
+    const bytes = Math.ceil(width * height / 8)
+    const empty = mask(width, height, 0)
+    const full = mask(width, height, 255)
+    const sparse = { ...empty, bytes: new Uint8Array(bytes) }
+    sparse.bytes[0] = 1
+    const sparseDelta = createMaskDelta(empty, sparse)!
+    const largeDelta = createMaskDelta(empty, full)!
+    const noisy = { ...empty, bytes: Uint8Array.from({ length: bytes }, (_, i) => i & 1 ? 0xaa : 0x55) }
+    const noisyDelta = createMaskDelta(empty, noisy)!
+    expect(bytes).toBe(4_500_000)
+    expect(sparseDelta.encoding).toBe('xor-rle-v1')
+    expect(largeDelta.encoding).toBe('xor-rle-v1')
+    expect(noisyDelta.encoding).toBe('xor-bitpack-v1')
+    expect(sparseDelta.bytes.byteLength).toBeLessThan(40_000)
+    expect(largeDelta.bytes.byteLength).toBeLessThan(40_000)
+    expect(noisyDelta.bytes.byteLength).toBe(bytes)
+    expect(applyMaskDelta(sparse, sparseDelta)).toEqual(empty)
+    expect(applyMaskDelta(full, largeDelta)).toEqual(empty)
   })
 
   it('covers document validation invariants', () => {

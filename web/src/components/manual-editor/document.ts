@@ -132,15 +132,45 @@ export function invertCommand(command: DocumentCommand): DocumentCommand {
 
 export function createMaskDelta(before: PackedMask | null, after: PackedMask | null): MaskDelta | null {
   if (!before || !after || before.width !== after.width || before.height !== after.height) return null
-  const bytes = new Uint8Array(before.bytes.length)
-  for (let i = 0; i < bytes.length; i += 1) bytes[i] = before.bytes[i] ^ after.bytes[i]
-  return { encoding: 'xor-bitpack-v1', width: before.width, height: before.height, feather: after.feather, beforeFeather: before.feather, bytes }
+  const raw = new Uint8Array(before.bytes.length)
+  for (let i = 0; i < raw.length; i += 1) raw[i] = before.bytes[i] ^ after.bytes[i]
+  const encoded: number[] = []
+  for (let i = 0; i < raw.length;) {
+    const value = raw[i]
+    let end = i + 1
+    while (end < raw.length && raw[end] === value && end - i < 255) end += 1
+    encoded.push(end - i, value)
+    i = end
+  }
+  const useRle = encoded.length < raw.length
+  return {
+    encoding: useRle ? 'xor-rle-v1' : 'xor-bitpack-v1',
+    width: before.width,
+    height: before.height,
+    feather: after.feather,
+    beforeFeather: before.feather,
+    bytes: useRle ? Uint8Array.from(encoded) : raw,
+  }
 }
 
 export function applyMaskDelta(mask: PackedMask, delta: MaskDelta): PackedMask {
-  if (mask.width !== delta.width || mask.height !== delta.height || mask.bytes.length !== delta.bytes.length) throw new Error('mask delta dimensions mismatch')
+  const raw = delta.encoding === 'xor-rle-v1'
+    ? (() => {
+      const decoded = new Uint8Array(Math.ceil(delta.width * delta.height / 8))
+      let offset = 0
+      for (let i = 0; i < delta.bytes.length; i += 2) {
+        const length = delta.bytes[i]
+        if (!length || i + 1 >= delta.bytes.length || offset + length > decoded.length) throw new Error('invalid mask delta')
+        decoded.fill(delta.bytes[i + 1], offset, offset + length)
+        offset += length
+      }
+      if (offset !== decoded.length) throw new Error('invalid mask delta')
+      return decoded
+    })()
+    : delta.bytes
+  if (mask.width !== delta.width || mask.height !== delta.height || mask.bytes.length !== raw.length) throw new Error('mask delta dimensions mismatch')
   const bytes = mask.bytes.slice()
-  for (let i = 0; i < bytes.length; i += 1) bytes[i] ^= delta.bytes[i]
+  for (let i = 0; i < bytes.length; i += 1) bytes[i] ^= raw[i]
   return { ...mask, feather: delta.feather, bytes }
 }
 
