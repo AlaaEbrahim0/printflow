@@ -1,4 +1,7 @@
 import type { Adjustments } from './adjustments'
+import type { PathState } from './pathModel'
+import type { Rect } from './selectionGeometry'
+import type { SelectionMode } from './selectionModes'
 
 export interface Point { x: number; y: number }
 
@@ -71,6 +74,24 @@ export interface EditorDocument {
   selection: PackedMask | null
 }
 
+/**
+ * Command types for the vector selection tools carried in mask history.
+ *
+ * The editor surface (`TOOLS` and `MODES` in `ManualEditor`) is the vector
+ * selection space: marquees, a freeform lasso, a vertex polygon, a colour
+ * wand and a colour-range sampler. Each variant carries the parameters a
+ * gesture supplies; they belong to the same history accounting vocabulary as
+ * `DocumentCommand`, but name the vector (path) selection actions rather
+ * than the final bitmap mask.
+ */
+export type VectorSelectionCommand =
+  | { type: 'marquee'; mode: SelectionMode; rect: Rect }
+  | { type: 'ellipse'; mode: SelectionMode; rect: Rect }
+  | { type: 'lasso'; mode: SelectionMode; path: PathState }
+  | { type: 'polygon'; mode: SelectionMode; path: PathState }
+  | { type: 'wand'; tolerance: number; contiguous: boolean; mode: SelectionMode }
+  | { type: 'color-range'; tolerance: number; mode: SelectionMode }
+
 export type DocumentCommand =
   | { type: 'set-selection'; before: PackedMask | null; after: PackedMask | null; delta: MaskDelta | null; coalesceKey?: string }
   | { type: 'set-layer-mask'; layerId: string; before: PackedMask | null; after: PackedMask | null; delta: MaskDelta | null; coalesceKey?: string }
@@ -82,6 +103,26 @@ export type DocumentCommand =
 
 export interface HistoryEntry { label: string; command: DocumentCommand; byteSize: number }
 export interface DocumentHistory { entries: HistoryEntry[]; cursor: number; usedBytes: number; maxBytes: number; evictedSteps: number }
+
+/** Mask-history cap: at most this many bytes of command accounting are kept
+ * in `usedBytes`. 100 MB covers roughly 2,900 entries at the smallest delta
+ * sizes and 23 at the worst case (36 MP measurements), so the interval is
+ * fully representable. `emptyDocumentHistory` uses this as the default. */
+export const MASK_HISTORY_MAX_BYTES = 100 * 1024 * 1024
+
+export interface DocumentHistoryOptions {
+  maxBytes?: number
+}
+
+export function emptyDocumentHistory(options: DocumentHistoryOptions = {}): DocumentHistory {
+  return {
+    entries: [],
+    cursor: -1,
+    usedBytes: 0,
+    maxBytes: options.maxBytes ?? MASK_HISTORY_MAX_BYTES,
+    evictedSteps: 0,
+  }
+}
 
 export function cloneMask(mask: PackedMask | null): PackedMask | null {
   return mask ? { ...mask, bytes: mask.bytes.slice() } : null

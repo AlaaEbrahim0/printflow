@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { applyCommand, applyMaskDelta, createMaskDelta, invertCommand, pushHistory, validateDocument, type DocumentCommand, type DocumentHistory, type EditorDocument } from './document'
+import { applyCommand, applyMaskDelta, createMaskDelta, invertCommand, pushHistory, validateDocument, type DocumentCommand, type DocumentHistory, type EditorDocument, MASK_HISTORY_MAX_BYTES } from './document'
 
 const mask = (width = 2, height = 2) => ({ encoding: 'bitpack-v1' as const, width, height, feather: 0, bytes: new Uint8Array([15]) })
 const doc = (): EditorDocument => ({ schemaVersion: 1, id: 'd', designId: 'design', sourceVersionId: 'source', width: 2, height: 2, activeLayerId: 'base', selection: null, layers: [{ id: 'base', kind: 'base-raster', name: 'Base', sourceId: 'source', visible: true, opacity: 1, blendMode: 'normal', mask: null }] })
 
-function history(): DocumentHistory { return { entries: [], cursor: -1, usedBytes: 0, maxBytes: 200 * 1024 * 1024, evictedSteps: 0 } }
+function history(): DocumentHistory { return { entries: [], cursor: -1, usedBytes: 0, maxBytes: MASK_HISTORY_MAX_BYTES, evictedSteps: 0 } }
 
 describe('EditorDocument', () => {
   it('round trips every command type', () => {

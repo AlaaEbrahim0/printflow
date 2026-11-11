@@ -10,6 +10,7 @@ import {
   type DocumentHistory,
   type EditorDocument,
   type PackedMask,
+  MASK_HISTORY_MAX_BYTES,
 } from './document'
 
 const mask = (width = 2, height = 2, fill = 0xff): PackedMask => ({
@@ -17,7 +18,7 @@ const mask = (width = 2, height = 2, fill = 0xff): PackedMask => ({
 })
 const adjustment = (id: string) => ({ id, kind: 'adjustment' as const, name: id, adjustment: { levels: { black: 0, white: 255, gamma: 1, outputBlack: 0, outputWhite: 255 }, hue: 0, saturation: 0, lightness: 0 }, visible: true, opacity: 1, blendMode: 'normal' as const, mask: null })
 const doc = (): EditorDocument => ({ schemaVersion: 1, id: 'd', designId: 'design', sourceVersionId: 'source', width: 2, height: 2, activeLayerId: 'base', selection: null, layers: [{ id: 'base', kind: 'base-raster', name: 'Base', sourceId: 'source', visible: true, opacity: 1, blendMode: 'normal', mask: null }, adjustment('adj')] })
-const history = (maxBytes = 200 * 1024 * 1024): DocumentHistory => ({ entries: [], cursor: -1, usedBytes: 0, maxBytes, evictedSteps: 0 })
+const history = (maxBytes = MASK_HISTORY_MAX_BYTES): DocumentHistory => ({ entries: [], cursor: -1, usedBytes: 0, maxBytes, evictedSteps: 0 })
 const clone = <T>(value: T): T => structuredClone(value)
 
 const commandsFor = (state: EditorDocument, seed: number): DocumentCommand[] => {
