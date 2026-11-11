@@ -379,6 +379,57 @@ describe('core workbench routes', () => {
     expect(mock.designs.get(designId)?.currentVersionId).not.toBe(proposalId)
   })
 
+  it('shows every version as a layer and keeps approval on the proposal layer', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi()
+    const batch = batchNamed(mock, 'ACME summer drop 01')
+    const designId = batch.designIds[0]!
+    const design = mock.designs.get(designId)!
+    const proposalId = design.pendingVersionId
+    if (!proposalId) throw new Error('Expected the seed design to have a proposal')
+
+    renderAt(`/batches/${batch.id}/designs/${designId}`)
+
+    // One row per version, each addressed by its version id.
+    await screen.findAllByRole('listitem')
+    const layerRows = document.querySelectorAll('[data-layer]')
+    expect(layerRows.length).toBe(mock.versionsOf(designId).length)
+
+    // The proposal is the layer you land on, and the canvas compares it with
+    // the layer below rather than showing it in isolation.
+    const proposalRow = document.querySelector(`[data-layer="${proposalId}"]`)!
+    expect(proposalRow.getAttribute('data-status')).toBe('proposed')
+    expect(await screen.findByTestId('design-comparison')).toBeInTheDocument()
+
+    // Selecting the current layer switches the canvas to it and flips the
+    // preview test id, without touching what the packer would use.
+    await user.click(
+      document.querySelector(`[data-layer="${design.currentVersionId}"] .layer-main`)!,
+    )
+    expect(await screen.findByTestId('current-design-preview')).toBeInTheDocument()
+    expect(screen.queryByTestId('design-comparison')).not.toBeInTheDocument()
+    expect(mock.designs.get(designId)?.currentVersionId).toBe(design.currentVersionId)
+
+    // Hiding a layer takes it off the canvas and offers a way back.
+    const activeRow = document.querySelector('.layer.is-active')!
+    const eye = activeRow.querySelector('.layer-eye')!
+    expect(eye).toHaveAttribute('aria-pressed', 'true')
+    await user.click(eye)
+    expect(eye).toHaveAttribute('aria-pressed', 'false')
+    expect(await screen.findByText('This layer is hidden')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Show layer' }))
+    expect(screen.queryByText('This layer is hidden')).not.toBeInTheDocument()
+
+    // Approving still only happens through the modal, and the layer stack keeps
+    // the version that was current.
+    await user.click(screen.getByRole('button', { name: 'Approve proposal' }))
+    await user.click(screen.getByTestId('proposal-modal-approve'))
+    await waitFor(() => expect(mock.designs.get(designId)?.currentVersionId).toBe(proposalId))
+    await waitFor(() =>
+      expect(document.querySelector(`[data-layer="${design.currentVersionId}"]`)).not.toBeNull(),
+    )
+  })
+
   it('offers full-resolution Photoshop download for proposed artwork when a proposal exists', async () => {
     const mock = startTestMockApi()
     const batch = batchNamed(mock, 'ACME summer drop 01')

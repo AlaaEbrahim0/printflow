@@ -568,7 +568,7 @@ If context is running low, prioritize in this order:
 
 ## 14. Live status
 
-**Last updated:** 2026-11-11 (design review page: Photopea retry, slider fit, capped preview, approve/reject modal, live-jobs badge)
+**Last updated:** 2026-11-11 (review page rebuilt as a canvas + layer-stack editor; teal accent, light theme)
 
 **Done and verified:**
 
@@ -804,6 +804,61 @@ If context is running low, prioritize in this order:
 ## 15. Handoff log
 
 Append newest entries at the top. Keep them short and factual.
+
+### 2026-11-11 — Review page rebuilt as a canvas + layer-stack editor; teal accent and a light theme
+
+- **The review page was one long column.** Preview, readiness, a four-step
+  accordion and history stacked vertically, so comparing a change with its
+  result meant scrolling the artwork off-screen. It is now `.editor`, a
+  two-column grid: `.editor-stage` (background picker, canvas, job progress,
+  decisions) and `.editor-side` (layers, readiness, tools). The stage is
+  `position: sticky` under the top bar, so the artwork stays put while the rail
+  scrolls. Deliberately *not* an `overflow: auto` box on either pane: nesting
+  scroll containers gives the page two scrollbars and traps the wheel over the
+  artwork. Collapses to one column at 1080px.
+- **Versions are now a layer stack.** The version chain was only reachable
+  through a collapsed "Version history" list. `design.versions` now renders as
+  `.layer` rows (thumbnail, step, pixels, current/proposal/rejected flag,
+  per-layer Revert), each with an eye toggle that takes it off the canvas. The
+  canvas shows the selected layer, or — for a proposal by default — a
+  before/after slider against the nearest visible layer below it, toggleable via
+  `toggle-compare`. Selecting a layer never changes what the packer uses; only
+  approval does.
+- **Accent is teal, not orange.** The palette moved into `index.css` as tokens
+  (`--accent`, `--accent-fill`, `--accent-soft`, `--accent-line`, `--on-accent`,
+  plus `--sheen`/`--hover`/`--stage-bg`/`--field-bg`/`--checker-*`). Buttons use
+  `--accent-fill` with white text because `--accent` (`#2dd4bf`) is too light to
+  carry white; text and focus rings use `--accent`.
+- **Light theme added, dark by default.** `useTheme` (`lib/theme.ts`) writes
+  `data-theme` on `<html>` and remembers an explicit choice in
+  `localStorage['printsheet.theme']`. It deliberately does *not* follow
+  `prefers-color-scheme`: the shop chose dark as the house default, and a
+  light-OS workstation was opening the workbench in a theme nobody asked for
+  (caught in a real browser render, not by the tests). Toggle lives in the top
+  bar as `data-testid="theme-toggle"` and advertises the theme it switches *to*.
+- Every theme-dependent colour is a token now. Swept 84 hardcoded `rgba()`
+  values out of `ui.css`, `shell.css`, `batch.css`, `design-review.css`,
+  `preview.css`, `mask-controls.css`, `crop.css` and `photopea.css`. Inputs use
+  `--field-bg`, artwork surfaces `--stage-bg`. Two literals are intentional and
+  commented: the Photopea iframe backdrop, and the crop viewport (a fixed dark
+  stage in both themes so the artwork is judged against a constant).
+- **Fixed while verifying in a browser:** the segmented background picker used
+  `--ink` as its track, which is near-white in light mode and made the active
+  pill invisible; it is now `--panel-3` with a `--panel` active pill. The Tools
+  panel said "finish current job first" while a *proposal* was the blocker; it
+  now names the real reason (`toolsBlockedReason`). Two notices still said
+  "below", a leftover from the vertical layout.
+- Gates: build clean, oxlint 0 errors (same 15 pre-existing warnings), 253 tests
+  pass. Added `shows every version as a layer and keeps approval on the proposal
+  layer` and `defaults to the dark theme and remembers an explicit switch`.
+  Verified in headless Chromium against both the real API and the mock server:
+  layer count matches versions, sticky canvas stays on screen at full scroll
+  (top 131px vs topbar bottom 59px), modal centred and inside the viewport,
+  Escape closes it, compare/single-view toggles, 700px viewport stacks with no
+  horizontal overflow.
+- Note: the `SettingsContext` "window is not defined" unhandled rejection in
+  `Shell.test.tsx` is a pre-existing flake (1 in ~6 runs on the untouched tree,
+  same rate after this work), not a regression from it.
 
 ### 2026-11-11 — Five manual-testing UI defects on the design review page
 
