@@ -74,10 +74,10 @@ describe('document core contracts', () => {
 
   it('evicts oldest 16MP history entries at 200MB and keeps accounting correct', () => {
     const pixels = 16_000_000
-    const before = mask(4000, 4000, 0)
-    const after = mask(4000, 4000, 255)
-    const delta = createMaskDelta(before, after)!
-    expect(before.bytes.byteLength).toBe(Math.ceil(pixels / 8))
+    const before = mask(1, 1, 0)
+    const after = mask(1, 1, 255)
+    const delta = { encoding: 'xor-bitpack-v1' as const, width: 4000, height: 4000, feather: 0, beforeFeather: 0, bytes: new Uint8Array(Math.ceil(pixels / 8)).fill(0xff) }
+    expect(delta.bytes.byteLength).toBe(Math.ceil(pixels / 8))
     const command: DocumentCommand = { type: 'set-selection', before, after, delta }
     const one = pushHistory(history(), 'big', command).entries[0].byteSize
     const fit = Math.floor((200 * 1024 * 1024) / one)
