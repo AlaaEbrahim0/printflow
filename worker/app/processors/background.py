@@ -1,4 +1,4 @@
-"""background-removal: non-destructive mask, three modes, brush edits.
+"""background-removal: non-destructive mask, two modes, brush edits, mask shaping.
 
 The mask is the product. Modes never touch the source file: they produce an 8-bit
 grayscale mask at ``outputArtifacts.mask`` (255 = visible), and the stored image is
@@ -8,11 +8,6 @@ another mask write -- no history, no drift.
 
 Modes
 -----
-``ai``
-    BiRefNet through :class:`app.engines.birefnet.BirefnetEngine`. It tiles the
-    source so the model sees native-resolution detail; see that module for why a
-    single pass is not good enough. The model's alpha is the mask, and its RGB is
-    kept so a semi-transparent rim is not re-composited against a guessed colour.
 ``color-to-alpha``
     The **unmultiplied** formulation (the one GIMP uses), so gradients keep their
     hue instead of picking up a dark or white fringe. Per channel the maximum
@@ -32,8 +27,28 @@ Modes
     ``tolerance`` expands the key: anything whose contribution is at or below
     ``tolerance / 255`` becomes fully transparent and the rest is rescaled.
 ``none``
-    No automatic mask. Used to re-apply brush strokes to an earlier mask
-    (``maskFromVersionId``) without re-running a model.
+    No automatic mask. Used to re-apply brush strokes and mask shaping to an
+    earlier mask (``maskFromVersionId``) without re-running a key.
+
+``ai`` (BiRefNet) is **archived**. It is still a legal schema value so historical
+job records stay readable, but this worker refuses it with a stable
+``unsupported-parameters`` failure instead of loading a model. See
+``archive/birefnet/README.md``.
+
+Order of operations
+-------------------
+The mask is built in one documented pass so a proposal is reproducible:
+
+1. the mode mask (colour key, reused mask, or full);
+2. combined with a reused mask using ``min`` -- conservative, a pixel is visible
+   only when both layers say so;
+3. brush strokes, in source pixels;
+4. grow/contract (``maskGrowPx``), a true circular offset of the selection edge;
+5. feather (``edgeSoftness``), a Gaussian on the alpha ramp;
+6. mask levels (``maskLevels``), a Photoshop-style ramp remap.
+
+The image gets its own, independent levels adjustment (``imageLevels``) before the
+mask is multiplied into its alpha, so tone and selection can be judged separately.
 """
 
 from __future__ import annotations
@@ -41,30 +56,31 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 
 from app.analysis import to_arrays
 from app.context import JobScope
-from app.engines.birefnet import DEFAULT_MODEL, ENGINE_NAME
 from app.errors import (
-    EngineOutputInvalidError,
     MaskMismatchError,
     UnsupportedParameterError,
 )
 from app.imaging import build_metadata, image_has_alpha, make_warning, to_rgba
 from app.job_models import WorkerJob
+from app.mask_ops import apply_levels, feather_mask, grow_mask, levels_is_identity
 
-MODES = ("ai", "color-to-alpha", "none")
+MODES = ("color-to-alpha", "none")
+
+# Retained so a historical ``ai`` job fails with a precise, actionable message
+# rather than a generic enum error.
+_ARCHIVED_MODES = ("ai",)
 
 # Which engine/model a mode reports in result metadata.
 ENGINE_BY_MODE = {
-    "ai": (ENGINE_NAME, None),
     "color-to-alpha": ("color-to-alpha", "unmultiplied"),
     "none": ("none", None),
 }
 
 _EPSILON = 1e-6
-
 
 def parse_hex(value: str) -> np.ndarray:
     """``#rgb`` or ``#rrggbb`` to an ``(3,)`` uint8 array."""
@@ -84,7 +100,6 @@ def parse_hex(value: str) -> np.ndarray:
             f"keyColor {value!r} is not a valid hex colour",
             details={"keyColor": value},
         ) from exc
-
 
 def unmultiplied_color_to_alpha(
     rgb: np.ndarray, key: np.ndarray, tolerance: int
@@ -127,7 +142,6 @@ def unmultiplied_color_to_alpha(
     alpha = np.clip(np.rint(opacity * 255.0), 0, 255).astype(np.uint8)
     return alpha, colours
 
-
 def apply_brush_ops(mask: Image.Image, brush_ops: list[dict[str, Any]]) -> list[dict]:
     """Paint circular erase/restore strokes onto the ``L`` mask, in source pixels."""
 
@@ -165,6 +179,17 @@ def apply_brush_ops(mask: Image.Image, brush_ops: list[dict[str, Any]]) -> list[
             )
     return warnings
 
+def _levels_parameter(job: WorkerJob, name: str) -> dict[str, Any] | None:
+    value = job.param(name)
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise UnsupportedParameterError(
+            f"{name} must be an object with blackPoint, whitePoint, gamma, "
+            "outputBlack and outputWhite",
+            details={name: type(value).__name__},
+        )
+    return value
 
 def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
     if job.type != "background-removal":
@@ -175,10 +200,20 @@ def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
 
     settings = scope.settings
     mode = job.param("mode")
+    if mode in _ARCHIVED_MODES:
+        raise UnsupportedParameterError(
+            "the BiRefNet AI cutout is archived and cannot run; use color-to-alpha, "
+            "or cut the artwork out in Photoshop and import the PNG as ready-to-pack",
+            details={
+                "mode": mode,
+                "supported": list(MODES),
+                "archived": list(_ARCHIVED_MODES),
+            },
+        )
     if mode not in MODES:
         raise UnsupportedParameterError(
             f"unknown background-removal mode {mode!r}",
-            details={"supported": sorted(MODES)},
+            details={"supported": sorted(MODES), "archived": list(_ARCHIVED_MODES)},
         )
 
     source = scope.open_input()
@@ -188,47 +223,16 @@ def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
 
     tolerance = job.param_int("tolerance", settings.background_match_tolerance)
     edge_softness = job.param_float("edgeSoftness", 0.0)
+    grow_px = job.param_float("maskGrowPx", 0.0)
+    mask_levels = _levels_parameter(job, "maskLevels")
+    image_levels = _levels_parameter(job, "imageLevels")
 
     body = arrays.rgb.copy()
     if mode == "color-to-alpha":
         key = parse_hex(str(job.param("keyColor") or ""))
         mode_mask, body = unmultiplied_color_to_alpha(arrays.rgb, key, tolerance)
-    elif mode == "ai":
-        model = str(job.param("aiModel") or DEFAULT_MODEL)
-        cutout = scope.engines.cutout.cutout(image, model=model)
-        warnings.extend(cutout.warnings)
-        cutout_arrays = to_arrays(cutout.image)
-        if cutout_arrays.alpha.shape != arrays.alpha.shape:
-            raise EngineOutputInvalidError(
-                f"the AI cutout returned {cutout_arrays.width}x{cutout_arrays.height} "
-                f"for a {arrays.width}x{arrays.height} source",
-                details={
-                    "cutoutWidthPx": cutout_arrays.width,
-                    "cutoutHeightPx": cutout_arrays.height,
-                    "sourceWidthPx": arrays.width,
-                    "sourceHeightPx": arrays.height,
-                },
-                engine=ENGINE_NAME,
-            )
-        mode_mask = cutout_arrays.alpha
-        body = cutout_arrays.rgb.copy()
     else:  # none
         mode_mask = np.full(arrays.alpha.shape, 255, dtype=np.uint8)
-
-    if edge_softness > 0.0:
-        softened = Image.fromarray(mode_mask, "L").filter(
-            ImageFilter.GaussianBlur(radius=edge_softness)
-        )
-        mode_mask = np.asarray(softened, dtype=np.uint8)
-        warnings.append(
-            make_warning(
-                "mask-edge-softened",
-                "info",
-                f"Key edge feathered with a {edge_softness:g}px blur before masks and "
-                "brush strokes were combined.",
-                details={"edgeSoftness": edge_softness},
-            )
-        )
 
     mask_array = mode_mask
     if job.param("maskFromVersionId") is not None:
@@ -253,12 +257,69 @@ def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
     mask_image = Image.fromarray(mask_array, "L")
     warnings.extend(apply_brush_ops(mask_image, list(job.parameters.get("brushOps") or [])))
 
+    # --- selection shaping ---------------------------------------------------
+    # Grow/contract runs on the painted mask so a brush correction is included in
+    # the offset, then the edge is feathered and finally the ramp is remapped.
+    if abs(grow_px) >= 0.05:
+        mask_array = grow_mask(np.asarray(mask_image, dtype=np.uint8), grow_px)
+        mask_image = Image.fromarray(mask_array, "L")
+        warnings.append(
+            make_warning(
+                "mask-selection-offset",
+                "info",
+                f"The selection edge was moved {abs(grow_px):g}px "
+                f"{'outward' if grow_px > 0 else 'inward'}.",
+                details={"maskGrowPx": grow_px},
+            )
+        )
+
+    if edge_softness > 0.0:
+        mask_array = feather_mask(np.asarray(mask_image, dtype=np.uint8), edge_softness)
+        mask_image = Image.fromarray(mask_array, "L")
+        warnings.append(
+            make_warning(
+                "mask-edge-softened",
+                "info",
+                f"Key edge feathered with a {edge_softness:g}px blur after the "
+                "selection and brush strokes were combined.",
+                details={"edgeSoftness": edge_softness},
+            )
+        )
+
+    if not levels_is_identity(mask_levels):
+        mask_array = apply_levels(np.asarray(mask_image, dtype=np.uint8), mask_levels)
+        mask_image = Image.fromarray(mask_array, "L")
+        warnings.append(
+            make_warning(
+                "mask-levels-applied",
+                "info",
+                "The mask alpha ramp was remapped by a levels adjustment.",
+                details=dict(mask_levels or {}),
+            )
+        )
+
+    # --- image tone ----------------------------------------------------------
+    if not levels_is_identity(image_levels):
+        body = apply_levels(body, image_levels)
+        warnings.append(
+            make_warning(
+                "image-levels-applied",
+                "info",
+                "The cut-out colours were remapped by a levels adjustment.",
+                details=dict(image_levels or {}),
+            )
+        )
+
     multiplied = (
         arrays.alpha.astype(np.uint16) * np.asarray(mask_image, dtype=np.uint16) + 127
     ) // 255
     final_alpha = np.clip(multiplied, 0, 255).astype(np.uint8)
 
-    if mode == "none" and bool(np.all(np.asarray(mask_image) == 255)):
+    if (
+        mode == "none"
+        and bool(np.all(np.asarray(mask_image) == 255))
+        and levels_is_identity(image_levels)
+    ):
         # An untouched mask means nothing was removed: keep the source pixels and
         # colour mode exactly as they are.
         output_image = source.image
@@ -278,7 +339,6 @@ def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
     warnings.extend(scope.save_image(output_relative, output_image))
 
     engine, model = ENGINE_BY_MODE[mode]
-    resolved_model = str(job.param("aiModel") or DEFAULT_MODEL) if mode == "ai" else model
     return {
         "schemaVersion": "1.0",
         "jobId": job.job_id,
@@ -289,7 +349,7 @@ def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
             output_image,
             duration_ms=0,
             engine=engine,
-            model=resolved_model,
+            model=model,
             warnings=warnings,
             has_alpha=image_has_alpha(output_image),
         ),

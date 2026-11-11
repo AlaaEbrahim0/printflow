@@ -377,7 +377,24 @@ public static class DesignEndpoints
                         (op.Points ?? [])
                             .Select(point => new BrushPointCommand(point[0], point[1]))
                             .ToArray()))
-                    .ToArray()),
+                    .ToArray(),
+                request.MaskGrowPx,
+                request.MaskLevels is null
+                    ? null
+                    : new LevelsAdjustmentCommand(
+                        request.MaskLevels.BlackPoint,
+                        request.MaskLevels.WhitePoint,
+                        request.MaskLevels.Gamma,
+                        request.MaskLevels.OutputBlack,
+                        request.MaskLevels.OutputWhite),
+                request.ImageLevels is null
+                    ? null
+                    : new LevelsAdjustmentCommand(
+                        request.ImageLevels.BlackPoint,
+                        request.ImageLevels.WhitePoint,
+                        request.ImageLevels.Gamma,
+                        request.ImageLevels.OutputBlack,
+                        request.ImageLevels.OutputWhite)),
             cancellationToken);
         return result.IsSuccess
             ? Accepted(result.Value!)

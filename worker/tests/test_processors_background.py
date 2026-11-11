@@ -1,4 +1,4 @@
-"""background-removal: three modes, the mask artifact, and brush strokes."""
+"""background-removal: the colour key, the mask artifact, brush and shaping ops."""
 
 from __future__ import annotations
 
@@ -7,13 +7,12 @@ import pytest
 from PIL import Image
 
 from app.contracts import WORKER_RESULT_SCHEMA, describe_document
-from app.context import Engines
-from app.engines.birefnet import BirefnetEngine, CutoutResult
 from app.errors import (
     CODE_INVALID_JOB,
     CODE_MASK_MISMATCH,
-    EngineUnavailableError,
+    CODE_UNSUPPORTED_PARAMETERS,
     MaskMismatchError,
+    UnsupportedParameterError,
 )
 from app.processors import background
 from app.processors.background import apply_brush_ops, unmultiplied_color_to_alpha
@@ -22,28 +21,10 @@ from tests.conftest import (
     CONTRACTS_DIR,
     job_document,
     make_engines,
-    make_settings,
     put_image_file,
     run_processor,
     version_path,
 )
-
-
-class FakeCutoutEngine:
-    """Returns a fixed alpha without loading a model, so tests stay fast."""
-
-    def __init__(self, alpha: np.ndarray | None = None) -> None:
-        self.alpha = alpha
-        self.calls: list[dict] = []
-
-    def cutout(self, image: Image.Image, model: str) -> CutoutResult:
-        self.calls.append({"model": model, "size": image.size})
-        alpha = self.alpha
-        if alpha is None:
-            alpha = np.full((image.height, image.width), 255, dtype=np.uint8)
-        result = image.convert("RGBA")
-        result.putalpha(Image.fromarray(alpha, "L"))
-        return CutoutResult(image=result, warnings=[], tiles=1, device="cpu")
 
 
 def warning_codes(result) -> list[str]:
@@ -56,14 +37,14 @@ def white_artwork(size: tuple[int, int] = (240, 160)) -> Image.Image:
     return image
 
 
-def run_background(storage, settings, image, *, parameters, engines=None, **kwargs):
+def run_background(storage, settings, image, *, parameters, name="cutout", **kwargs):
     source = put_image_file(storage, version_path("source"), image)
     document = job_document(
         "background-removal",
         source,
-        output_relative=version_path("cutout"),
+        output_relative=version_path(name),
         parameters=parameters,
-        output_artifacts={"mask": f"{version_path('cutout')[:-4]}/mask.png"},
+        output_artifacts={"mask": f"{version_path(name)[:-4]}/mask.png"},
         **kwargs,
     )
     result = run_processor(
@@ -71,7 +52,7 @@ def run_background(storage, settings, image, *, parameters, engines=None, **kwar
         document,
         settings,
         storage,
-        engines=engines or make_engines(settings),
+        engines=make_engines(settings),
     )
     assert describe_document(WORKER_RESULT_SCHEMA, result, CONTRACTS_DIR) == []
     return source, result
@@ -136,42 +117,24 @@ def test_invalid_hex_is_rejected(storage: StorageRoot, settings) -> None:
     assert getattr(caught.value, "code", None) == CODE_INVALID_JOB
 
 
-# --- AI ----------------------------------------------------------------------
+# --- archived AI mode --------------------------------------------------------
 
-def test_ai_mode_uses_engine_alpha_as_the_mask(storage: StorageRoot, settings) -> None:
-    alpha = np.full((160, 240), 255, dtype=np.uint8)
-    alpha[:40, :] = 0  # a transparent band
-    fake = FakeCutoutEngine(alpha)
-    engines = Engines(realesrgan=make_engines(settings).realesrgan, cutout=fake)
+def test_archived_ai_mode_fails_with_an_actionable_error(
+    storage: StorageRoot, settings
+) -> None:
+    """BiRefNet is archived, so an old `ai` job must fail, not load a model."""
 
-    _, result = run_background(
-        storage,
-        settings,
-        white_artwork(),
-        parameters={"mode": "ai", "aiModel": "birefnet-massive"},
-        engines=engines,
-    )
-
-    assert result["status"] == "succeeded"
-    assert fake.calls == [{"model": "birefnet-massive", "size": (240, 160)}]
-    mask = np.asarray(Image.open(storage.resolve(result["outputArtifacts"]["mask"])))
-    assert mask[10, 10] == 0 and mask[120, 120] == 255
-
-
-def test_ai_mode_fails_when_weights_are_missing(storage: StorageRoot, settings) -> None:
-    # The default engine resolves no model under the configured (absent) dir.
-    missing = settings.model_copy(update={"cutout_model_dir": settings.storage_root / "nope"})
-    with pytest.raises(EngineUnavailableError):
+    with pytest.raises(UnsupportedParameterError) as caught:
         run_background(
             storage,
             settings,
             white_artwork(),
-            parameters={"mode": "ai"},
-            engines=Engines(
-                realesrgan=make_engines(settings).realesrgan,
-                cutout=BirefnetEngine(missing),
-            ),
+            parameters={"mode": "ai", "aiModel": "birefnet-massive"},
         )
+
+    assert caught.value.code == CODE_UNSUPPORTED_PARAMETERS
+    assert caught.value.details["archived"] == ["ai"]
+    assert "color-to-alpha" in caught.value.details["supported"]
 
 
 # --- none + brush ------------------------------------------------------------
@@ -238,6 +201,112 @@ def test_edge_softness_emits_a_warning(storage: StorageRoot, settings) -> None:
     )
 
     assert "mask-edge-softened" in warning_codes(result)
+
+# --- selection shaping -------------------------------------------------------
+
+def _visible_columns(storage, result) -> int:
+    mask = np.asarray(
+        Image.open(storage.resolve(result["outputArtifacts"]["mask"])).convert("L")
+    )
+    return int((mask >= 128).sum())
+
+
+def test_mask_grow_expands_the_selection(storage: StorageRoot, settings) -> None:
+    parameters = {"mode": "color-to-alpha", "keyColor": "#ffffff"}
+    _, base = run_background(
+        storage, settings, white_artwork(), parameters=parameters, name="base"
+    )
+    _, grown = run_background(
+        storage,
+        settings,
+        white_artwork(),
+        parameters={**parameters, "maskGrowPx": 6},
+        name="grown",
+    )
+
+    assert _visible_columns(storage, grown) > _visible_columns(storage, base)
+    assert "mask-selection-offset" in warning_codes(grown)
+
+
+def test_mask_contract_shrinks_the_selection(storage: StorageRoot, settings) -> None:
+    parameters = {"mode": "color-to-alpha", "keyColor": "#ffffff"}
+    _, base = run_background(
+        storage, settings, white_artwork(), parameters=parameters, name="base"
+    )
+    _, shrunk = run_background(
+        storage,
+        settings,
+        white_artwork(),
+        parameters={**parameters, "maskGrowPx": -4},
+        name="shrunk",
+    )
+
+    assert _visible_columns(storage, shrunk) < _visible_columns(storage, base)
+
+
+def test_mask_levels_remap_the_alpha_ramp(storage: StorageRoot, settings) -> None:
+    parameters = {
+        "mode": "color-to-alpha",
+        "keyColor": "#ffffff",
+        "maskLevels": {"blackPoint": 0, "whitePoint": 255, "gamma": 2.0},
+    }
+    _, result = run_background(storage, settings, white_artwork(), parameters=parameters)
+
+    mask = np.asarray(Image.open(storage.resolve(result["outputArtifacts"]["mask"])))
+    # The block keeps its near-opaque alpha but the ramp is lifted: a gamma of 2
+    # brightens the midtones, so 234 becomes brighter while 0 stays 0.
+    assert mask[5, 5] == 0
+    assert mask[70, 100] > 234
+    assert "mask-levels-applied" in warning_codes(result)
+
+
+def test_image_levels_change_colour_without_touching_the_mask(
+    storage: StorageRoot, settings
+) -> None:
+    # Colour-to-alpha decontaminates the artwork against the key, which pins a
+    # two-tone image to black and white; `none` keeps the source colours, so it is
+    # the honest way to test an image-only levels adjustment.
+    parameters = {"mode": "none"}
+    _, plain = run_background(
+        storage, settings, white_artwork(), parameters=parameters, name="plain"
+    )
+    _, toned = run_background(
+        storage,
+        settings,
+        white_artwork(),
+        parameters={
+            **parameters,
+            "imageLevels": {"blackPoint": 0, "whitePoint": 128, "gamma": 1.0},
+        },
+        name="toned",
+    )
+
+    plain_rgb = np.asarray(Image.open(storage.resolve(plain["outputPath"])).convert("RGB"))
+    toned_rgb = np.asarray(Image.open(storage.resolve(toned["outputPath"])).convert("RGB"))
+    plain_mask = np.asarray(Image.open(storage.resolve(plain["outputArtifacts"]["mask"])))
+    toned_mask = np.asarray(Image.open(storage.resolve(toned["outputArtifacts"]["mask"])))
+
+    # The dark block gets brighter (the white point pulls 128 up to 255)...
+    assert toned_rgb[70, 100].min() > plain_rgb[70, 100].min()
+    # ...while the selection itself is untouched.
+    assert np.array_equal(plain_mask, toned_mask)
+    assert "image-levels-applied" in warning_codes(toned)
+
+
+def test_invalid_levels_are_rejected_before_pixels_are_written(
+    storage: StorageRoot, settings
+) -> None:
+    with pytest.raises(UnsupportedParameterError):
+        run_background(
+            storage,
+            settings,
+            white_artwork(),
+            parameters={
+                "mode": "color-to-alpha",
+                "keyColor": "#ffffff",
+                "maskLevels": {"blackPoint": 200, "whitePoint": 100},
+            },
+        )
 
 
 def test_mask_artifact_is_required_by_the_contract(storage: StorageRoot, settings) -> None:

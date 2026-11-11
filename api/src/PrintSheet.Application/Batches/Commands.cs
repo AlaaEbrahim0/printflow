@@ -71,7 +71,22 @@ public sealed record BackgroundRemovalStepCommand(
     int? Tolerance,
     decimal? EdgeSoftness,
     string? AiModel,
-    IReadOnlyList<BrushOpCommand>? BrushOps);
+    IReadOnlyList<BrushOpCommand>? BrushOps,
+    decimal? MaskGrowPx = null,
+    LevelsAdjustmentCommand? MaskLevels = null,
+    LevelsAdjustmentCommand? ImageLevels = null);
+
+/// <summary>
+/// Photoshop-style levels. The same object shapes the mask alpha ramp and the
+/// cut-out colours, but the two stay independent: tone and selection are judged
+/// separately during review.
+/// </summary>
+public sealed record LevelsAdjustmentCommand(
+    int? BlackPoint,
+    int? WhitePoint,
+    decimal? Gamma,
+    int? OutputBlack,
+    int? OutputWhite);
 
 /// <summary>
 /// One erase/restore stroke. Points are in source pixel coordinates, so a stroke

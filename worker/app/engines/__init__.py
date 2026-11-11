@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from app.engines.birefnet import BirefnetEngine
 from app.engines.command import (
     CommandResult,
     CommandRunner,
@@ -11,7 +10,6 @@ from app.engines.command import (
 from app.engines.realesrgan import RealesrganEngine
 
 __all__ = [
-    "BirefnetEngine",
     "CommandResult",
     "CommandRunner",
     "RealesrganEngine",

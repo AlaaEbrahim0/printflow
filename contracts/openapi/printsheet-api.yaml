@@ -820,9 +820,16 @@ paths:
     post:
       tags: [Designs]
       operationId: proposeBackgroundRemoval
-      summary: Propose background removal (AI or color-to-alpha)
+      summary: Propose background removal (color-to-alpha or mask reuse)
       description: |
-        Produces a non-destructive mask artifact and transparency. The source is never modified.
+        Produces a non-destructive mask artifact and transparency. The source is
+        never modified.
+
+        The mask is the reviewable artifact, and it is shaped by the same request:
+        `maskGrowPx` offsets the selection edge, `edgeSoftness` feathers it,
+        `maskLevels` remaps the alpha ramp and `imageLevels` adjusts the cut-out
+        colours. The `ai` mode (BiRefNet) is archived and is rejected by the
+        worker with `unsupported-parameters`.
       requestBody:
         required: true
         content:
@@ -1480,6 +1487,11 @@ components:
         mode:
           type: string
           enum: [ai, color-to-alpha, none]
+          description: |
+            `color-to-alpha` keys out a flat background colour. `none` re-applies
+            brush strokes and mask shaping to `maskFromVersionId`. `ai` (BiRefNet)
+            is archived: it is still a legal value so historical jobs stay
+            readable, but the worker rejects it with `unsupported-parameters`.
         keyColor:
           type: string
           nullable: true
@@ -1494,14 +1506,48 @@ components:
           nullable: true
           minimum: 0
           maximum: 10
+        maskGrowPx:
+          type: number
+          nullable: true
+          minimum: -100
+          maximum: 100
+          description: |
+            Move the selection edge by this many source pixels: positive grows the
+            selection, negative contracts it. The offset is circular (Euclidean),
+            so a diagonal edge moves the same distance as a straight one, and a
+            grown pixel inherits the nearest selected alpha instead of being
+            stamped opaque.
+        maskLevels:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/LevelsAdjustment'
+        imageLevels:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/LevelsAdjustment'
         aiModel:
           type: string
           nullable: true
           enum: [birefnet-massive, birefnet-general, birefnet-general-lite]
+          deprecated: true
         brushOps:
           type: array
           nullable: true
           items: { $ref: '#/components/schemas/BrushOp' }
+
+    LevelsAdjustment:
+      type: object
+      description: |
+        Photoshop-style levels. Input black/white points rescale the ramp, `gamma`
+        bends the midpoint (above 1 brightens midtones), and the optional output
+        range clamps the result. Applied through a 256-entry lookup table, so the
+        same parameters always produce the same bytes.
+      properties:
+        blackPoint: { type: integer, minimum: 0, maximum: 254, default: 0 }
+        whitePoint: { type: integer, minimum: 1, maximum: 255, default: 255 }
+        gamma: { type: number, minimum: 0.01, maximum: 9.99, default: 1.0 }
+        outputBlack: { type: integer, minimum: 0, maximum: 255, default: 0 }
+        outputWhite: { type: integer, minimum: 0, maximum: 255, default: 255 }
 
     BrushOp:
       type: object

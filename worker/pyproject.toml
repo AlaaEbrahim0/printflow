@@ -16,10 +16,9 @@ dependencies = [
   "opencv-python-headless>=4.10,<5",
   "httpx>=0.28,<1",
   "jsonschema>=4.23,<5",
-  # Background removal. The BiRefNet graph is run directly through onnxruntime;
-  # rembg is deliberately not a dependency (it would pull scipy, scikit-image,
-  # pymatting, numba and pooch for a single model call).
-  "onnxruntime>=1.20,<2",
+  # Background removal is a colour key plus mask shaping (grow/contract, feather,
+  # levels) on OpenCV arrays -- no model runtime. The BiRefNet ONNX engine is
+  # archived under archive/birefnet/ and is not a dependency of the worker.
 ]
 
 [project.optional-dependencies]
@@ -27,12 +26,10 @@ dev = [
   "pytest>=8.3,<10",
   "ruff>=0.8,<1",
 ]
-# GPU inference for background removal. The CUDA runtime is supplied by the base
-# image (see Dockerfile); installing this in the slim CPU image only adds a shim
-# that cannot load, so it is opt-in rather than a hard dependency.
-gpu = [
-  "onnxruntime-gpu>=1.20,<2",
-]
+# Kept as an empty extra so existing installs (`pip install -e '.[gpu]'`) do not
+# break. GPU inference now only concerns Real-ESRGAN, which runs as a Vulkan
+# binary rather than a Python package.
+gpu = []
 [project.scripts]
 printsheet-worker = "app.cli:main"
 

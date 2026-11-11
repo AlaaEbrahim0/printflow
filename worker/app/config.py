@@ -89,18 +89,11 @@ class Settings(BaseSettings):
     trim_padding_px: int = Field(default=8, ge=0, le=10000)
     trim_tolerance: int = Field(default=12, ge=0, le=255)
 
-    # --- cutout (background removal) -----------------------------------------
-    # BiRefNet weights live outside the image; when the file is missing the job
-    # fails with a stable engine-unavailable error instead of substituting a model.
-    cutout_model_dir: Path = Path("/models/cutout")
-    # One 1024x1024 forward pass covers this many source pixels. Native scale (1024)
-    # is slowest and best; 1200 measured as the point where quality saturates.
-    cutout_tile_source_px: int = Field(default=1200, ge=256, le=8192)
-    cutout_tile_overlap_px: int = Field(default=96, ge=0, le=2048)
-    # Hard ceiling so a huge design cannot queue hundreds of forward passes.
-    cutout_max_tiles: int = Field(default=64, ge=1, le=4096)
-    cutout_cpu_threads: int = Field(default=0, ge=0, le=256)
-    cutout_timeout_seconds: int = Field(default=3600, ge=1)
+    # --- background removal (colour key + mask shaping) -----------------------
+    # There is no model to load: the key colour, the selection offset and the two
+    # levels adjustments are all pure array maths. The BiRefNet engine was archived
+    # because it needed the whole GPU/CPU memory budget for minutes per design and
+    # still produced unreliable edges.
 
     # --- engines -------------------------------------------------------------
     realesrgan_binary: Path = Path("realesrgan-ncnn-vulkan")

@@ -15,7 +15,6 @@ export PRINTSHEET_WORKER_KEY="${PRINTSHEET_WORKER_KEY:-dev-worker-key}"
 export PRINTSHEET_WORKER_ID="${PRINTSHEET_WORKER_ID:-worker-native}"
 export PRINTSHEET_GPU_ENABLED="${PRINTSHEET_GPU_ENABLED:-false}"
 export PRINTSHEET_RUN_JOBS="${PRINTSHEET_RUN_JOBS:-true}"
-export PRINTSHEET_CUTOUT_MODEL_DIR="${PRINTSHEET_CUTOUT_MODEL_DIR:-$ROOT/models/cutout}"
 
 mkdir -p "$PRINTSHEET_STORAGE_ROOT"
 exec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port "${WORKER_PORT:-8000}"

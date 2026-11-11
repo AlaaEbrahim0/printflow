@@ -1,10 +1,13 @@
 # PrintSheet Workbench
 
 Internal, review-driven DTF print preparation. Staff upload a batch of customer
-designs, the system proposes trim, crop, Real-ESRGAN enhancement and final print
-sizing, and a human approves every step. Background removal and vectorization
-were retired in contract v2.0.0; staff finish those in Photoshop and can import
-the exported PNGs directly as ready-to-pack artwork. Approved designs are
+designs, the system proposes trim, crop, background removal, Real-ESRGAN
+enhancement and final print sizing, and a human approves every step. Background
+removal keys out a flat colour and exposes mask shaping — grow/contract the
+selection, feather the edge, and apply separate levels to the mask and the image
+— so logos, text and line art cut cleanly; busy artwork is still cut in Photoshop
+and imported as ready-to-pack. Vectorization was retired in contract v2.0.0.
+Approved designs are
 nested onto a master sheet that is exactly **58 cm wide** (6850 px at 300 DPI);
 sheet height — and therefore print cost — is minimized. Every step creates an
 immutable version, originals are never overwritten, and export is blocked

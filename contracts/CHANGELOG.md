@@ -1,5 +1,30 @@
 # Contract Changelog
 
+## Additive changes — 2026-11-10
+
+No breaking change; the OpenAPI version stays `2.0.0`. `POST
+/api/v1/designs/{designId}/steps/background-removal` is back (it was removed in
+2.0.0) and the worker job schema gained optional mask-shaping parameters. Every
+addition is optional, so existing clients keep working unchanged.
+
+- `BackgroundRemovalStepRequest` accepts `mode: "color-to-alpha"` (flat colour
+  key: `keyColor`, `tolerance`, `edgeSoftness`) and `mode: "none"` (re-apply
+  brush strokes and shaping to `maskFromVersionId`).
+- `mode: "ai"` and `aiModel` remain in the schema — marked deprecated — so
+  historical job records still validate and render. The API rejects them with
+  `invalid-request` and the worker with `unsupported-parameters`; BiRefNet is
+  archived in `archive/birefnet/`.
+- New optional `maskGrowPx` (−100..100) grows (positive) or contracts (negative)
+  the selection edge by that many source pixels. The offset is circular
+  (Euclidean), so diagonal edges move the same distance as straight ones.
+- New optional `maskLevels` and `imageLevels`, both `LevelsAdjustment`: input
+  black/white points, midtone `gamma` and an optional output range, applied
+  through a 256-entry lookup table. `maskLevels` reshapes the transparency;
+  `imageLevels` moves the colour of the surviving pixels. They are independent.
+- The worker emits `mask-selection-offset`, `mask-edge-softened`,
+  `mask-levels-applied` and `image-levels-applied` warnings so the review screen
+  can show what shaping was actually applied.
+
 ## Additive changes — 2026-11-09
 
 No breaking change; the OpenAPI version stays `2.0.0`. Both additions are new

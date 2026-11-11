@@ -20,7 +20,6 @@ from PIL import Image
 from app.config import Settings
 from app.context import Engines, JobScope, default_engines
 from app.contracts import validate_job
-from app.engines.birefnet import BirefnetEngine
 from app.engines.command import CommandResult, CommandRunner
 from app.engines.realesrgan import RealesrganEngine
 from app.job_models import WorkerJob
@@ -228,10 +227,7 @@ def make_engines(
     runner: CommandRunner | None = None,
 ) -> Engines:
     resolved = runner or FakeCommandRunner()
-    return Engines(
-        realesrgan=RealesrganEngine(settings, resolved),
-        cutout=BirefnetEngine(settings),
-    )
+    return Engines(realesrgan=RealesrganEngine(settings, resolved))
 
 
 @pytest.fixture

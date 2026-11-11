@@ -19,7 +19,6 @@ from pathlib import Path
 from PIL import Image
 
 from app.config import Settings
-from app.engines.birefnet import BirefnetEngine
 from app.engines.command import CommandRunner, SubprocessCommandRunner
 from app.engines.realesrgan import RealesrganEngine
 from app.errors import MissingInputArtifactError
@@ -36,18 +35,19 @@ from app.storage import StorageRoot
 
 @dataclass
 class Engines:
-    """Injectable engine bundle."""
+    """Injectable engine bundle.
+
+    Only Real-ESRGAN is left: the BiRefNet cutout engine is archived under
+    ``archive/birefnet/`` and background removal now runs on the colour key plus
+    the mask-shaping operations in :mod:`app.mask_ops`.
+    """
 
     realesrgan: RealesrganEngine
-    cutout: BirefnetEngine
 
 
 def default_engines(settings: Settings, runner: CommandRunner | None = None) -> Engines:
     resolved_runner = runner or SubprocessCommandRunner()
-    return Engines(
-        realesrgan=RealesrganEngine(settings, resolved_runner),
-        cutout=BirefnetEngine(settings),
-    )
+    return Engines(realesrgan=RealesrganEngine(settings, resolved_runner))
 
 
 @dataclass(frozen=True)
