@@ -566,7 +566,11 @@ If context is running low, prioritize in this order:
 
 ---
 
-## 14. Live status
+## 14. Tooling verification note
+
+The agent file viewer may strip characters such as `=`, `*`, and `=>` from displayed output. Never infer source corruption from displayed text. Verify with a clean compiler, tests, and byte-level `grep`/`od` checks before editing.
+
+## 15. Live status
 
 **Last updated:** 2026-11-11 (review page rebuilt as a canvas + layer-stack editor; teal accent, light theme)
 
