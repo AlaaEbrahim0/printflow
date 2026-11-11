@@ -12,6 +12,11 @@ export interface PixelResolver { resolve(sourceId: string): ImageData }
 export interface CompositeRegion { x: number; y: number; width: number; height: number }
 export interface CompositeOptions { region?: CompositeRegion; scale?: number; colorKeyCache?: ColorKeyCache; inputRevision?: string }
 
+function makeImageData(width: number, height: number, data?: Uint8ClampedArray): ImageData {
+  if (typeof ImageData !== 'undefined') return data ? new ImageData(data, width, height) : new ImageData(width, height)
+  return { data: data ?? new Uint8ClampedArray(width * height * 4), width, height, colorSpace: 'srgb' } as ImageData
+}
+
 export class ColorKeyCache {
   private readonly values = new Map<string, Uint8Array>()
   get(descriptor: PixelOperation, revision: string): Uint8Array | undefined { return this.values.get(JSON.stringify(descriptor) + revision) }
@@ -83,12 +88,12 @@ function applyPixelOperation(pixels: ImageData, operation: PixelOperation, cache
 }
 
 function compositeFull(document: EditorDocument, resolver: PixelResolver, options: CompositeOptions): ImageData {
-  const full = new ImageData(document.width, document.height)
+  const full = makeImageData(document.width, document.height)
   for (const layer of document.layers) {
     if (!layer.visible) continue
     const pixels = layer.kind === 'base-raster'
-      ? new ImageData(resolver.resolve(layer.sourceId).data.slice(), document.width, document.height)
-      : new ImageData(full.data.slice(), document.width, document.height)
+      ? makeImageData(document.width, document.height, resolver.resolve(layer.sourceId).data.slice())
+      : makeImageData(document.width, document.height, full.data.slice())
     if (layer.kind === 'adjustment') applyAdjustments(pixels, layer.adjustment)
     if (layer.kind === 'pixel-op') applyPixelOperation(pixels, layer.operation, options.colorKeyCache, options.inputRevision)
     for (let i = 0; i < full.data.length; i += 4) sourceOver(full.data, pixels.data, i, Math.max(0, Math.min(1, layer.opacity)), layer.blendMode, layer.mask)
@@ -101,7 +106,7 @@ export function compositeDocument(document: EditorDocument, resolver: PixelResol
   const full = compositeFull(document, resolver, options)
   const region = options.region ?? { x: 0, y: 0, width: document.width, height: document.height }
   const scale = options.scale ?? 1
-  const out = new ImageData(Math.max(1, Math.round(region.width * scale)), Math.max(1, Math.round(region.height * scale)))
+  const out = makeImageData(Math.max(1, Math.round(region.width * scale)), Math.max(1, Math.round(region.height * scale)))
   for (let y = 0; y < out.height; y += 1) for (let x = 0; x < out.width; x += 1) {
     const sx = Math.min(document.width - 1, region.x + Math.floor(x / scale))
     const sy = Math.min(document.height - 1, region.y + Math.floor(y / scale))

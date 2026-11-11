@@ -17,7 +17,9 @@ import {
 } from './history'
 import { contractMask, featherMask, growMask, maskCoverage, thresholdMask } from './maskOps'
 import { EMPTY_PATH, addPathPoint, canFillPath, fillPath, type PathState } from './pathModel'
-import { drawBase, drawMaskOverlay, drawPathOverlay, drawSelectionOverlay } from './render'
+import { drawMaskOverlay, drawPathOverlay, drawSelectionOverlay } from './render'
+import { compositeDocument } from './composite'
+import type { EditorDocument } from './document'
 import {
   combineSelection,
   invertSelection,
@@ -103,7 +105,17 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
     const canvas = base.current
     const ants = overlay.current
     if (!src || !canvas || !ants) return
-    drawBase(canvas, src, adjustments, mask)
+    const pixels = src.getContext('2d')?.getImageData(0, 0, src.width, src.height)
+    if (pixels) {
+      const document: EditorDocument = {
+        schemaVersion: 1, id: 'manual-editor', designId: title, sourceVersionId: fileUrl,
+        width: src.width, height: src.height, activeLayerId: 'base', selection: null,
+        layers: [{ id: 'base', kind: 'base-raster', name: 'Original', sourceId: 'source', visible: true, opacity: 1, blendMode: 'normal', mask: mask ? { encoding: 'bitpack-v1', width: src.width, height: src.height, feather: featherRadius, bytes: Uint8Array.from(mask, value => value >= threshold ? 255 : 0) } : null }],
+      }
+      const rendered = compositeDocument(document, { resolve: () => pixels })
+      canvas.width = rendered.width; canvas.height = rendered.height
+      canvas.getContext('2d')?.putImageData(rendered, 0, 0)
+    }
     const width = src.width
     const height = src.height
     if (drag && hover && (tool === 'marquee' || tool === 'ellipse')) {
@@ -287,32 +299,31 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
     else commit(label, { selection: next })
   }
 
-  function exportPng() {
+  async function renderPng(): Promise<Blob> {
     const canvas = base.current
-    if (!canvas) return
-    canvas.toBlob(blob => {
-      if (!blob) return
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = 'manual-cleanup.png'
-      document.body.appendChild(anchor)
-      anchor.click()
-      window.setTimeout(() => {
-        anchor.remove()
-        URL.revokeObjectURL(url)
-      }, 0)
-    }, 'image/png')
+    if (!canvas) throw new Error('Editor canvas unavailable.')
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'))
+    if (!blob) throw new Error('Could not render canvas to PNG.')
+    return blob
+  }
+
+  async function exportPng() {
+    const blob = await renderPng()
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = 'manual-cleanup.png'
+    document.body.appendChild(anchor)
+    anchor.click()
+    window.setTimeout(() => { anchor.remove(); URL.revokeObjectURL(url) }, 0)
   }
 
   async function save() {
-    const canvas = base.current
-    if (!canvas || saveState === 'saving') return
+    if (saveState === 'saving') return
     setSaveState('saving')
     setSaveError('')
     try {
-      const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'))
-      if (!blob) throw new Error('Could not render the canvas to PNG.')
+      const blob = await renderPng()
       await onSave(new File([blob], 'manual-cleanup.png', { type: 'image/png' }))
       setDirty(false)
       setSaveState('saved')
