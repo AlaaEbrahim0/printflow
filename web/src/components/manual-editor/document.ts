@@ -10,6 +10,15 @@ export interface PackedMask {
   bytes: Uint8Array
 }
 
+export interface MaskDelta {
+  encoding: 'xor-bitpack-v1'
+  width: number
+  height: number
+  feather: number
+  beforeFeather: number
+  bytes: Uint8Array
+}
+
 export type BlendMode = 'normal' | 'multiply'
 export type LayerKind = 'base-raster' | 'adjustment' | 'pixel-op'
 
@@ -63,8 +72,8 @@ export interface EditorDocument {
 }
 
 export type DocumentCommand =
-  | { type: 'set-selection'; before: PackedMask | null; after: PackedMask | null; coalesceKey?: string }
-  | { type: 'set-layer-mask'; layerId: string; before: PackedMask | null; after: PackedMask | null; coalesceKey?: string }
+  | { type: 'set-selection'; before: PackedMask | null; after: PackedMask | null; delta: MaskDelta | null; coalesceKey?: string }
+  | { type: 'set-layer-mask'; layerId: string; before: PackedMask | null; after: PackedMask | null; delta: MaskDelta | null; coalesceKey?: string }
   | { type: 'add-layer'; layer: EditorLayer; index: number; coalesceKey?: string }
   | { type: 'remove-layer'; layer: EditorLayer; index: number; coalesceKey?: string }
   | { type: 'update-layer'; layerId: string; before: Partial<EditorLayer>; after: Partial<EditorLayer>; coalesceKey?: string }
@@ -119,6 +128,20 @@ export function invertCommand(command: DocumentCommand): DocumentCommand {
     case 'reorder-layer': return { ...command, from: command.to, to: command.from }
     case 'set-active-layer': return { ...command, before: command.after, after: command.before }
   }
+}
+
+export function createMaskDelta(before: PackedMask | null, after: PackedMask | null): MaskDelta | null {
+  if (!before || !after || before.width !== after.width || before.height !== after.height) return null
+  const bytes = new Uint8Array(before.bytes.length)
+  for (let i = 0; i < bytes.length; i += 1) bytes[i] = before.bytes[i] ^ after.bytes[i]
+  return { encoding: 'xor-bitpack-v1', width: before.width, height: before.height, feather: after.feather, beforeFeather: before.feather, bytes }
+}
+
+export function applyMaskDelta(mask: PackedMask, delta: MaskDelta): PackedMask {
+  if (mask.width !== delta.width || mask.height !== delta.height || mask.bytes.length !== delta.bytes.length) throw new Error('mask delta dimensions mismatch')
+  const bytes = mask.bytes.slice()
+  for (let i = 0; i < bytes.length; i += 1) bytes[i] ^= delta.bytes[i]
+  return { ...mask, feather: delta.feather, bytes }
 }
 
 function commandBytes(command: DocumentCommand): number {
