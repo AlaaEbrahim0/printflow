@@ -11,7 +11,7 @@ PYTHON ?= python3
 
 .PHONY: help setup api-setup worker-setup packer-setup web-setup contracts-setup
 .PHONY: up down reset ps logs smoke verify test test-api test-worker test-packer test-web test-contracts
-.PHONY: build fixtures e2e-fixtures api worker worker-gpu worker-gpu-setup web clean distclean
+.PHONY: build fixtures e2e-fixtures api worker worker-gpu worker-gpu-setup web clean distclean test-web-full
 
 help: ## Show the available targets
 	@awk 'BEGIN {FS = ":.*##"; printf "PrintSheet Workbench\n\nUsage: make <target>\n\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -94,6 +94,11 @@ test-packer: packer-setup ## Packer tests
 
 test-web: web-setup ## Web type-check, build and lint
 	cd web && npm run build && npm run lint
+
+test-web-full: web-setup ## Full web test suite
+	cd web && npm test -- --run
+
+phase-gates: test-contracts test-api test-worker test-packer test-web-full ## Run complete phase validation gates
 
 test-contracts: contracts-setup ## Validate JSON Schemas, examples and OpenAPI
 	.venv-contracts/bin/python scripts/validate_contracts.py

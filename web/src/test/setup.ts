@@ -40,6 +40,7 @@ function createTestContext2d(): Record<string, unknown> & { canvas: HTMLCanvasEl
     scale: noop,
     rotate: noop,
     setTransform: noop,
+    setLineDash: noop,
     drawImage: noop,
     putImageData: noop,
     createLinearGradient: () => ({ addColorStop: noop }),
