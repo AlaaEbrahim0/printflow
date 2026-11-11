@@ -104,7 +104,7 @@ export function ImageComparisonSlider({
       onMouseDown={handlePointerDown}
       onTouchStart={handlePointerDown}
       onKeyDown={handleKeyDown}
-      style={{ aspectRatio: `${aspectRatio.toFixed(4)}` } as React.CSSProperties}
+      style={{ aspectRatio: `${aspectRatio.toFixed(4)}`, height: 'auto' } as React.CSSProperties}
     >
       <div className="comparison-layer before" style={beforeStyle} aria-hidden="true">
         <AlphaPreview

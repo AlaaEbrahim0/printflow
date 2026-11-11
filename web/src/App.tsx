@@ -1,4 +1,5 @@
-import { NavLink, Route, Routes, Outlet, BrowserRouter } from 'react-router-dom'
+import { NavLink, Route, Routes, Outlet, BrowserRouter, Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 import BatchDetailPage from './routes/BatchDetailPage'
 import BatchListPage from './routes/BatchListPage'
 import DesignReviewPage from './routes/DesignReviewPage'
@@ -9,6 +10,7 @@ import SheetPage from './routes/SheetPage'
 import { SettingsProvider } from './state/SettingsContext'
 import { HealthDot } from './components/ui/HealthDot'
 import { ContractBadge } from './components/ui/ContractBadge'
+import { api } from './api/client'
 import './styles/shell.css'
 import './styles/ui.css'
 
@@ -38,6 +40,7 @@ function WorkbenchLayout() {
         <div className="topbar-meta">
           <HealthDot />
           <ContractBadge />
+          <LiveJobsBadge />
         </div>
       </header>
 
@@ -50,6 +53,40 @@ function WorkbenchLayout() {
         <span className="muted">sRGB only · no staff authentication (trusted LAN MVP)</span>
       </footer>
     </div>
+  )
+}
+
+function LiveJobsBadge() {
+  const [liveCount, setLiveCount] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    async function refresh() {
+      try {
+        const list = await api.jobs.list({ limit: 200 }, { signal: AbortSignal.timeout(5000) })
+        if (!cancelled) {
+          setLiveCount(
+            list.items.filter((job) => job.status === 'queued' || job.status === 'running').length,
+          )
+        }
+      } catch {
+        // Transient network/read errors are retried on the next tick.
+      }
+    }
+    void refresh()
+    const timer = window.setInterval(refresh, 3000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [])
+
+  if (liveCount === 0) return null
+  return (
+    <Link className="topbar-live" to="/jobs">
+      <span className="dot ok" aria-hidden="true" />
+      {liveCount} live
+    </Link>
   )
 }
 

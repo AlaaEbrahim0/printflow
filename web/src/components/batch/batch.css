@@ -19,14 +19,16 @@
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--panel-2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)), var(--panel-2);
   color: var(--paper);
   text-decoration: none;
-  transition: border-color 120ms ease;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
 }
 
 .artifact-link:hover {
   border-color: var(--accent);
+  background: linear-gradient(180deg, rgba(255, 106, 61, 0.08), rgba(255, 106, 61, 0.02));
+  box-shadow: 0 4px 14px rgba(255, 106, 61, 0.12);
 }
 
 .artifact-link strong {
@@ -51,10 +53,16 @@
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: start;
   gap: 8px;
-  padding: 10px 11px;
+  padding: 12px 13px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--panel);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)), var(--panel);
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.workflow-stage:hover {
+  border-color: var(--line-strong);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
 
 .workflow-mark {
@@ -98,6 +106,7 @@
 .workflow-stage.is-current {
   border-color: var(--accent);
   background: var(--accent-soft);
+  box-shadow: 0 4px 16px rgba(255, 106, 61, 0.14);
 }
 
 .workflow-stage.is-current .workflow-mark {
@@ -175,16 +184,18 @@
 
 /* The single most useful line on a batch card: what to do next, not just the
    counts. Tone matches the rest of the chip palette. */
-.batch-next {  display: grid;
+.batch-next {
+  display: grid;
   gap: 3px;
   padding: 9px 11px;
   border-radius: var(--radius-sm);
   border-left: 3px solid var(--line-strong);
-  background: var(--panel-2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)), var(--panel-2);
 }
 
 .batch-next strong {
   font-size: 0.87rem;
+  font-weight: 700;
 }
 
 .batch-next span {
@@ -209,6 +220,21 @@
   display: grid;
   align-content: start;
   gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)), var(--panel);
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 80ms ease;
+}
+
+.design-card:hover {
+  border-color: var(--line-strong);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+  transform: translateY(-2px);
+}
+
+.design-card.is-excluded {
+  opacity: 0.72;
 }
 
 /* Design groups: needs-work first, then ready, then excluded. */
@@ -221,15 +247,17 @@
   align-items: center;
   gap: 8px;
   font-size: 0.95rem;
-}
-
-.design-card.is-excluded {
-  opacity: 0.72;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .design-name {
   margin: 0;
   overflow-wrap: anywhere;
+  font-size: 0.95rem;
+  font-weight: 600;
 }
 
 .design-thumb {
@@ -237,6 +265,7 @@
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
+  background: var(--ink);
 }
 
 .design-thumb .alpha-preview {
@@ -250,7 +279,7 @@
 }
 
 .design-actions {
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
 .design-actions .btn {
@@ -306,55 +335,66 @@
    facing two upload forms that look equally applicable. */
 .intake-paths {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 8px;
-  margin: 10px 0 4px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  margin: 12px 0 6px;
 }
 
 .intake-path {
   display: grid;
-  gap: 5px;
-  padding: 11px 13px;
+  gap: 6px;
+  padding: 14px 16px;
   text-align: left;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--panel-2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)), var(--panel-2);
   color: var(--paper);
   font: inherit;
   cursor: pointer;
-  transition: border-color 120ms ease, background 120ms ease;
+  transition: border-color 120ms ease, background 120ms ease, transform 80ms ease, box-shadow 120ms ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
 
 .intake-path:hover {
   border-color: var(--line-strong);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+}
+
+.intake-path:active {
+  transform: translateY(1px);
 }
 
 .intake-path.is-active {
   border-color: var(--accent);
-  background: var(--accent-soft);
+  background: linear-gradient(180deg, rgba(255, 106, 61, 0.12), rgba(255, 106, 61, 0.04));
+  box-shadow: 0 8px 24px rgba(255, 106, 61, 0.18);
 }
 
 .intake-path strong {
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+  font-weight: 700;
 }
 
 .intake-path span {
   color: var(--muted);
-  font-size: 0.79rem;
-  line-height: 1.4;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .intake-panel {
-  margin-top: 14px;
-  padding-top: 14px;
+  margin-top: 16px;
+  padding-top: 16px;
   border-top: 1px solid var(--line);
 }
 
 .intake-panel-title {
-  margin-bottom: 8px;
-  font-size: 0.92rem;
+  margin-bottom: 10px;
+  font-size: 0.95rem;
   color: var(--muted);
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 /* Names of the designs actually blocking the pack, each linking to its review

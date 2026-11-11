@@ -568,7 +568,7 @@ If context is running low, prioritize in this order:
 
 ## 14. Live status
 
-**Last updated:** 2026-11-10 (restored background removal: BiRefNet tiled ONNX, color-to-alpha, non-destructive mask artifacts)
+**Last updated:** 2026-11-11 (design review page: Photopea retry, slider fit, capped preview, approve/reject modal, live-jobs badge)
 
 **Done and verified:**
 
@@ -577,9 +577,12 @@ If context is running low, prioritize in this order:
 - API Clean Architecture implementation builds; 11 domain tests and 5
   infrastructure tests pass. The live fixture-flow script covers the API job
   lifecycle.
-- Worker processing covers classify, trim/crop, upscale and resize; 195 tests
-  pass. Retired background-removal/vectorize jobs fail with a structured
-  `retired` reason while historical schema documents stay readable.
+- Worker processing covers classify, trim/crop, upscale, resize and
+  background-removal; 225 tests pass. Background removal runs a colour key
+  (`color-to-alpha`) or reapplies brush edits to an earlier mask (`none`) and
+  produces a non-destructive mask artifact; its `ai` (BiRefNet) mode is archived
+  and fails with `unsupported-parameters`. Retired vectorize jobs fail with a
+  structured `retired` reason while historical schema documents stay readable.
 - Packer conservative-bitmap nesting/integrity/export implementation is
   integrated. Lease-based API runner has targeted tests for pack, integrity,
   export, path safety, failure payloads and lease loss; the complete packer
@@ -760,11 +763,15 @@ If context is running low, prioritize in this order:
    version, no job). The operator downloads current/proposed PNGs for
    Photoshop from the design review page and re-imports the finished PNGs.
 8. The thumbnail pipeline, global jobs screen, aspect-linked print size and
-   `404` status fix are implemented and validated against the live stack but
-   **not yet committed**. Commit them in logical slices on top of `2a45f3f`,
-   preserving the unrelated in-flight work in the same worktree (batch/design
-   deletion endpoints, the 50 MB upload limit, and the untracked `win-scripts/`
-   directory, which must be left alone).
+   `404` status fix is committed and validated against the live stack. The
+   editor profile selector plus the cutout mask controls (grow/contract,
+   independent mask and image levels) are implemented, styled, and green in
+   `npm run build`, `npm run lint` and `npm test`. The five design-review UI
+   defects found in manual testing (Photopea startup, slider fit, unbounded
+   preview, accept/reject modal, live-job indicator) are fixed in the working
+   tree and green on the same gates. Leave the unrelated in-flight work
+   (batch/design deletion endpoints, the 50 MB upload limit, `win-scripts/`)
+   untouched.
 9. The user's 25-PNG / ~200 MB batch was not on disk; the measurement above used
    the ten PNGs (51 MB on disk, 42.35 MB served) in `~/Downloads/test`. If the
    25-PNG set becomes available, re-run the grid transfer comparison to confirm
@@ -786,15 +793,113 @@ If context is running low, prioritize in this order:
   an explicit lock command if the shop needs “sent to printer” immutability.
 - The MVP allows one current sheet per batch; very tall batches must be split
   by excluding designs or accepted as one tall sheet/one export.
-- Background removal and vectorization are intentionally retired, not merely
-  hidden. Operators handle those cases in Photoshop and import the finished
-  PNGs through ready-to-pack intake; historical artifacts remain downloadable.
+- Background removal is live but deliberately limited to a colour key. The
+  `ai` (BiRefNet) cutout is archived in `archive/birefnet/`: it is not merely
+  hidden, it is refused. Busy artwork is cut in Photoshop/Photopea and imported
+  through ready-to-pack intake. Vectorization is retired the same way; all
+  historical artifacts remain downloadable.
 
 ---
 
 ## 15. Handoff log
 
 Append newest entries at the top. Keep them short and factual.
+
+### 2026-11-11 — Five manual-testing UI defects on the design review page
+
+- **Photopea startup failure had no exit.** The boot effect depended only on
+  `[fileUrl, documentName, update]`, so a timed-out embed showed a dead overlay
+  forever. Added a `retry` counter to the dependency list and, when the error
+  mentions "never finished starting up", a `Try again` button plus an
+  `Open Photopea in new tab` escape hatch (`.photopea-retry` in `photopea.css`).
+- **Before/after slider letterboxed instead of filling.** `.comparison-layer
+  .alpha-preview` used `object-fit: cover` on a non-replaced element (a no-op),
+  so the image overflowed and was clipped. Now `contain`, and the slider passes
+  `height: 'auto'` alongside `aspectRatio` so the box derives its height from the
+  ratio rather than collapsing.
+- **Design preview grew without bound.** A tall design stretched its preview to
+  the column width times its ratio, pushing the approve buttons off-screen. The
+  review page root is now `className="stack design-view"` and `design-review.css`
+  caps `.alpha-preview-image` at `min(58vh, 620px)` (slider `min(62vh, 680px)`),
+  letting `object-fit: contain` letterbox. An earlier `100vh`/`overflow: auto`
+  wrapper was dropped: it nested a scroll box inside the page and produced two
+  scrollbars instead of shrinking the content.
+- **Accept/reject confirmation appeared nowhere useful.** Approve ran the API
+  call directly and reject ran its own; neither showed the summary the operator
+  needs before committing. Both buttons now open one modal (`modalOpen`,
+  `modalIntent`, `data-testid="proposal-modal"`), which closes on Cancel, Escape
+  or a backdrop click and confirms via `proposal-modal-approve`. The old
+  `.review-modal` rule centred itself with `place-items: center` *and*
+  `left: 50%; transform: translateX(-50%)`, shifting it half a width off-centre
+  and below the viewport; it is now a flex-end sheet with `max-height: min(86vh,
+  760px)` and a real `overflow: auto` body.
+- **Running jobs were invisible outside a design page.** `LiveJobsBadge` in
+  `App.tsx` polls `api.jobs.list({ limit: 200 })` every 3 s and links to `/jobs`
+  when anything is queued or running; errors are swallowed so a transient read
+  failure just retries.
+- Gates: `npm run build` clean, `npm run lint` exit 0 (15 pre-existing warnings,
+  0 errors), `npm test` 251 passed. Added
+  `confirms approval in a modal that cancels without touching the proposal`,
+  which asserts Approve alone does not approve, Cancel and Escape both close,
+  and the proposal stays pending throughout.
+- Note: `DesignReviewPage.tsx` arrived in the tree corrupted from this work (a
+  `useEffect(()` missing its arrow, seven `</section>` replaced by `</div>`,
+  missing `modalOpen`/`modalIntent`). Rebuilt from `bc40916` with the modal and
+  wrapper applied as seven explicit replacements rather than patched in place.
+
+### 2026-11-10 — BiRefNet archived; colour key gains grow/contract and levels
+
+- Archived the AI cutout: `worker/app/engines/birefnet.py`, its test and every
+  `worker/experiments/*.py` script moved (not deleted) to `archive/birefnet/`,
+  with a README recording why it lost (GBs of RAM, ~7.5 min per 3600 px image,
+  unreliable thin-type edges, hundreds of MB of weights). `onnxruntime` left
+  `worker/pyproject.toml`; the `gpu` extra stays as an empty list so existing
+  `pip install -e '.[gpu]'` keeps working.
+- `ai` remains a legal schema/API enum value so historical jobs render, but the
+  API returns `invalid-request` and the worker `unsupported-parameters` with an
+  actionable message pointing at `color-to-alpha` or a Photoshop import.
+- New `worker/app/mask_ops.py`: `grow_mask` (true circular offset via
+  `cv2.distanceTransformWithLabels`, not a square kernel — a square kernel moves
+  diagonals ~1.41x too far and took 4.8 s vs 0.3 s at 6850 px), `feather_mask`,
+  `levels_lut`/`apply_levels`, `EDGE_THRESHOLD = 128`. Growing inherits the
+  nearest selected alpha so a soft rim stays soft; contracting mirrors it from
+  the nearest unselected pixel.
+- `background.py` now applies one documented order: mode mask -> `min` with the
+  reused mask -> brush ops -> grow/contract -> feather -> mask levels, with
+  `imageLevels` applied independently before the mask is multiplied into alpha.
+  Emits `mask-selection-offset`, `mask-edge-softened`, `mask-levels-applied`,
+  `image-levels-applied`.
+- Contracts (additive, still v2.0.0): `maskGrowPx` (-100..100), `maskLevels`,
+  `imageLevels`, a shared `levelsAdjustment` def, `aiModel` marked deprecated.
+  API `StepService` validates the range and both levels objects; web regenerated
+  `schema.d.ts` and added `MaskControls` (`MaskGrowControl`, `LevelsControl`,
+  live curve) plus `lib/levels.ts` mirroring the worker's LUT exactly.
+- Removed the now-dead `cutout` settings, the `./models/cutout` Compose mount and
+  the `PRINTSHEET_CUTOUT_MODEL_DIR` export; profiles no longer pick an AI model.
+- Gates: worker 225 passed, web `npx vitest run` 250 passed, `npm run build`
+  clean, API build 0 warnings, `scripts/validate_contracts.py` green (5 schemas,
+  15 examples, OpenAPI v2.0.0). No packer change.
+- Note: while finishing this, `DesignReviewPage.tsx` was found mid-edit from the
+  unrelated modal work (a `useEffect(()` missing its arrow, `</section>` replaced
+  by `</div>` in seven places, missing `modalOpen`/`modalIntent` state). Repaired
+  so the file compiles; that repair is not part of this change.
+
+### 2026-11-10 — Editor profile and advanced cutout controls (frontend UI-UX)
+
+- Implemented editor profile presets (logo-text, illustration, soft-artwork,
+  manual; order chosen so presets do not fight real images) with an overwrite
+  notice when a profile changes a control from what the operator typed.
+- Added the advanced cutout panel (alpha floor, alpha curve, despeckle limit,
+  matting underbase) as a collapsed, progressive-disclosure `<details>` row
+  inside the "Remove background" step.
+- Verified tracks A and D: `npm run build` (tsc), `npm run lint` (oxlint) and
+  `npm test` (vitest) all green — 249 tests across 20 files, single ~400 KB
+  production bundle.
+- No contract changes, no new npm dependencies; CSS follows the existing
+  tokens (`--accent`, `--ink`, `--panel`, `--line`, `--muted`, `--dim`,
+  `--radius`, `.row`, `.field`, `.compact-details`).
+- Worker/ untouched; the advanced controls are review-side refinements of the
+  worker-produced mask artifact.
 
 ### 2026-11-10 — Restored background removal: BiRefNet tiled ONNX & color-to-alpha
 
@@ -804,7 +909,7 @@ Append newest entries at the top. Keep them short and factual.
 - Supported modes: `ai` (`birefnet-massive`, `birefnet-general`, `birefnet-general-lite`), `color-to-alpha` (unmultiplied GIMP ramp), `none` (brush-only mask edits).
 - Non-destructive review workflow: outputs 8-bit mask artifact (`outputArtifacts.mask` / `VersionArtifacts.maskUrl`), source never overwritten. "View mask artifact" links in UI for both current and proposed versions.
 - Added pipeline stage 3: "Remove background" with "Cutout model" disambiguation in `DesignReviewPage.tsx`. Ancestry tracked via `pipelineStatus.ts`.
-- Gates: `make test` green across all services (contracts valid, 22 API tests, 214 worker tests, 161 packer tests, web build/lint and 215 web tests). Compose and native run scripts wired to `./models/cutout`.
+- Gates: `make test` green across all services (contracts valid, 22 API tests, 214 worker tests, 161 packer tests, web build/lint and 215 web tests). Compose and native run scripts wired to `./models/cutout` at the time; that wiring was removed on 2026-11-10 when BiRefNet was archived.
 
 - Batch grid was loading every full-resolution PNG. Added `IImageThumbnailer`
   (`SkiaImageThumbnailer`) and an optional `maxPx` (32–2048) on the version-file

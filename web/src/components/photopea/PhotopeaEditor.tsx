@@ -40,6 +40,7 @@ export const PhotopeaEditor = forwardRef<PhotopeaEditorHandle, PhotopeaEditorPro
     const sessionRef = useRef<PhotopeaSession | null>(null)
     const [status, setStatus] = useState<PhotopeaEditorStatus>('loading-editor')
     const [error, setError] = useState<string | null>(null)
+    const [retry, setRetry] = useState(0)
 
     // Held in a ref so the boot effect does not re-run when the parent
     // re-renders with a new inline callback.
@@ -158,7 +159,7 @@ export const PhotopeaEditor = forwardRef<PhotopeaEditorHandle, PhotopeaEditorPro
         // `dispose()` already removed the message listener, which is what
         // actually stops Photopea from talking to this component.
       }
-    }, [fileUrl, documentName, update])
+    }, [fileUrl, documentName, retry, update])
 
     const showOverlay = status !== 'ready'
 
@@ -179,6 +180,25 @@ export const PhotopeaEditor = forwardRef<PhotopeaEditorHandle, PhotopeaEditorPro
                 <>
                   <strong>Photopea could not open</strong>
                   <p>{error ?? 'Unknown error.'}</p>
+                  {error?.includes('never finished starting up') ? (
+                    <div className="photopea-retry">
+                      <button
+                        type="button"
+                        className="btn sm"
+                        onClick={() => setRetry((value) => value + 1)}
+                      >
+                        Try again
+                      </button>
+                      <a
+                        className="btn sm"
+                        href={PHOTOPEA_EMBED_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open Photopea in new tab
+                      </a>
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <>

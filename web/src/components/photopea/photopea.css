@@ -108,3 +108,11 @@
   height: 1em;
   flex: 0 0 auto;
 }
+
+.photopea-retry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 14px;
+}

@@ -340,10 +340,43 @@ describe('core workbench routes', () => {
     renderAt(`/batches/${batch.id}/designs/${designId}`)
     expect(await screen.findByTestId('design-comparison')).toBeInTheDocument()
     expect(screen.getByRole('radiogroup', { name: 'Preview background' })).toBeInTheDocument()
+    // The approve button now opens the proposal summary modal; approve from there.
     await user.click(screen.getByRole('button', { name: 'Approve proposal' }))
+    await user.click(screen.getByTestId('proposal-modal-approve'))
 
     await waitFor(() => expect(mock.designs.get(designId)?.currentVersionId).toBe(proposalId))
     expect(mock.designs.get(designId)?.pendingVersionId).toBeNull()
+  })
+
+  it('confirms approval in a modal that cancels without touching the proposal', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi()
+    const batch = batchNamed(mock, 'ACME summer drop 01')
+    const designId = batch.designIds[0]!
+    const design = mock.designs.get(designId)
+    if (!design?.pendingVersionId) throw new Error('Expected the seed design to have a proposal')
+    const proposalId = design.pendingVersionId
+
+    renderAt(`/batches/${batch.id}/designs/${designId}`)
+    await screen.findByTestId('design-comparison')
+
+    // Clicking Approve only opens the summary; it must not approve on its own.
+    await user.click(screen.getByRole('button', { name: 'Approve proposal' }))
+    expect(await screen.findByTestId('proposal-modal')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Proposal summary' })).toBeInTheDocument()
+    expect(mock.designs.get(designId)?.currentVersionId).not.toBe(proposalId)
+
+    // Cancel closes the dialog and leaves the proposal pending.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByTestId('proposal-modal')).not.toBeInTheDocument())
+    expect(mock.designs.get(designId)?.pendingVersionId).toBe(proposalId)
+
+    // Escape closes it too.
+    await user.click(screen.getByRole('button', { name: 'Approve proposal' }))
+    await screen.findByTestId('proposal-modal')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('proposal-modal')).not.toBeInTheDocument())
+    expect(mock.designs.get(designId)?.currentVersionId).not.toBe(proposalId)
   })
 
   it('offers full-resolution Photoshop download for proposed artwork when a proposal exists', async () => {

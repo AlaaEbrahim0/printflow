@@ -229,6 +229,8 @@ export default function DesignReviewPage() {
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalIntent, setModalIntent] = useState<'approve' | 'reject'>('approve')
   const { dpiThresholds } = useSettings()
   const profile = PROCESSING_PROFILES.find((item) => item.id === activeProfile) ?? PROCESSING_PROFILES[3]
 
@@ -426,6 +428,7 @@ export default function DesignReviewPage() {
     try {
       await api.designs.reject(designId, proposal.id)
       setNotice('Proposal rejected. The previously approved version remains current.')
+      setModalOpen(false)
       reload()
     } catch (caught: unknown) {
       setError(caught)
@@ -433,6 +436,32 @@ export default function DesignReviewPage() {
       setBusy(false)
     }
   }
+
+  async function approveProposal() {
+    if (!proposal) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.designs.approve(designId, proposal.id)
+      setNotice('Proposal approved and made current.')
+      setModalOpen(false)
+      reload()
+    } catch (caught: unknown) {
+      setError(caught)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // The proposal modal closes on Escape or by clicking outside the panel.
+  useEffect(() => {
+    if (!modalOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setModalOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [modalOpen])
 
   if (state.kind === 'loading') return <Loading label="Loading design…" />
   if (state.kind === 'error') {
@@ -466,7 +495,7 @@ export default function DesignReviewPage() {
   const isGpuUpscale = job?.type === 'upscale' && job.parameters.gpu === true
 
   return (
-    <section className="stack">
+    <section className="stack design-view">
       <header className="page-head">
         <div>
           <p className="breadcrumb">
@@ -608,11 +637,22 @@ export default function DesignReviewPage() {
               type="button"
               className="btn primary"
               disabled={busy}
-              onClick={() => void mutate(() => api.designs.approve(designId, proposal.id), 'Proposal approved and made current.')}
+              onClick={() => {
+                setModalIntent('approve')
+                setModalOpen(true)
+              }}
             >
               Approve proposal
             </button>
-            <button type="button" className="btn" disabled={busy} onClick={() => void rejectProposal()}>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() => {
+                setModalIntent('reject')
+                setModalOpen(true)
+              }}
+            >
               Reject proposal
             </button>
             <a
@@ -730,6 +770,83 @@ export default function DesignReviewPage() {
           </section>
         </div>
       )}
+
+      {modalOpen && proposal ? (
+        <div
+          className="review-modal-backdrop is-open"
+          onClick={() => setModalOpen(false)}
+        >
+          <div
+            className="review-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="review-modal-title"
+            onClick={(event) => event.stopPropagation()}
+            data-testid="proposal-modal"
+          >
+            <div className="review-modal-head">
+              <h2 id="review-modal-title" className="review-modal-title">
+                Proposal summary
+              </h2>
+              <button
+                type="button"
+                className="close"
+                onClick={() => setModalOpen(false)}
+                aria-label="Close proposal summary"
+              >
+                ×
+              </button>
+            </div>
+            <div className="review-modal-body">
+              <div className="row" style={{ gap: 10 }}>
+                <StatusChip status="approved" label="Current" />
+                <StatusChip status="proposed" label="Proposal" />
+              </div>
+              <dl className="proposal-diff">
+                <dt>Pixels</dt>
+                <dd>
+                  {proposal.widthPx === current.widthPx &&
+                  proposal.heightPx === current.heightPx
+                    ? `${formatPixels(current.widthPx)} × ${formatPixels(current.heightPx)} — unchanged`
+                    : `${formatPixels(current.widthPx)} × ${formatPixels(current.heightPx)} → ${formatPixels(proposal.widthPx)} × ${formatPixels(proposal.heightPx)}`}
+                </dd>
+                <dt>Step</dt>
+                <dd>
+                  {stepLabel(current.stepType)} → {stepLabel(proposal.stepType)}
+                </dd>
+                <dt>If approved</dt>
+                <dd>{proposalEffect(proposal.stepType)}</dd>
+              </dl>
+              <p className="hint">
+                Approving makes this version current and it becomes the artwork the
+                packer places. The original file stays available in the version
+                history.
+              </p>
+            </div>
+            <div className="review-modal-foot">
+              <button
+                type="button"
+                className="btn"
+                disabled={busy}
+                onClick={() => setModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={busy}
+                data-testid="proposal-modal-approve"
+                onClick={
+                  modalIntent === 'approve' ? approveProposal : rejectProposal
+                }
+              >
+                {modalIntent === 'approve' ? 'Approve proposal' : 'Reject proposal'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <section className="card stack" aria-labelledby="pipeline-title">
         <div>

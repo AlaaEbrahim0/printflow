@@ -1,25 +1,25 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;650;760;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
-  --paper: #f3efe6;
-  --ink: #12100e;
-  --panel: #181513;
-  --panel-2: #1f1b18;
-  --line: #2c2723;
-  --line-strong: #3d3630;
-  --muted: #a79f96;
-  --dim: #6e665d;
+  --paper: #f8fafc;
+  --ink: #0b0f17;
+  --panel: #131826;
+  --panel-2: #1c2336;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --muted: #94a3b8;
+  --dim: #64748b;
   --accent: #ff6a3d;
-  --accent-soft: rgb(255 106 61 / 16%);
-  --good: #5fbf7a;
-  --warn: #e2b23c;
-  --bad: #e0574a;
-  --info: #6fb6d8;
+  --accent-soft: rgba(255, 106, 61, 0.14);
+  --good: #10b981;
+  --warn: #f59e0b;
+  --bad: #ef4444;
+  --info: #3b82f6;
   --mono: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: 'Manrope', system-ui, -apple-system, sans-serif;
-  --radius: 10px;
-  --radius-sm: 6px;
-  --gap: 14px;
+  --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --radius: 14px;
+  --radius-sm: 8px;
+  --gap: 16px;
   background: var(--ink);
   color: var(--paper);
   font-family: var(--sans);
@@ -35,7 +35,8 @@
 html {
   min-width: 320px;
   background:
-    radial-gradient(circle at 82% 4%, rgb(255 106 61 / 9%), transparent 32rem),
+    radial-gradient(circle at 80% 0%, rgba(255, 106, 61, 0.08), transparent 36rem),
+    radial-gradient(circle at 20% 100%, rgba(59, 130, 246, 0.05), transparent 40rem),
     var(--ink);
 }
 
@@ -52,7 +53,7 @@ a {
 
 ::selection {
   background: var(--accent);
-  color: var(--ink);
+  color: #000;
 }
 
 :focus-visible {
