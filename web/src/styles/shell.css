@@ -10,7 +10,7 @@
   gap: 24px;
   padding: 12px 22px;
   border-bottom: 1px solid var(--line);
-  background: rgba(11, 15, 23, 0.8);
+  background: color-mix(in srgb, var(--ink) 82%, transparent);
   position: sticky;
   top: 0;
   z-index: 20;
@@ -29,12 +29,12 @@
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  background: var(--accent);
-  color: #0b0f17;
+  background: var(--accent-fill);
+  color: var(--on-accent);
   font-family: var(--mono);
   font-weight: 700;
   letter-spacing: -0.04em;
-  box-shadow: 0 6px 16px rgba(255, 106, 61, 0.32);
+  box-shadow: var(--shadow-2);
 }
 
 .brand-name {
@@ -70,8 +70,8 @@
 }
 
 .mainnav a.active {
-  color: #0b0f17;
-  background: var(--paper);
+  color: var(--on-accent);
+  background: var(--accent-fill);
   font-weight: 600;
 }
 
@@ -87,7 +87,7 @@
   gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(16, 185, 129, 0.12);
+  background: var(--good-soft);
   color: var(--good);
   font-size: 0.75rem;
   font-weight: 600;
@@ -139,17 +139,17 @@
 }
 
 .card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0)), var(--panel);
+  background: linear-gradient(180deg, var(--sheen), transparent), var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 16px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-2);
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .card:hover {
   border-color: var(--line-strong);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
+  box-shadow: var(--shadow-2);
 }
 
 .card-title {
@@ -347,4 +347,35 @@
 
 .breadcrumbs a:hover {
   color: var(--accent);
+}
+/* --------------------------------------------------------------------------
+ * Theme toggle
+ * A single icon button in the top bar. It shows the theme you would switch
+ * *to*, which is the convention most tools use and avoids a label that lies
+ * about the current state.
+ * ------------------------------------------------------------------------ */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.theme-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+
+.theme-toggle svg {
+  width: 15px;
+  height: 15px;
 }

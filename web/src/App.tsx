@@ -10,11 +10,14 @@ import SheetPage from './routes/SheetPage'
 import { SettingsProvider } from './state/SettingsContext'
 import { HealthDot } from './components/ui/HealthDot'
 import { ContractBadge } from './components/ui/ContractBadge'
+import { useTheme } from './lib/theme'
 import { api } from './api/client'
 import './styles/shell.css'
 import './styles/ui.css'
 
 function WorkbenchLayout() {
+  const { theme, toggle } = useTheme()
+
   return (
     <div className="workbench">
       <header className="topbar">
@@ -41,6 +44,7 @@ function WorkbenchLayout() {
           <HealthDot />
           <ContractBadge />
           <LiveJobsBadge />
+          <ThemeToggle theme={theme} onToggle={toggle} />
         </div>
       </header>
 
@@ -53,6 +57,34 @@ function WorkbenchLayout() {
         <span className="muted">sRGB only · no staff authentication (trusted LAN MVP)</span>
       </footer>
     </div>
+  )
+}
+
+function ThemeToggle({ theme, onToggle }: { theme: 'dark' | 'light'; onToggle: () => void }) {
+  const next = theme === 'dark' ? 'light' : 'dark'
+  return (
+    <button
+      type="button"
+      className="theme-toggle"
+      onClick={onToggle}
+      title={`Switch to ${next} theme`}
+      aria-label={`Switch to ${next} theme`}
+      data-testid="theme-toggle"
+      data-theme-current={theme}
+    >
+      {theme === 'dark' ? (
+        /* Sun: the action takes you to light. */
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="4.2" />
+          <path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4" strokeLinecap="round" />
+        </svg>
+      ) : (
+        /* Moon: the action takes you to dark. */
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d="M20.5 14.6A8.6 8.6 0 0 1 9.4 3.5a8.6 8.6 0 1 0 11.1 11.1Z" strokeLinejoin="round" />
+        </svg>
+      )}
+    </button>
   )
 }
 

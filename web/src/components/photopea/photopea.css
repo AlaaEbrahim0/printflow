@@ -4,8 +4,8 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #0b0f17;
-  color: var(--paper, #f8fafc);
+  background: var(--ink);
+  color: var(--paper);
 }
 
 .photopea-toolbar {
@@ -14,8 +14,8 @@
   align-items: center;
   gap: 10px 14px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: #131826;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
 }
 
 .photopea-toolbar-title {
@@ -33,7 +33,7 @@
 
 .photopea-toolbar-title span {
   font-size: 0.78rem;
-  color: var(--muted, #94a3b8);
+  color: var(--muted);
 }
 
 .photopea-toolbar-actions {
@@ -48,7 +48,7 @@
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  background: #090c14;
+  background: var(--stage-bg);
 }
 
 .photopea-frame {
@@ -65,7 +65,7 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(9, 12, 20, 0.88);
+  background: var(--overlay);
   z-index: 2;
 }
 
@@ -75,15 +75,15 @@
   flex-direction: column;
   gap: 12px;
   padding: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--line-strong);
   border-radius: 12px;
-  background: #131826;
+  background: var(--panel);
   text-align: center;
 }
 
 .photopea-overlay-card p {
   margin: 0;
-  color: var(--muted, #94a3b8);
+  color: var(--muted);
   line-height: 1.45;
 }
 
@@ -92,8 +92,8 @@
   height: 28px;
   margin: 0 auto;
   border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.15);
-  border-top-color: var(--accent, #ff6a3d);
+  border: 3px solid var(--line-strong);
+  border-top-color: var(--accent);
   animation: photopea-spin 0.8s linear infinite;
 }
 

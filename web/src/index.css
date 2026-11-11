@@ -1,25 +1,134 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap');
 
-:root {
-  --paper: #f8fafc;
+/*
+ * Single source of truth for colour, spacing and elevation.
+ *
+ * Every surface is a token so the light theme only has to restate values, not
+ * restyle components. Two rules keep that honest:
+ *   1. Never hardcode a colour that changes with the theme; add a token.
+ *   2. Never stack an rgba() overlay on a panel. The `--sheen` token already
+ *      encodes "a hair lighter than the panel", which inverts in light mode.
+ */
+
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
   --ink: #0b0f17;
-  --panel: #131826;
-  --panel-2: #1c2336;
+  --panel: #121826;
+  --panel-2: #1a2133;
+  --panel-3: #232d42;
+  --paper: #e8edf6;
+  --muted: #97a5bb;
+  --dim: #6d7d94;
+
   --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.16);
-  --muted: #94a3b8;
-  --dim: #64748b;
-  --accent: #ff6a3d;
-  --accent-soft: rgba(255, 106, 61, 0.14);
-  --good: #10b981;
-  --warn: #f59e0b;
-  --bad: #ef4444;
-  --info: #3b82f6;
+
+  /* Teal accent. `--accent` is for text/icons and must read on the page
+     background; `--accent-fill` is the button fill and carries white text. */
+  --accent: #2dd4bf;
+  --accent-fill: #0f766e;
+  --accent-fill-hover: #115e59;
+  --accent-soft: rgba(45, 212, 191, 0.14);
+  --accent-line: rgba(45, 212, 191, 0.42);
+  --on-accent: #ffffff;
+
+  --good: #34d399;
+  --good-soft: rgba(52, 211, 153, 0.12);
+  --good-line: rgba(52, 211, 153, 0.42);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.12);
+  --warn-line: rgba(251, 191, 36, 0.42);
+  --bad: #f87171;
+  --bad-soft: rgba(248, 113, 113, 0.12);
+  --bad-line: rgba(248, 113, 113, 0.45);
+  --info: #60a5fa;
+  --info-soft: rgba(96, 165, 250, 0.12);
+  --info-line: rgba(96, 165, 250, 0.42);
+
+  /* A hair lighter than the panel it sits on; inverts in light mode. */
+  --sheen: rgba(255, 255, 255, 0.04);
+  --sheen-2: rgba(255, 255, 255, 0.02);
+  --hover: rgba(255, 255, 255, 0.05);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 10px 28px rgba(0, 0, 0, 0.32);
+  --shadow-3: 0 24px 60px rgba(0, 0, 0, 0.55);
+  --overlay: rgba(3, 7, 18, 0.68);
+
+  /* Behind artwork, so a transparent PNG reads against something neutral. */
+  --stage-bg: #080c14;
+  --field-bg: #0d1320;
+  --checker-a: #2a3446;
+  --checker-b: #1c2536;
+
+  --glow-accent: rgba(45, 212, 191, 0.09);
+  --glow-info: rgba(96, 165, 250, 0.05);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --ink: #f4f7fa;
+  --panel: #ffffff;
+  --panel-2: #f1f5f9;
+  --panel-3: #e5ecf3;
+  --paper: #0f172a;
+  --muted: #52627a;
+  --dim: #74839a;
+
+  --line: rgba(15, 23, 42, 0.1);
+  --line-strong: rgba(15, 23, 42, 0.18);
+
+  --accent: #0f766e;
+  --accent-fill: #0f766e;
+  --accent-fill-hover: #115e59;
+  --accent-soft: rgba(15, 118, 110, 0.1);
+  --accent-line: rgba(15, 118, 110, 0.38);
+  --on-accent: #ffffff;
+
+  --good: #047857;
+  --good-soft: rgba(4, 120, 87, 0.09);
+  --good-line: rgba(4, 120, 87, 0.35);
+  --warn: #b45309;
+  --warn-soft: rgba(180, 83, 9, 0.09);
+  --warn-line: rgba(180, 83, 9, 0.35);
+  --bad: #b91c1c;
+  --bad-soft: rgba(185, 28, 28, 0.08);
+  --bad-line: rgba(185, 28, 28, 0.32);
+  --info: #1d4ed8;
+  --info-soft: rgba(29, 78, 216, 0.08);
+  --info-line: rgba(29, 78, 216, 0.32);
+
+  /* In light mode the "sheen" is a faint cool wash, not white on white. */
+  --sheen: rgba(15, 23, 42, 0.022);
+  --sheen-2: rgba(15, 23, 42, 0.012);
+  --hover: rgba(15, 23, 42, 0.045);
+
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.07);
+  --shadow-2: 0 8px 22px rgba(15, 23, 42, 0.08);
+  --shadow-3: 0 20px 48px rgba(15, 23, 42, 0.16);
+  --overlay: rgba(15, 23, 42, 0.45);
+
+  --stage-bg: #eef2f7;
+  --field-bg: #ffffff;
+  --checker-a: #dbe3ec;
+  --checker-b: #eef2f7;
+
+  --glow-accent: rgba(15, 118, 110, 0.05);
+  --glow-info: rgba(29, 78, 216, 0.03);
+}
+
+:root {
   --mono: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --sans: 'Inter', system-ui, -apple-system, sans-serif;
   --radius: 14px;
   --radius-sm: 8px;
+  --radius-lg: 20px;
   --gap: 16px;
+  --topbar-h: 61px;
+
   background: var(--ink);
   color: var(--paper);
   font-family: var(--sans);
@@ -35,8 +144,8 @@
 html {
   min-width: 320px;
   background:
-    radial-gradient(circle at 80% 0%, rgba(255, 106, 61, 0.08), transparent 36rem),
-    radial-gradient(circle at 20% 100%, rgba(59, 130, 246, 0.05), transparent 40rem),
+    radial-gradient(circle at 80% 0%, var(--glow-accent), transparent 36rem),
+    radial-gradient(circle at 20% 100%, var(--glow-info), transparent 40rem),
     var(--ink);
 }
 
@@ -52,11 +161,18 @@ a {
 }
 
 ::selection {
-  background: var(--accent);
-  color: #000;
+  background: var(--accent-fill);
+  color: var(--on-accent);
 }
 
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Theme changes should not animate every surface at once. */
+@media (prefers-reduced-motion: no-preference) {
+  body {
+    transition: background-color 160ms ease, color 160ms ease;
+  }
 }
