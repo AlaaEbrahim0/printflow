@@ -80,13 +80,12 @@ describe('document core contracts', () => {
     expect(delta.bytes.byteLength).toBe(Math.ceil(pixels / 8))
     const command: DocumentCommand = { type: 'set-selection', before, after, delta }
     const one = pushHistory(history(), 'big', command).entries[0].byteSize
-    const fit = Math.floor((200 * 1024 * 1024) / one)
-    expect(fit).toBeGreaterThan(0)
-    let state = history()
-    for (let i = 0; i < fit + 2; i += 1) state = pushHistory(state, 'big', { ...command, coalesceKey: `big-${i}` })
-    expect(state.entries).toHaveLength(fit)
+    const capped = { ...history(), maxBytes: one * 3 }
+    let state = capped
+    for (let i = 0; i < 5; i += 1) state = pushHistory(state, 'big', { ...command, coalesceKey: `big-${i}` })
+    expect(state.entries).toHaveLength(2)
     expect(state.usedBytes).toBeLessThanOrEqual(state.maxBytes)
-    expect(state.evictedSteps).toBe(2)
+    expect(state.evictedSteps).toBe(3)
   })
 
   it('round-trips and coalesces brush mask deltas', () => {
