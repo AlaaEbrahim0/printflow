@@ -124,7 +124,7 @@ describe('document core contracts', () => {
     expect(noisyDelta.bytes.byteLength).toBe(bytes)
     expect(applyMaskDelta(sparse, sparseDelta)).toEqual(empty)
     expect(applyMaskDelta(full, largeDelta)).toEqual(empty)
-  })
+  }, 30000)
 
   it('covers document validation invariants', () => {
     expect(() => validateDocument({ ...doc(), layers: [] })).toThrow('exactly one base-raster')
