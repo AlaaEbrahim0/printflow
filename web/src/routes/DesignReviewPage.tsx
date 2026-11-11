@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { api, type CropRect, type DesignDetail, type DesignVersion } from '../api/client'
+import {
+  api,
+  type CropRect,
+  type DesignDetail,
+  type DesignVersion,
+  type LevelsAdjustment,
+} from '../api/client'
 import { AlphaPreview } from '../components/preview/AlphaPreview'
 import { BackgroundPicker } from '../components/preview/BackgroundPicker'
 import { PhotopeaIcon } from '../components/photopea/PhotopeaIcon'
@@ -10,11 +16,13 @@ import { CheckboxField, ColorField, NumberField, SelectField } from '../componen
 import { EmptyState, ErrorState, Loading } from '../components/ui/States'
 import { ImageComparisonSlider } from '../components/compare'
 import CropTool from '../components/crop/CropTool'
+import { LevelsControl, MaskGrowControl } from '../components/cutout/MaskControls'
 import { useAsync, useJobPoller } from '../hooks/useAsync'
 import { formatPixels, shortId, statusLabel, stepLabel } from '../lib/format'
 import { reviewReadiness } from '../components/batch/reviewReadiness'
 import { pipelineStatus } from '../components/batch/pipelineStatus'
 import { WORKBENCH_DEFAULTS } from '../lib/defaults'
+import { LEVELS_DEFAULTS, isIdentityLevels } from '../lib/levels'
 import { photopeaEditorPath } from '../lib/photopea'
 import { DEFAULT_PREVIEW_BACKGROUND, previewBackgroundFor, type PreviewBackground } from '../lib/preview'
 import {
@@ -34,18 +42,16 @@ const UPSCALE_MODELS = [
   { value: 'realesrgan-x4plus-anime', label: 'Real-ESRGAN · anime-style artwork' },
 ] as const
 
-const CUTOUT_MODELS = [
-  { value: 'birefnet-massive', label: 'BiRefNet Massive (Highest quality · default)' },
-  { value: 'birefnet-general', label: 'BiRefNet General (Standard)' },
-  { value: 'birefnet-general-lite', label: 'BiRefNet General Lite (Fastest)' },
-] as const
-
 /**
  * Processing profiles are operator presets. Each one applies a sane default for
  * the machines' steps so a designer can choose a job type without configuring
  * every slider. Selecting a profile never deletes a version: it only rewrites the
  * *proposal* values in the advanced panel. When it differs from what is already
  * configured, the panel shows an overwrite notice rather than applying silently.
+ *
+ * The cutout defaults are all colour-key based. The BiRefNet AI cutout is
+ * archived (it ate the whole memory budget for minutes and still produced
+ * unreliable edges), so no profile may select it.
  */
 export type ProcessingProfileId = 'logo-text' | 'illustration' | 'soft-artwork' | 'manual'
 
@@ -54,11 +60,10 @@ export interface ProcessingProfile {
   label: string
   description: string
   defaults: {
-    cutoutMode: 'ai' | 'color-to-alpha'
-    cutoutModel: (typeof CUTOUT_MODELS)[number]['value']
     cutoutKeyColor: string
     cutoutTolerance: number
     cutoutEdgeSoftness: number
+    maskGrowPx: number
     upscaleModel: (typeof UPSCALE_MODELS)[number]['value']
     upscaleScale: 2 | 4
   }
@@ -75,11 +80,10 @@ export const PROCESSING_PROFILES: ProcessingProfile[] = [
     label: 'Logo / text',
     description: 'Flat black-and-white mark on a clear background.',
     defaults: {
-      cutoutMode: 'color-to-alpha',
-      cutoutModel: 'birefnet-general-lite',
-      cutoutKeyColor: '#000000',
+      cutoutKeyColor: '#ffffff',
       cutoutTolerance: 10,
       cutoutEdgeSoftness: 0,
+      maskGrowPx: 0,
       upscaleModel: 'realesrgan-x4plus-anime',
       upscaleScale: 2,
     },
@@ -89,11 +93,10 @@ export const PROCESSING_PROFILES: ProcessingProfile[] = [
     label: 'Illustration',
     description: 'Flat colour art with hard edges.',
     defaults: {
-      cutoutMode: 'ai',
-      cutoutModel: 'birefnet-general-lite',
-      cutoutKeyColor: '#000000',
-      cutoutTolerance: 12,
+      cutoutKeyColor: '#ffffff',
+      cutoutTolerance: 14,
       cutoutEdgeSoftness: 0.5,
+      maskGrowPx: 1,
       upscaleModel: 'realesrgan-x4plus-anime',
       upscaleScale: 2,
     },
@@ -103,11 +106,10 @@ export const PROCESSING_PROFILES: ProcessingProfile[] = [
     label: 'Soft artwork',
     description: 'Photographic or blended colour art.',
     defaults: {
-      cutoutMode: 'ai',
-      cutoutModel: 'birefnet-general',
-      cutoutKeyColor: '#000000',
-      cutoutTolerance: 16,
+      cutoutKeyColor: '#ffffff',
+      cutoutTolerance: 20,
       cutoutEdgeSoftness: 1.0,
+      maskGrowPx: 2,
       upscaleModel: 'realesrgan-x4plus',
       upscaleScale: 2,
     },
@@ -117,11 +119,10 @@ export const PROCESSING_PROFILES: ProcessingProfile[] = [
     label: 'Manual',
     description: 'No preset; you configure every control.',
     defaults: {
-      cutoutMode: 'ai',
-      cutoutModel: 'birefnet-massive',
-      cutoutKeyColor: '#000000',
+      cutoutKeyColor: '#ffffff',
       cutoutTolerance: 12,
       cutoutEdgeSoftness: 0,
+      maskGrowPx: 0,
       upscaleModel: 'realesrgan-x4plus',
       upscaleScale: 2,
     },
@@ -168,7 +169,7 @@ const JOB_LABELS: Record<string, string> = {
   crop: 'Manual crop',
   upscale: 'Image enhancement',
   resize: 'Final resize',
-  'background-removal': 'Background removal (retired)',
+  'background-removal': 'Background removal',
   vectorize: 'Vectorize (retired)',
   'pack-sheet': 'Packing sheet',
   'integrity-check': 'Integrity check',
@@ -191,7 +192,7 @@ const PROPOSAL_EFFECTS: Record<string, string> = {
   crop: 'Replaces the printable area with the rectangle you drew. The original stays available in version history.',
   upscale: 'Replaces the current image with the enlarged one. AI enlargement adds pixels, not original detail, so compare it with the original first.',
   resize: 'Sets the final pixel size that the packer will place. This is the version that gets printed.',
-  'background-removal': 'Retired step. This historical version stays readable but cannot be produced again.',
+  'background-removal': 'Replaces the current image with the cut-out. The transparent version becomes what the packer places, so check the mask before approving.',
   vectorize: 'Retired step. This historical version stays readable but cannot be produced again.',
 }
 
@@ -212,17 +213,12 @@ export default function DesignReviewPage() {
     'realesrgan-x4plus',
   )
   const [upscaleScale, setUpscaleScale] = useState<2 | 4>(4)
-  const [cutoutMode, setCutoutMode] = useState<'ai' | 'color-to-alpha'>('ai')
-  const [cutoutModel, setCutoutModel] = useState<(typeof CUTOUT_MODELS)[number]['value']>(
-    'birefnet-massive',
-  )
   const [cutoutKeyColor, setCutoutKeyColor] = useState('#ffffff')
   const [cutoutTolerance, setCutoutTolerance] = useState(12)
   const [cutoutEdgeSoftness, setCutoutEdgeSoftness] = useState(0)
-  const [alphaFloor, setAlphaFloor] = useState<number | null>(null)
-  const [alphaCurve, setAlphaCurve] = useState<'soft' | 'balanced' | 'strong'>('balanced')
-  const [despeckleLimit, setDespeckleLimit] = useState<number | null>(null)
-  const [mattingUnderbase, setMattingUnderbase] = useState(false)
+  const [maskGrowPx, setMaskGrowPx] = useState(0)
+  const [maskLevels, setMaskLevels] = useState<LevelsAdjustment>({ ...LEVELS_DEFAULTS })
+  const [imageLevels, setImageLevels] = useState<LevelsAdjustment>({ ...LEVELS_DEFAULTS })
   const [targetWidthCm, setTargetWidthCm] = useState<number | null>(null)
   const [targetHeightCm, setTargetHeightCm] = useState<number | null>(null)
   const [aspectLinked, setAspectLinked] = useState(true)
@@ -242,23 +238,21 @@ export default function DesignReviewPage() {
   useEffect(() => {
     const next = profile.defaults
     const changed =
-      next.cutoutMode !== cutoutMode ||
-      next.cutoutModel !== cutoutModel ||
       next.cutoutKeyColor !== cutoutKeyColor ||
       next.cutoutTolerance !== cutoutTolerance ||
       next.cutoutEdgeSoftness !== cutoutEdgeSoftness ||
+      next.maskGrowPx !== maskGrowPx ||
       next.upscaleModel !== upscaleModel ||
       next.upscaleScale !== upscaleScale
     if (changed) {
-      setCutoutMode(next.cutoutMode)
-      setCutoutModel(next.cutoutModel)
       setCutoutKeyColor(next.cutoutKeyColor)
       setCutoutTolerance(next.cutoutTolerance)
       setCutoutEdgeSoftness(next.cutoutEdgeSoftness)
+      setMaskGrowPx(next.maskGrowPx)
       setUpscaleModel(next.upscaleModel)
       setUpscaleScale(next.upscaleScale)
       setProfileNotice(
-        `This profile applies ${next.cutoutMode === 'ai' ? 'the AI cutout' : 'colour-to-alpha'} defaults over your current advanced settings.`,
+        'This profile applies colour-key and mask defaults over your current advanced settings. Levels are left as you set them.',
       )
     } else {
       setProfileNotice(null)
@@ -862,57 +856,32 @@ export default function DesignReviewPage() {
                   <small>
                     {pipeline.cutout
                       ? 'Background cut out — review the transparent preview and mask'
-                      : 'BiRefNet AI cutout · color key · non-destructive mask'}
+                      : 'Colour-key cutout · mask shaping · non-destructive'}
                   </small>
                 </span>
                 {pipeline.cutout ? <Chip tone="good">done</Chip> : null}
               </summary>
               <div className="pipeline-content stack-sm">
                 <p className="hint">
-                  Narrowly targeted at logos, simple illustrations, text, and black-and-white designs.
-                  Tiled at native resolution to preserve fine lettering and hairlines.
+                  Keys out one flat background colour. Built for logos, simple illustrations, text and
+                  black-and-white art — the AI cutout is archived, so anything with a busy background
+                  should be cut in Photoshop or Photopea and imported instead.
                 </p>
                 <div className="row">
-                  <SelectField
-                    label="Mode"
-                    options={[
-                      { value: 'ai', label: 'AI cutout (BiRefNet)' },
-                      { value: 'color-to-alpha', label: 'Color to alpha (Flat background)' },
-                    ]}
-                    value={cutoutMode}
-                    onChange={(event) => setCutoutMode(event.target.value as 'ai' | 'color-to-alpha')}
+                  <ColorField
+                    label="Key color"
+                    value={cutoutKeyColor}
+                    onChange={(event) => setCutoutKeyColor(event.target.value)}
                   />
-                  {cutoutMode === 'ai' ? (
-                    <SelectField
-                      label="Cutout model"
-                      options={CUTOUT_MODELS}
-                      value={cutoutModel}
-                      onChange={(event) =>
-                        setCutoutModel(
-                          event.target.value as
-                            | 'birefnet-massive'
-                            | 'birefnet-general'
-                            | 'birefnet-general-lite',
-                        )
-                      }
-                    />
-                  ) : (
-                    <>
-                      <ColorField
-                        label="Key color"
-                        value={cutoutKeyColor}
-                        onChange={(event) => setCutoutKeyColor(event.target.value)}
-                      />
-                      <NumberField
-                        label="Tolerance"
-                        value={cutoutTolerance}
-                        min={0}
-                        max={255}
-                        step={1}
-                        onValueChange={(val) => setCutoutTolerance(val ?? 12)}
-                      />
-                    </>
-                  )}
+                  <NumberField
+                    label="Tolerance"
+                    value={cutoutTolerance}
+                    min={0}
+                    max={255}
+                    step={1}
+                    onValueChange={(val) => setCutoutTolerance(val ?? 12)}
+                    hint="How far from the key colour still counts as background."
+                  />
                   <NumberField
                     label="Edge softness"
                     suffix="px"
@@ -929,65 +898,42 @@ export default function DesignReviewPage() {
                     onClick={() =>
                       void submitJob(() =>
                         api.steps.backgroundRemoval(designId, {
-                          mode: cutoutMode,
-                          ...(cutoutMode === 'ai'
-                            ? {
-                                aiModel: cutoutModel,
-                                edgeSoftness: cutoutEdgeSoftness > 0 ? cutoutEdgeSoftness : undefined,
-                              }
-                            : {
-                                keyColor: cutoutKeyColor,
-                                tolerance: cutoutTolerance,
-                                edgeSoftness: cutoutEdgeSoftness > 0 ? cutoutEdgeSoftness : undefined,
-                              }),
+                          mode: 'color-to-alpha',
+                          keyColor: cutoutKeyColor,
+                          tolerance: cutoutTolerance,
+                          edgeSoftness: cutoutEdgeSoftness > 0 ? cutoutEdgeSoftness : undefined,
+                          maskGrowPx: maskGrowPx !== 0 ? maskGrowPx : undefined,
+                          maskLevels: isIdentityLevels(maskLevels) ? undefined : maskLevels,
+                          imageLevels: isIdentityLevels(imageLevels) ? undefined : imageLevels,
                         }),
                       )
                     }
                   >
                     Remove background
                   </button>
-                  <details className="compact-details advanced">
-                    <summary>Advanced cutout options</summary>
-                    <div className="row">
-                      <NumberField
-                        label="Alpha floor"
-                        value={alphaFloor}
-                        min={0}
-                        max={255}
-                        step={1}
-                        onValueChange={(val) => setAlphaFloor(val ?? null)}
-                        hint="Pushes every pixel at or below this level to transparent."
-                      />
-                      <SelectField
-                        label="Alpha curve"
-                        options={[
-                          { value: 'soft', label: 'Soft' },
-                          { value: 'balanced', label: 'Balanced' },
-                          { value: 'strong', label: 'Strong' },
-                        ]}
-                        value={alphaCurve}
-                        onChange={(event) =>
-                          setAlphaCurve(event.target.value as 'soft' | 'balanced' | 'strong')
-                        }
-                      />
-                      <NumberField
-                        label="Despeckle"
-                        value={despeckleLimit}
-                        min={0}
-                        max={255}
-                        step={1}
-                        onValueChange={(val) => setDespeckleLimit(val ?? null)}
-                        hint="Erases isolated specks at or below this level (0 = off)."
-                      />
-                      <CheckboxField
-                        label="Matting underbase"
-                        checked={mattingUnderbase}
-                        onChange={setMattingUnderbase}
-                        hint="Keeps a semi-transparent edge layer so the cutout hands off cleanly."
-                      />
-                    </div>
-                  </details>
                 </div>
+                <MaskGrowControl value={maskGrowPx} onChange={setMaskGrowPx} disabled={!canPropose} />
+                <details className="compact-details advanced">
+                  <summary>Levels adjustments</summary>
+                  <div className="stack-sm">
+                    <LevelsControl
+                      label="Mask levels"
+                      curveCaption="alpha"
+                      value={maskLevels}
+                      onChange={setMaskLevels}
+                      disabled={!canPropose}
+                      hint="Reshapes the transparency itself: raise the black point to drop a faint halo, lower the white point to make a soft edge solid."
+                    />
+                    <LevelsControl
+                      label="Image levels"
+                      curveCaption="colour"
+                      value={imageLevels}
+                      onChange={setImageLevels}
+                      disabled={!canPropose}
+                      hint="Moves the colour of the pixels that survive the cut-out. Independent of the mask."
+                    />
+                  </div>
+                </details>
               </div>
             </details>
           </li>

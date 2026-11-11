@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { SettingsProvider } from '../state/SettingsContext'
@@ -69,7 +69,7 @@ describe('core workbench routes', () => {
     })
   })
 
-  it('proposes background removal with BiRefNet AI model', async () => {
+  it('proposes a colour-key background removal', async () => {
     const user = userEvent.setup()
     const mock = startTestMockApi([{
       name: 'Cutout batch',
@@ -91,9 +91,53 @@ describe('core workbench routes', () => {
         (item) => item.designId === design.id && item.type === 'background-removal',
       )
       expect(job?.parameters).toMatchObject({
-        mode: 'ai',
-        aiModel: 'birefnet-massive',
+        mode: 'color-to-alpha',
+        keyColor: '#ffffff',
+        tolerance: 12,
       })
+      // Neutral levels and a zero offset are omitted so the job stays readable.
+      expect(job?.parameters).not.toHaveProperty('maskGrowPx')
+      expect(job?.parameters).not.toHaveProperty('maskLevels')
+      expect(job?.parameters).not.toHaveProperty('imageLevels')
+      expect(job?.parameters).not.toHaveProperty('aiModel')
+    })
+  })
+
+  it('sends the mask offset and both levels adjustments with the cut-out', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Cutout shaping',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Shaped cutout sample',
+        chain: [],
+      }],
+    }])
+    const batch = [...mock.batches.values()][0]!
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+
+    await user.click(screen.getByRole('button', { name: 'Expand' }))
+    expect(screen.getByLabelText('Selection edge offset')).toHaveValue(8)
+
+    const [maskBlack] = screen.getAllByLabelText('Input black')
+    fireEvent.change(maskBlack!, { target: { value: '12' } })
+
+    await user.click(screen.getByRole('button', { name: 'Remove background' }))
+
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'background-removal',
+      )
+      expect(job?.parameters).toMatchObject({
+        mode: 'color-to-alpha',
+        maskGrowPx: 8,
+        maskLevels: { blackPoint: 12, whitePoint: 255, gamma: 1, outputBlack: 0, outputWhite: 255 },
+      })
+      // Image levels were left alone, so they are not sent at all.
+      expect(job?.parameters).not.toHaveProperty('imageLevels')
     })
   })
 

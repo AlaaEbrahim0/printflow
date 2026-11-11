@@ -652,8 +652,15 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Propose background removal (AI or color-to-alpha)
-         * @description Produces a non-destructive mask artifact and transparency. The source is never modified.
+         * Propose background removal (color-to-alpha or mask reuse)
+         * @description Produces a non-destructive mask artifact and transparency. The source is
+         *     never modified.
+         *
+         *     The mask is the reviewable artifact, and it is shaped by the same request:
+         *     `maskGrowPx` offsets the selection edge, `edgeSoftness` feathers it,
+         *     `maskLevels` remaps the alpha ramp and `imageLevels` adjusts the cut-out
+         *     colours. The `ai` mode (BiRefNet) is archived and is rejected by the
+         *     worker with `unsupported-parameters`.
          */
         post: operations["proposeBackgroundRemoval"];
         delete?: never;
@@ -1067,14 +1074,51 @@ export interface components {
             dpi?: number | null;
         };
         BackgroundRemovalStepRequest: {
-            /** @enum {string} */
+            /**
+             * @description `color-to-alpha` keys out a flat background colour. `none` re-applies
+             *     brush strokes and mask shaping to `maskFromVersionId`. `ai` (BiRefNet)
+             *     is archived: it is still a legal value so historical jobs stay
+             *     readable, but the worker rejects it with `unsupported-parameters`.
+             * @enum {string}
+             */
             mode: "ai" | "color-to-alpha" | "none";
             keyColor?: string | null;
             tolerance?: number | null;
             edgeSoftness?: number | null;
-            /** @enum {string|null} */
+            /**
+             * @description Move the selection edge by this many source pixels: positive grows the
+             *     selection, negative contracts it. The offset is circular (Euclidean),
+             *     so a diagonal edge moves the same distance as a straight one, and a
+             *     grown pixel inherits the nearest selected alpha instead of being
+             *     stamped opaque.
+             */
+            maskGrowPx?: number | null;
+            maskLevels?: components["schemas"]["LevelsAdjustment"] | null;
+            imageLevels?: components["schemas"]["LevelsAdjustment"] | null;
+            /**
+             * @deprecated
+             * @enum {string|null}
+             */
             aiModel?: "birefnet-massive" | "birefnet-general" | "birefnet-general-lite" | null;
             brushOps?: components["schemas"]["BrushOp"][] | null;
+        };
+        /**
+         * @description Photoshop-style levels. Input black/white points rescale the ramp, `gamma`
+         *     bends the midpoint (above 1 brightens midtones), and the optional output
+         *     range clamps the result. Applied through a 256-entry lookup table, so the
+         *     same parameters always produce the same bytes.
+         */
+        LevelsAdjustment: {
+            /** @default 0 */
+            blackPoint: number;
+            /** @default 255 */
+            whitePoint: number;
+            /** @default 1 */
+            gamma: number;
+            /** @default 0 */
+            outputBlack: number;
+            /** @default 255 */
+            outputWhite: number;
         };
         BrushOp: {
             /** @enum {string} */

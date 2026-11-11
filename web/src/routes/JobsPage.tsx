@@ -29,7 +29,7 @@ const TYPE_OPTIONS: { value: JobTypeFilter; label: string }[] = [
   { value: 'pack-sheet', label: 'Pack sheet' },
   { value: 'integrity-check', label: 'Integrity check' },
   { value: 'export', label: 'Export' },
-  { value: 'background-removal', label: 'Background removal (retired)' },
+  { value: 'background-removal', label: 'Background removal' },
   { value: 'vectorize', label: 'Vectorize (retired)' },
 ]
 

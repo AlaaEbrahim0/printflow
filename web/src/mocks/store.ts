@@ -501,7 +501,7 @@ export class MockStore {
         break
       }
       case 'background-removal': {
-        const mode = String(parameters.mode ?? 'ai')
+        const mode = String(parameters.mode ?? 'color-to-alpha')
         const reusesMask = typeof parameters.maskFromVersionId === 'string'
         version.variant = mode === 'none' && !reusesMask ? 'with-bg' : 'transparent'
         version.hasAlpha = mode !== 'none' || reusesMask
@@ -2047,7 +2047,7 @@ export const SEED_BATCHES: SeedBatch[] = [
         garmentColor: { kind: 'dark' },
         notes: 'Customer screenshot. Halo visible on black tees.',
         chain: [
-          { stepType: 'background-removal', parameters: { mode: 'ai', edgeSoftness: 1.5 } },
+          { stepType: 'background-removal', parameters: { mode: 'color-to-alpha', keyColor: '#ffffff', tolerance: 14, edgeSoftness: 1.5, maskGrowPx: 1 } },
           { stepType: 'upscale', parameters: { model: 'realesrgan-x4plus-anime', scale: 2 }, status: 'proposed' },
         ],
       },
