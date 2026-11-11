@@ -11,6 +11,7 @@ public sealed class DesignService
     private readonly IBatchRepository _batches;
     private readonly IFileStore _files;
     private readonly IJobRepository _jobs;
+    private readonly IImageInspector _images;
     private readonly IImageThumbnailer _thumbnails;
     private readonly IClock _clock;
 
@@ -18,14 +19,52 @@ public sealed class DesignService
         IBatchRepository batches,
         IFileStore files,
         IJobRepository jobs,
+        IImageInspector images,
         IImageThumbnailer thumbnails,
         IClock clock)
     {
         _batches = batches;
         _files = files;
         _jobs = jobs;
+        _images = images;
         _thumbnails = thumbnails;
         _clock = clock;
+    }
+
+    public async Task<Result<(Batch Batch, Design Design)>> ProposeManualEditAsync(Guid designId, Guid sourceVersionId, Stream file, long length, string parametersJson, CancellationToken cancellationToken)
+    {
+        var found = await FindAsync(designId, cancellationToken);
+        if (found is null) return Result<(Batch, Design)>.Failure(ErrorCodes.DesignNotFound, $"Design {designId} was not found.");
+        var (batch, design) = found.Value;
+        if (design.CurrentVersionId != sourceVersionId) return Result<(Batch, Design)>.Failure(ErrorCodes.StaleProposal, "Source version is no longer current.");
+        if (design.PendingVersionId is not null) return Result<(Batch, Design)>.Failure(ErrorCodes.ProposalInFlight, "A proposed version already exists for this design.");
+        if (length <= 0 || length > 50L * 1024 * 1024) return Result<(Batch, Design)>.Failure(ErrorCodes.UploadTooLarge, "Manual edit exceeds upload limit.");
+        ImageInspection inspection;
+        try
+        {
+            inspection = await _images.InspectAsync(file, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return Result<(Batch, Design)>.Failure(
+                ErrorCodes.UnsupportedImage,
+                $"The manual edit could not be decoded as an image: {exception.Message}");
+        }
+
+        if (!inspection.Format.Equals("png", StringComparison.OrdinalIgnoreCase)) return Result<(Batch, Design)>.Failure(ErrorCodes.UnsupportedImage, "Manual edit must be PNG.");
+        var parent = design.CurrentVersion!;
+        if (inspection.WidthPx != parent.WidthPx || inspection.HeightPx != parent.HeightPx) return Result<(Batch, Design)>.Failure(ErrorCodes.InvalidRequest, "Manual edit dimensions must match source version.");
+        var versionId = Guid.NewGuid();
+        var path = $"{batch.Id}/designs/{design.Id}/versions/{versionId}.png";
+        file.Position = 0;
+        await _files.WriteAsync(path, file, cancellationToken);
+        var version = DesignVersion.CreateManualProposal(versionId, design.Id, parent.Id, path, inspection.WidthPx, inspection.HeightPx, true, parametersJson, _clock.UtcNow);
+        if (!version.IsSuccess) { await _files.DeleteAsync(path, cancellationToken); return Result<(Batch, Design)>.Failure(version.Error!); }
+        var added = design.AddProposal(version.Value!, _clock.UtcNow);
+        if (!added.IsSuccess) { await _files.DeleteAsync(path, cancellationToken); return Result<(Batch, Design)>.Failure(added.Error!); }
+        batch.RecordAudit("manual-edit-proposed", "operator", null, design.Id, versionId, parametersJson, _clock.UtcNow);
+        await _batches.SaveChangesAsync(cancellationToken);
+        return Result<(Batch, Design)>.Success((batch, design));
     }
 
     public async Task<(Batch Batch, Design Design)?> FindAsync(

@@ -1,5 +1,18 @@
 # Contract Changelog
 
+## Additive changes — 2026-11-11
+
+No breaking change; the OpenAPI version stays `2.0.0`.
+
+- New `POST /api/v1/designs/{designId}/steps/manual-edit` accepts
+  `multipart/form-data` with `file` (PNG, 50 MB maximum), `sourceVersionId` and
+  an optional `parameters` JSON string. It stores an immutable proposed
+  `manual-edit` version and returns `201` with the updated `DesignDetail`.
+  Dimensions must match the current source version; stale or pending proposals
+  return `409`.
+- `StepType` gained `manual-edit`. Existing versions and job records are
+  unchanged.
+
 ## Additive changes — 2026-11-10
 
 No breaking change; the OpenAPI version stays `2.0.0`. `POST

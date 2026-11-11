@@ -32,6 +32,7 @@ public enum StepType
     Upscale,
     Vectorize,
     BackgroundRemoval,
+    ManualEdit,
     Resize,
 }
 
@@ -134,6 +135,7 @@ public static class BatchEnumNames
         StepType.Upscale => "upscale",
         StepType.Vectorize => "vectorize",
         StepType.BackgroundRemoval => "background-removal",
+        StepType.ManualEdit => "manual-edit",
         StepType.Resize => "resize",
         _ => throw new ArgumentOutOfRangeException(nameof(value)),
     };

@@ -64,6 +64,7 @@ export type UpscaleStepRequest = components['schemas']['UpscaleStepRequest']
 export type ResizeStepRequest = components['schemas']['ResizeStepRequest']
 export type BackgroundRemovalStepRequest = components['schemas']['BackgroundRemovalStepRequest']
 export type BrushOp = components['schemas']['BrushOp']
+export type ManualEditParameters = Record<string, unknown>
 export type LevelsAdjustment = components['schemas']['LevelsAdjustment']
 export type RejectVersionRequest = components['schemas']['RejectVersionRequest']
 export type RejectVersionResponse = components['schemas']['RejectVersionResponse']
@@ -382,6 +383,13 @@ export const api = {
       get<DesignDetail>(`${API_ROOT}/designs/${encoded(designId)}`, options),
     update: (designId: string, body: UpdateDesignRequest, options?: RequestOptions) =>
       patch<DesignDetail>(`${API_ROOT}/designs/${encoded(designId)}`, body, options),
+    manualEdit: (designId: string, sourceVersionId: string, file: File, parameters: ManualEditParameters = {}, options?: RequestOptions) => {
+      const form = new FormData()
+      form.append('file', file, file.name)
+      form.append('sourceVersionId', sourceVersionId)
+      form.append('parameters', JSON.stringify(parameters))
+      return request<DesignDetail>(`${API_ROOT}/designs/${encoded(designId)}/steps/manual-edit`, { method: 'POST', body: form, signal: options?.signal })
+    },
     suggestions: (designId: string, options?: RequestOptions) =>
       get<ClassifierSuggestions>(`${API_ROOT}/designs/${encoded(designId)}/suggestions`, options),
     versions: (designId: string, options?: RequestOptions) =>

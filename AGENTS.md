@@ -805,6 +805,28 @@ If context is running low, prioritize in this order:
 
 Append newest entries at the top. Keep them short and factual.
 
+### 2026-11-11 — Manual cleanup contract and stabilization pass
+
+- OpenAPI/manual-edit contract aligned; `schema.d.ts` regenerated; `manual-edit` step label added.
+- Manual editor modules now compile and full web suite passes 309 tests. Web build passes. API build passes with 0 warnings/errors; API tests pass 22.
+- Geometry tests now pass in current tree. Contract validation passes through `make test-contracts`.
+- `make test-web`, `make test-api`, and `make test-contracts` pass. Full `make test`, worker/packer gates, live E2E, and endpoint integration tests remain unrun in this session.
+
+### 2026-11-11 — Manual cleanup editor completed pass
+
+- Added manual editor selection modes, polygon/lasso, contiguous wand, color-range sampling, mask creation, Levels/HSL controls, PNG download and Printflow manual-edit save call.
+- Added API `POST /api/v1/designs/{designId}/steps/manual-edit`, immutable proposed `StepType.ManualEdit`, parent/stale/pending checks, PNG/dimension/size validation, safe version storage and audit event.
+- Fixed manual editor selection helper TypeScript errors, identity render check, marching-ant left edge, undo label, and added focused selection tests.
+- Web build passes; focused editor tests pass; API build and 22 API tests pass. Full editor test suite retains 3 pre-existing geometry expectation failures; contract OpenAPI update and full backend endpoint tests remain follow-up.
+
+### 2026-11-11 — Manual cleanup editor foundation
+
+- Added `/batches/:batchId/designs/:designId/manual-editor` with browser Canvas editor.
+- Added rectangular/elliptical marquee, basic color-tolerance wand, invert/deselect, selection-to-mask, Levels, Hue/Saturation, zoom, PNG download.
+- Reused existing immutable file URL and design route. No backend or contract change yet.
+- Web build and 253 tests pass.
+- Remaining: lasso/polygon, contiguous wand, Color Range, path workflow, real undo/redo, mask controls, save-as-proposed multipart endpoint, focused engine tests.
+
 ### 2026-11-11 — Review page rebuilt as a canvas + layer-stack editor; teal accent and a light theme
 
 - **The review page was one long column.** Preview, readiness, a four-step

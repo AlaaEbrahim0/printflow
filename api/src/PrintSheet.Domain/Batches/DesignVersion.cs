@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using PrintSheet.Domain.Common;
 
 namespace PrintSheet.Domain.Batches;
@@ -117,6 +119,23 @@ public sealed class DesignVersion
         });
     }
 
+    public static Result<DesignVersion> CreateManualProposal(
+        Guid id,
+        Guid designId,
+        Guid parentId,
+        string filePath,
+        int widthPx,
+        int heightPx,
+        bool hasAlpha,
+        string parametersJson,
+        DateTimeOffset createdAt)
+    {
+        var validation = ValidateFileMetadata(id, designId, filePath, widthPx, heightPx, parametersJson);
+        if (!validation.IsSuccess) return Result<DesignVersion>.Failure(validation.Error!);
+        if (parentId == Guid.Empty) return Result<DesignVersion>.Failure(ErrorCodes.InvalidRequest, "A manual edit requires a parent version.");
+        return Result<DesignVersion>.Success(new DesignVersion(id, designId, parentId, StepType.ManualEdit, VersionStatus.Proposed, filePath, null, null, widthPx, heightPx, hasAlpha, parametersJson, null, createdAt));
+    }
+
     public static Result<DesignVersion> CreateProposal(
         Guid id,
         Guid designId,
@@ -170,6 +189,56 @@ public sealed class DesignVersion
     }
 
     /// <summary>
+    /// An operator-made cleanup (crop, levels, colour or a cut-out mask) that was
+    /// rasterised in the browser and uploaded as a finished PNG. Unlike a worker
+    /// proposal there is no job: the operator is the processor. It is still a
+    /// <see cref="VersionStatus.Proposed"/> version that must be approved, so the
+    /// operator can never silently replace the current pixels. The file is a new
+    /// immutable file; the parent version is never touched.
+    /// </summary>
+    public static Result<DesignVersion> CreateManualEdit(
+        Guid id,
+        Guid designId,
+        Guid parentId,
+        string filePath,
+        string? maskPath,
+        int widthPx,
+        int heightPx,
+        bool hasAlpha,
+        string parametersJson,
+        DateTimeOffset createdAt)
+    {
+        var validation = ValidateFileMetadata(id, designId, filePath, widthPx, heightPx, parametersJson);
+        if (!validation.IsSuccess)
+        {
+            return Result<DesignVersion>.Failure(validation.Error!);
+        }
+
+        if (parentId == Guid.Empty)
+        {
+            return Result<DesignVersion>.Failure(
+                ErrorCodes.InvalidRequest,
+                "A manual edit requires the version it was drawn on as its parent.");
+        }
+
+        return Result<DesignVersion>.Success(new DesignVersion(
+            id,
+            designId,
+            parentId,
+            StepType.Crop,
+            VersionStatus.Proposed,
+            filePath,
+            maskPath,
+            svgPath: null,
+            widthPx,
+            heightPx,
+            hasAlpha,
+            parametersJson,
+            jobId: null,
+            createdAt));
+    }
+
+    /// <summary>
     /// An operator-prepared PNG that is already background-removed and exported
     /// at the exact target pixel size. It is stored as a separate immutable
     /// resize version (the file is copied, never referenced from the original)
@@ -218,6 +287,46 @@ public sealed class DesignVersion
         {
             ApprovedAt = createdAt,
         });
+    }
+
+    /// <summary>
+    /// Appends the operator's intent to the renderer parameters recorded when
+    /// the version was created. Only legal while the version is still a
+    /// proposal; the renderer's own parameters are preserved, never rewritten.
+    /// </summary>
+    internal Result AnnotateParameters(string annotationJson, DateTimeOffset at)
+    {
+        if (Status != VersionStatus.Proposed)
+        {
+            return Result.Failure(
+                ErrorCodes.InvalidTransition,
+                "Only a proposed version can be annotated.");
+        }
+
+        if (string.IsNullOrWhiteSpace(annotationJson))
+        {
+            return Result.Failure(ErrorCodes.InvalidRequest, "Annotation JSON is required.");
+        }
+
+        var merged = new JsonObject();
+        using (var existing = JsonDocument.Parse(ParametersJson))
+        {
+            foreach (var property in existing.RootElement.EnumerateObject())
+            {
+                merged[property.Name] = JsonNode.Parse(property.Value.GetRawText());
+            }
+        }
+
+        using (var annotation = JsonDocument.Parse(annotationJson))
+        {
+            foreach (var property in annotation.RootElement.EnumerateObject())
+            {
+                merged[property.Name] = JsonNode.Parse(property.Value.GetRawText());
+            }
+        }
+
+        ParametersJson = merged.ToJsonString(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        return Result.Success();
     }
 
     internal Result Approve(DateTimeOffset at)

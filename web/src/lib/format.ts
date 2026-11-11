@@ -63,6 +63,7 @@ const STEP_LABELS: Record<StepType, string> = {
   upscale: 'Upscale',
   vectorize: 'Vectorize',
   'background-removal': 'Background removal',
+  'manual-edit': 'Manual cleanup',
   resize: 'Final resize',
 }
 

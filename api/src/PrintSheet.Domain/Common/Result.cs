@@ -14,6 +14,7 @@ public static class ErrorCodes
     public const string SheetNotFound = "sheet-not-found";
     public const string ProposalInFlight = "proposal-in-flight";
     public const string JobInFlight = "job-in-flight";
+    public const string PendingProposal = "pending-proposal";
     public const string StaleProposal = "stale-proposal";
     public const string InvalidTransition = "invalid-transition";
     public const string VersionNotApproved = "version-not-approved";

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Mvc;
 using PrintSheet.Api.Contracts;
 using PrintSheet.Application.Batches;
 using PrintSheet.Application.Services;
@@ -36,6 +37,7 @@ public static class DesignEndpoints
         group.MapPost("/{designId:guid}/steps/upscale", UpscaleAsync);
         group.MapPost("/{designId:guid}/steps/resize", ResizeAsync);
         group.MapPost("/{designId:guid}/steps/background-removal", BackgroundRemovalAsync);
+        group.MapPost("/{designId:guid}/steps/manual-edit", ManualEditAsync).DisableAntiforgery();
     }
 
     private static async Task<IResult> GetAsync(
@@ -354,6 +356,19 @@ public static class DesignEndpoints
         return result.IsSuccess
             ? Accepted(result.Value!)
             : ApiResults.Problem(result.Error!);
+    }
+
+    private static async Task<IResult> ManualEditAsync(
+        Guid designId,
+        [FromForm] IFormFile file,
+        [FromForm] Guid sourceVersionId,
+        [FromForm] string? parameters,
+        DesignService designs,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = file.OpenReadStream();
+        var result = await designs.ProposeManualEditAsync(designId, sourceVersionId, stream, file.Length, parameters ?? "{}", cancellationToken);
+        return result.IsSuccess ? Results.Created($"/api/v1/designs/{designId}/versions", result.Value.Design.ToDetail()) : ApiResults.Problem(result.Error!);
     }
 
     private static async Task<IResult> BackgroundRemovalAsync(

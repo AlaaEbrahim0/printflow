@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using PrintSheet.Domain.Common;
 using PrintSheet.Domain.Units;
 
@@ -272,6 +274,134 @@ public sealed class Design
         RecomputeStatus();
         UpdatedAt = at;
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Records a browser-side manual cleanup as a single proposed version.
+    /// </summary>
+    /// <remarks>
+    /// This is the manual counterpart of the worker path in
+    /// <see cref="AddProposal"/> and deliberately runs the same guards, because
+    /// the operator can finish a long editor session after the design moved on:
+    /// <list type="bullet">
+    /// <item>excluded / needs-better-source designs take no work;</item>
+    /// <item>a second proposal is refused (<c>proposal-in-flight</c>);</item>
+    /// <item>a proposal drawn on a version that is no longer current is refused
+    /// with <c>stale-proposal</c> and is never rebased onto the new current
+    /// version.</item>
+    /// </list>
+    /// The sheet is not invalidated here: a proposal changes no pixels the
+    /// packer uses. Approval invalidates it like any other step.
+    /// </remarks>
+    public Result RecordManualEdit(
+        Guid parentVersionId,
+        DesignVersion proposal,
+        ManualEditGeometry geometry,
+        DateTimeOffset at)
+    {
+        if (Status is DesignStatus.Excluded or DesignStatus.NeedsBetterSource)
+        {
+            return Result.Failure(
+                ErrorCodes.InvalidTransition,
+                $"Design {Id} is {Status.ToContract()} and cannot accept a manual edit.");
+        }
+
+        if (proposal.DesignId != Id)
+        {
+            return Result.Failure(
+                ErrorCodes.InvalidRequest,
+                "The manual edit version does not belong to this design.");
+        }
+
+        if (PendingVersionId is not null)
+        {
+            return Result.Failure(
+                ErrorCodes.ProposalInFlight,
+                "A proposed version already exists for this design; approve or reject it before saving another edit.");
+        }
+
+        if (parentVersionId == Guid.Empty || FindVersion(parentVersionId) is null)
+        {
+            return Result.Failure(
+                ErrorCodes.VersionNotFound,
+                $"Version {parentVersionId} was not found on this design.");
+        }
+
+        if (parentVersionId != CurrentVersionId || proposal.ParentId != parentVersionId)
+        {
+            return Result.Failure(
+                ErrorCodes.StaleProposal,
+                "The manual edit was drawn on a version that is no longer current; reload the editor and edit the current version.");
+        }
+
+        var parent = FindVersion(parentVersionId)!;
+        var cropCheck = ValidateManualEditGeometry(proposal, geometry, parent);
+        if (cropCheck is not null)
+        {
+            return Result.Failure(cropCheck);
+        }
+
+        var added = AddProposal(proposal, at);
+        if (!added.IsSuccess)
+        {
+            return added;
+        }
+
+        // Record the operator's intent next to the renderer parameters, so an
+        // approval review can tell what the edit claimed to do.
+        return proposal.AnnotateParameters(
+            JsonSerializer.Serialize(
+                new
+                {
+                    source = "manual-edit",
+                    editedFromVersionId = parentVersionId,
+                    cropApplied = geometry.CropApplied,
+                    resultWidthPx = geometry.EditedWidthPx,
+                    resultHeightPx = geometry.EditedHeightPx,
+                }),
+            at);
+    }
+
+    /// <summary>
+    /// A manual edit is drawn on one version, so an uncropped result must keep
+    /// that version's pixel size, and a crop must shrink it. Rejecting the
+    /// mismatch here keeps a wrong-size file out of review entirely.
+    /// </summary>
+    private static DomainError? ValidateManualEditGeometry(
+        DesignVersion proposal,
+        ManualEditGeometry geometry,
+        DesignVersion parent)
+    {
+        if (proposal.WidthPx != geometry.EditedWidthPx
+            || proposal.HeightPx != geometry.EditedHeightPx)
+        {
+            return DomainError.Create(
+                ErrorCodes.InvalidRequest,
+                $"The manual edit file is {proposal.WidthPx}x{proposal.HeightPx} px but the edit described "
+                + $"{geometry.EditedWidthPx}x{geometry.EditedHeightPx} px.");
+        }
+
+        if (geometry.CropApplied)
+        {
+            if (geometry.EditedWidthPx > parent.WidthPx || geometry.EditedHeightPx > parent.HeightPx)
+            {
+                return DomainError.Create(
+                    ErrorCodes.InvalidRequest,
+                    "A cropped manual edit cannot be larger than the version it was drawn on.");
+            }
+
+            return null;
+        }
+
+        if (geometry.EditedWidthPx != parent.WidthPx || geometry.EditedHeightPx != parent.HeightPx)
+        {
+            return DomainError.Create(
+                ErrorCodes.InvalidRequest,
+                $"An uncropped manual edit must keep the parent size "
+                + $"{parent.WidthPx}x{parent.HeightPx} px; declare a crop to change it.");
+        }
+
+        return null;
     }
 
     public Result ApproveVersion(Guid versionId, DateTimeOffset at)

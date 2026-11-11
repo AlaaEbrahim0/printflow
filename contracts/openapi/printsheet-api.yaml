@@ -848,6 +848,55 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
+  /api/v1/designs/{designId}/steps/manual-edit:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: proposeManualEdit
+      summary: Save a manual-editor PNG as a new proposed version
+      description: |
+        Stores the operator's PNG as an immutable `manual-edit` proposal against
+        the current version. Dimensions must match the source version exactly.
+        The source is never modified and no worker job is queued.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, sourceVersionId]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PNG export from the manual editor; maximum 50 MB.
+                sourceVersionId:
+                  type: string
+                  format: uuid
+                  description: Current version the edit is based on.
+                parameters:
+                  type: string
+                  nullable: true
+                  description: Manual-editor history and settings as a JSON object string.
+      responses:
+        '201':
+          description: Manual-edit proposal created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DesignDetail' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          description: Manual edit exceeds the upload limit
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetails' }
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
   /api/v1/jobs:
     get:
       tags: [Jobs]
@@ -1130,7 +1179,7 @@ components:
 
     StepType:
       type: string
-      enum: [original, trim, crop, upscale, vectorize, background-removal, resize]
+      enum: [original, trim, crop, upscale, vectorize, background-removal, manual-edit, resize]
 
     JobStatus:
       type: string

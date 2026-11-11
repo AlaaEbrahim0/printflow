@@ -93,6 +93,7 @@ public static class EnumText
         "upscale" => StepType.Upscale,
         "vectorize" => StepType.Vectorize,
         "background-removal" => StepType.BackgroundRemoval,
+        "manual-edit" => StepType.ManualEdit,
         "resize" => StepType.Resize,
         _ => throw new InvalidOperationException($"Unknown step type '{text}'."),
     };

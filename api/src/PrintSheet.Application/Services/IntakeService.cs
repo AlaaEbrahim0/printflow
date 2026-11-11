@@ -9,7 +9,7 @@ using PrintSheet.Domain.Units;
 
 namespace PrintSheet.Application.Services;
 
-public sealed class IntakeOptions
+public sealed class IntakeOptions : IUploadLimits
 {
     public long MaxUploadBytes { get; init; } = 50L * 1024 * 1024;
 

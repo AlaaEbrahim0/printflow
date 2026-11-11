@@ -766,6 +766,13 @@ export default function DesignReviewPage() {
                 </a>
                 <Link
                   className="btn"
+                  to={`/batches/${batchId}/designs/${designId}/manual-editor?versionId=${proposal.id}`}
+                  title="Clean proposal in Printflow manual editor"
+                >
+                  Manual cleanup
+                </Link>
+                <Link
+                  className="btn"
                   to={photopeaEditorPath(batchId, designId, proposal.id)}
                   title="Edit this exact proposal in Photopea, then save a new ready-to-pack design"
                   data-testid="open-photopea-proposal"

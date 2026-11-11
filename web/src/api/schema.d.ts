@@ -669,6 +669,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/designs/{designId}/steps/manual-edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                designId: components["parameters"]["DesignId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save a manual-editor PNG as a new proposed version
+         * @description Stores the operator's PNG as an immutable `manual-edit` proposal against
+         *     the current version. Dimensions must match the source version exactly.
+         *     The source is never modified and no worker job is queued.
+         */
+        post: operations["proposeManualEdit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs": {
         parameters: {
             query?: never;
@@ -866,7 +890,7 @@ export interface components {
         /** @enum {string} */
         VersionStatus: "proposed" | "approved" | "rejected";
         /** @enum {string} */
-        StepType: "original" | "trim" | "crop" | "upscale" | "vectorize" | "background-removal" | "resize";
+        StepType: "original" | "trim" | "crop" | "upscale" | "vectorize" | "background-removal" | "manual-edit" | "resize";
         /** @enum {string} */
         JobStatus: "queued" | "running" | "succeeded" | "failed" | "cancelled";
         /** @enum {string} */
@@ -2453,6 +2477,57 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    proposeManualEdit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                designId: components["parameters"]["DesignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description PNG export from the manual editor; maximum 50 MB.
+                     */
+                    file: string;
+                    /**
+                     * Format: uuid
+                     * @description Current version the edit is based on.
+                     */
+                    sourceVersionId: string;
+                    /** @description Manual-editor history and settings as a JSON object string. */
+                    parameters?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Manual-edit proposal created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesignDetail"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description Manual edit exceeds the upload limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
             422: components["responses"]["UnprocessableEntity"];
         };
     };
