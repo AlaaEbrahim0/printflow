@@ -145,7 +145,8 @@ export function applyMaskDelta(mask: PackedMask, delta: MaskDelta): PackedMask {
 }
 
 function commandBytes(command: DocumentCommand): number {
-  return new TextEncoder().encode(JSON.stringify(command, (_, value) => value instanceof Uint8Array ? Array.from(value) : value)).byteLength
+  if ('delta' in command && command.delta) return 128 + command.delta.bytes.byteLength
+  return 64 + new TextEncoder().encode(JSON.stringify(command)).byteLength
 }
 
 export function pushHistory(history: DocumentHistory, label: string, command: DocumentCommand): DocumentHistory {
