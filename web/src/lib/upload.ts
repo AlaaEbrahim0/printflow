@@ -3,7 +3,7 @@
  * dimension limits); this only fails fast before a large upload leaves the
  * browser. Mirrors the `upload-too-large` / `unsupported-image` problem codes.
  */
-export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 export const ACCEPTED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/tiff'] as const
 

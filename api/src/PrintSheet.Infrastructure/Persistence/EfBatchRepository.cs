@@ -53,6 +53,12 @@ public sealed class EfBatchRepository(PrintSheetDbContext db) : IBatchRepository
     public Task SaveChangesAsync(CancellationToken cancellationToken)
         => db.SaveChangesAsync(cancellationToken);
 
+    public Task DeleteAsync(Batch batch, CancellationToken cancellationToken)
+    {
+        db.Batches.Remove(batch);
+        return db.SaveChangesAsync(cancellationToken);
+    }
+
     private IQueryable<Batch> FullGraph()
         => db.Batches
             .Include(batch => batch.Designs)

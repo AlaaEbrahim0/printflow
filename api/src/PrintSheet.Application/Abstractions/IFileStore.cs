@@ -14,5 +14,9 @@ public interface IFileStore
 
     Task<long> GetLengthAsync(string relativePath, CancellationToken cancellationToken);
 
+    /// <summary>Deletes a single file (the original intake upload is never mutated).</summary>
     Task DeleteAsync(string relativePath, CancellationToken cancellationToken);
+
+    /// <summary>Recursively deletes a directory tree (all versions, masks, SVGs, job/export artifacts).</summary>
+    Task DeleteDirectoryAsync(string relativePath, CancellationToken cancellationToken);
 }

@@ -273,10 +273,12 @@ python3.12 -m venv .venv
 ### Packer (`packer/`)
 
 - Standalone package + CLI; no imports from API/worker.
-- Implements exact alpha-polygon placement, full-raster containment, sheet
-  rendering, the five blocking integrity checks (including
-  `all-designs-placed`) and supported export artifacts. It Lanczos-resizes only
-  when an explicit target box differs from the approved pixels, and warns.
+- Implements conservative bitmap placement (max-pooled occupancy grid plus FFT
+  free-space search), full-raster containment, sheet rendering, the five
+  blocking integrity checks (including `all-designs-placed`) and supported
+  export artifacts. Exact alpha silhouettes are built lazily; the search never
+  buffers them. It Lanczos-resizes only when an explicit target box differs
+  from the approved pixels, and warns.
 - The contract validator loads all schemas into a `referencing` registry so
   packer responses can resolve the integrity-report `$ref`.
 - `printsheet-packer-runner` (or `python -m printsheet_packer.runner`) claims
@@ -523,6 +525,16 @@ flow complements, but does not replace, packer property/adversarial tests.
   counts as occupied. Do not raise this silently.
 - Occupancy grid rounds **up** (conservative): it may overestimate, never
   underestimate.
+- The packer search cell is a power of two keeping the roll at roughly 128
+  cells wide (`TARGET_CELLS_WIDE`, 64 px at 58 cm/300 DPI) and is capped at
+  `COARSEST_SEARCH_CELL_MM = 5.0`. Do not feed exact per-pixel polygons or
+  Shapely buffers back into the placement search; that is the path that took
+  minutes on real artwork. Exact geometry is lazy and the full-resolution
+  integrity gate stays authoritative.
+- Clearance must be Chebyshev. The search certifies it by single-sided
+  dilation (`d * cell_px + 1 >= margin_px`), and `collision_radius_px()` is
+  `margin_px / sqrt(2)` for any polygon-buffer fallback. `margin_px / 2 + 1`
+  is ~29% short on a diagonal and can produce a layout the gate rejects.
 - Rotations are exactly 0/90/180/270. Never use PIL `rotate()` with arbitrary
   angles or resampling for packing.
 - Export integrity failures must block, not warn. If a check is skipped, the
@@ -556,7 +568,7 @@ If context is running low, prioritize in this order:
 
 ## 14. Live status
 
-**Last updated:** 2026-11-08 (contract v2.0.0 alignment and runtime verification)
+**Last updated:** 2026-11-11 (review page rebuilt as a canvas + layer-stack editor; teal accent, light theme)
 
 **Done and verified:**
 
@@ -565,40 +577,41 @@ If context is running low, prioritize in this order:
 - API Clean Architecture implementation builds; 11 domain tests and 5
   infrastructure tests pass. The live fixture-flow script covers the API job
   lifecycle.
-- Worker processing covers classify, trim/crop, upscale and resize; 195 tests
-  pass. Retired background-removal/vectorize jobs fail with a structured
-  `retired` reason while historical schema documents stay readable.
-- Packer exact-polygon nesting/integrity/export implementation is integrated.
-  Lease-based API runner has targeted tests for pack, integrity, export, path
-  safety, failure payloads and lease loss; the complete packer suite has 159
-  passing tests. Full source rasters remain inside sheet bounds, integrity
-  rejects clipped source padding, and `all-designs-placed` blocks export when a
-  selected design is unplaced.
-- **Known defect: the packer's gap certificate is too weak on diagonals.** The
-  search accepts a placement when
-  `geometry.buffer(margin_px / 2 + 1, join_style="mitre")` copies do not
-  intersect — a *radial* offset — while the blocking `minimum-gap` check
-  requires a *Chebyshev* gap. A radial buffer of `r` only certifies
-  `2r / sqrt(2)` in Chebyshev terms, so it needs `r >= margin_px / sqrt(2)`;
-  production uses `r = margin_px / 2 + 1`, which is ~29% short. Consequence:
-  the packer can emit a layout its own gate rejects, leaving the operator
-  unable to export (`sheet-integrity-failed`) without hand-editing placements.
-  Reproduced on the `synthetic-12` case: a pair accepted at 363 px Euclidean is
-  only 273 px Chebyshev against a 354 px requirement. Verified with the packer's
-  own `verify_layout`, not just the external referee. Fixing the radius to
-  `margin_px / sqrt(2)` closes the gap exactly (measured at 60 px and 354 px).
-  Not yet fixed in production; `packer-optimization-kit/BRIEF.md` §3 and §6.1
-  document the measurement and the required correctness bar.
-- **Scale of the gap defect:** the production packer certifies a radial (Euclidean)
-  buffer gap while its own integrity gate requires a Chebyshev gap. A radial
-  buffer of `r` certifies a Chebyshev gap of only `2r / sqrt(2)` on a diagonal,
-  so it needs `r >= margin_px / sqrt(2)`. Production uses `r = margin_px / 2 + 1`,
-  which is ~29% short. This means the search can emit a layout its own gate then
-  rejects — the operator cannot export (`sheet-integrity-failed`) without
-  hand-editing placements. Confirmed on `synthetic-12`: a pair accepted at 363 px
-  Euclidean is only 273 px Chebyshev against a 354 px requirement. All six
-  production results in `results/production.json` record the outcomes. Fix radius
-  to `margin_px / sqrt(2)` closes the gap exactly (verified at 60 px and 354 px).
+- Worker processing covers classify, trim/crop, upscale, resize and
+  background-removal; 225 tests pass. Background removal runs a colour key
+  (`color-to-alpha`) or reapplies brush edits to an earlier mask (`none`) and
+  produces a non-destructive mask artifact; its `ai` (BiRefNet) mode is archived
+  and fails with `unsupported-parameters`. Retired vectorize jobs fail with a
+  structured `retired` reason while historical schema documents stay readable.
+- Packer conservative-bitmap nesting/integrity/export implementation is
+  integrated. Lease-based API runner has targeted tests for pack, integrity,
+  export, path safety, failure payloads and lease loss; the complete packer
+  suite has 161 passing tests. Full source rasters remain inside sheet bounds,
+  integrity rejects clipped source padding, and `all-designs-placed` blocks
+  export when a selected design is unplaced.
+- **Packer performance defect fixed (2026-11-09).** The old placement search
+  unioned exact Shapely alpha silhouettes and buffered them for all four
+  rotations. On real full-resolution artwork that took minutes before a single
+  design was placed. The search now runs on a max-pooled occupancy bitmap and
+  finds positions by FFT cross-correlation of the free grid against each
+  rotated query mask. Exact `DesignMask.geometry` is lazy, so the search never
+  builds silhouette polygons. The search cell is a power of two that keeps the
+  roll at roughly 128 cells (`TARGET_CELLS_WIDE`; 64 px at 58 cm/300 DPI) and
+  is capped at `COARSEST_SEARCH_CELL_MM = 5.0`.
+- **Packer diagonal gap-certificate defect fixed.** The blocking `minimum-gap`
+  check measures a Chebyshev gap, while a radial (mitre) buffer of `r` only
+  certifies `2r / sqrt(2)`. `collision_radius_px(margin_px)` is now
+  `margin_px / sqrt(2)` (the old `margin_px / 2 + 1` was ~29% short), and the
+  raster path certifies clearance by single-sided dilation so empty cells imply
+  at least `d * cell_px + 1` pixels. The previous strict-xfail regression test
+  now passes normally.
+- **Live user-batch validation (2026-11-09).** Ten ready PNGs from
+  `~/Downloads/test` (3000–3500 px per side) pack with 31 orderings and a
+  20 s budget: search ~5 s, whole `run_pack` ~16 s (integrity ~11 s), sheet
+  6850 × 11190 px, all ten designs placed, all five integrity checks passing.
+  CLI `pack` and `verify` both exit 0. Full packer benchmark on synthetic
+  blobs: 1 design 0.7 s, 10 designs 10.3 s, 40 designs 67 s with 1.26 GB peak
+  RSS; all five checks pass.
 - Web workflow routes (including partial-selection packing previews) are
   implemented. `npm test`: 200 passed across 16 files. `npm run build` succeeds;
   `npm run lint` exits successfully with existing React-hook/fast-refresh
@@ -621,7 +634,7 @@ If context is running low, prioritize in this order:
   The native GPU worker uses port 8001 and claims GPU jobs only, so it can run
   alongside the Compose CPU worker on port 8000.
 - `make test` passes after the v2.0.0 alignment: contracts, 11 API domain tests,
-  5 infrastructure tests, 195 worker tests, 159 packer tests, and the web
+  5 infrastructure tests, 195 worker tests, 161 packer tests, and the web
   build/lint. Separately, `npm test` passes all 109 web tests.
 - Compose `make e2e-fixtures` passes intake, resize approval, packing,
   five-check integrity, and PNG export (batch
@@ -678,6 +691,53 @@ If context is running low, prioritize in this order:
   must be resubmitted after fixes; they are not silently retried.
 - API health, Compose smoke and the live failed-job response shape were checked
   against the rebuilt v2.0.0 stack.
+- **Batch grid no longer downloads full-resolution PNGs (2026-11-09).** A batch
+  of 25 ready-to-pack PNGs totalling ~200 MB made the design grid unusable
+  because every card loaded a full PNG. `GET .../versions/{id}/file` now accepts
+  an optional `maxPx` (32–2048) and renders a derived, alpha-preserving PNG with
+  `SkiaSharp` whose longest side is at most `maxPx`; smaller sources are never
+  enlarged. Decoding is gated to two concurrent renders, encoded bytes are
+  cached in memory (256 MB, keyed by the immutable version id), and responses
+  carry an `ETag` plus `Cache-Control: public, max-age=31536000, immutable` with
+  `304 Not Modified` revalidation. The design grid requests `maxPx=640` with
+  `loading="lazy" decoding="async" fetchpriority="low"`; the design review page
+  keeps the full-resolution file `eager`/`high` because that screen exists to
+  judge pixels.
+- **Measured on the user's 10-PNG batch (2026-11-09).** The same batch that was
+  slow to load transfers 42.35 MB of full PNGs but only 2.62 MB of 640 px
+  thumbnails — 93.8% less, 16.2× smaller — with all ten cards rendering. Cold
+  thumbnail render ~250 ms, cached ~15–22 ms, and a conditional request returns
+  `304` with zero bytes. All ten thumbnails stay RGBA with the longest side at
+  exactly 640 px and the source aspect ratio preserved (max deviation 0.0012).
+  Skia ignores the PNG "quality" argument (identical bytes for every value), so
+  these are lossless PNGs; WebP would be ~48% smaller but is not worth losing
+  fidelity in artwork review.
+- **Global jobs screen (2026-11-09).** `GET /api/v1/jobs` lists jobs across all
+  batches so `/jobs` shows running work instead of only per-batch history. The
+  screen sorts live jobs first, polls every 2 s, shows a live count, links each
+  row to its batch and design, offers cancel with a conflict-safe refresh, and
+  keeps a batch-scoped view at `/batches/:id/jobs`. Batch detail links to it.
+- **Print size now follows the artwork aspect ratio (2026-11-09).** The design
+  review size step links width and height by default (lock/unlock checkbox),
+  offers "Use artwork size", and derives the linked side during render so a crop
+  or upscale relinks the size immediately with no effect. An already-saved
+  non-ratio size is preserved on load and shown as unlinked rather than silently
+  rewritten. Resolution is displayed as the batch's read-only snapshotted
+  working DPI, and the output pixel size at the chosen dimensions is shown.
+- **Not-found responses now match the contract (2026-11-09).** The two-argument
+  `ApiResults.Problem(code, message)` overload defaulted to `422`, so a missing
+  batch or design returned `422` where OpenAPI documents `404`. It now routes
+  through the existing `StatusFor` mapping; request-validation failures remain
+  `422`. The web client already treated `404` as not-found, so the UI improves
+  rather than changes behavior.
+- **Current gates (2026-11-09).** API build 0 warnings/0 errors; 13 domain + 9
+  infrastructure tests pass. Web `npm test`: 214 passed across 17 files (three
+  consecutive runs). `npm run build` succeeds; `npm run lint` exits 0 with the
+  same 17 pre-existing hook/fast-refresh warnings. `scripts/validate_contracts.py`
+  green. Compose rebuilt, `make up` + `make smoke` pass, and `make e2e-fixtures`
+  passes (batch `6dd8c4a0-ea49-470f-a9d2-c0841df85d24`). Live checks confirmed
+  `maxPx` validation (`422` outside 32–2048), thumbnail caching/`304`, global job
+  listing and filtering, and `404` for missing batch/design.
 
 **In progress / immediate next:**
 
@@ -695,10 +755,30 @@ If context is running low, prioritize in this order:
    human-led; measure operator time saved, not unattended automation.
 5. The Phase 1–3 worktree is committed in logical slices on `main` (contracts,
    API, worker, packer, web, runtime, docs); keep feature work on top of it.
-6. Two intake paths now exist: enhancement intake (targets required, classify
+6. The raster search and diagonal-gap fix are committed and the Compose packer
+   image was rebuilt; `make e2e-fixtures` passes on the new image. Keep the
+   native GPU worker and Compose CPU worker roles separate.
+7. Two intake paths now exist: enhancement intake (targets required, classify
    queued) and ready-to-pack intake (`readyToPack=true`, approved resize
    version, no job). The operator downloads current/proposed PNGs for
    Photoshop from the design review page and re-imports the finished PNGs.
+8. The thumbnail pipeline, global jobs screen, aspect-linked print size and
+   `404` status fix is committed and validated against the live stack. The
+   editor profile selector plus the cutout mask controls (grow/contract,
+   independent mask and image levels) are implemented, styled, and green in
+   `npm run build`, `npm run lint` and `npm test`. The five design-review UI
+   defects found in manual testing (Photopea startup, slider fit, unbounded
+   preview, accept/reject modal, live-job indicator) are fixed in the working
+   tree and green on the same gates. Leave the unrelated in-flight work
+   (batch/design deletion endpoints, the 50 MB upload limit, `win-scripts/`)
+   untouched.
+9. The user's 25-PNG / ~200 MB batch was not on disk; the measurement above used
+   the ten PNGs (51 MB on disk, 42.35 MB served) in `~/Downloads/test`. If the
+   25-PNG set becomes available, re-run the grid transfer comparison to confirm
+   the saving holds at that scale.
+10. `GET /api/v1/jobs` returns every job newest-first with `limit` up to 200 and
+    no offset. If job history grows large, add pagination before the global
+    screen needs to page through it.
 
 **Open assumptions to confirm with user later:**
 
@@ -713,15 +793,235 @@ If context is running low, prioritize in this order:
   an explicit lock command if the shop needs “sent to printer” immutability.
 - The MVP allows one current sheet per batch; very tall batches must be split
   by excluding designs or accepted as one tall sheet/one export.
-- Background removal and vectorization are intentionally retired, not merely
-  hidden. Operators handle those cases in Photoshop and import the finished
-  PNGs through ready-to-pack intake; historical artifacts remain downloadable.
+- Background removal is live but deliberately limited to a colour key. The
+  `ai` (BiRefNet) cutout is archived in `archive/birefnet/`: it is not merely
+  hidden, it is refused. Busy artwork is cut in Photoshop/Photopea and imported
+  through ready-to-pack intake. Vectorization is retired the same way; all
+  historical artifacts remain downloadable.
 
 ---
 
 ## 15. Handoff log
 
 Append newest entries at the top. Keep them short and factual.
+
+### 2026-11-11 — Review page rebuilt as a canvas + layer-stack editor; teal accent and a light theme
+
+- **The review page was one long column.** Preview, readiness, a four-step
+  accordion and history stacked vertically, so comparing a change with its
+  result meant scrolling the artwork off-screen. It is now `.editor`, a
+  two-column grid: `.editor-stage` (background picker, canvas, job progress,
+  decisions) and `.editor-side` (layers, readiness, tools). The stage is
+  `position: sticky` under the top bar, so the artwork stays put while the rail
+  scrolls. Deliberately *not* an `overflow: auto` box on either pane: nesting
+  scroll containers gives the page two scrollbars and traps the wheel over the
+  artwork. Collapses to one column at 1080px.
+- **Versions are now a layer stack.** The version chain was only reachable
+  through a collapsed "Version history" list. `design.versions` now renders as
+  `.layer` rows (thumbnail, step, pixels, current/proposal/rejected flag,
+  per-layer Revert), each with an eye toggle that takes it off the canvas. The
+  canvas shows the selected layer, or — for a proposal by default — a
+  before/after slider against the nearest visible layer below it, toggleable via
+  `toggle-compare`. Selecting a layer never changes what the packer uses; only
+  approval does.
+- **Accent is teal, not orange.** The palette moved into `index.css` as tokens
+  (`--accent`, `--accent-fill`, `--accent-soft`, `--accent-line`, `--on-accent`,
+  plus `--sheen`/`--hover`/`--stage-bg`/`--field-bg`/`--checker-*`). Buttons use
+  `--accent-fill` with white text because `--accent` (`#2dd4bf`) is too light to
+  carry white; text and focus rings use `--accent`.
+- **Light theme added, dark by default.** `useTheme` (`lib/theme.ts`) writes
+  `data-theme` on `<html>` and remembers an explicit choice in
+  `localStorage['printsheet.theme']`. It deliberately does *not* follow
+  `prefers-color-scheme`: the shop chose dark as the house default, and a
+  light-OS workstation was opening the workbench in a theme nobody asked for
+  (caught in a real browser render, not by the tests). Toggle lives in the top
+  bar as `data-testid="theme-toggle"` and advertises the theme it switches *to*.
+- Every theme-dependent colour is a token now. Swept 84 hardcoded `rgba()`
+  values out of `ui.css`, `shell.css`, `batch.css`, `design-review.css`,
+  `preview.css`, `mask-controls.css`, `crop.css` and `photopea.css`. Inputs use
+  `--field-bg`, artwork surfaces `--stage-bg`. Two literals are intentional and
+  commented: the Photopea iframe backdrop, and the crop viewport (a fixed dark
+  stage in both themes so the artwork is judged against a constant).
+- **Fixed while verifying in a browser:** the segmented background picker used
+  `--ink` as its track, which is near-white in light mode and made the active
+  pill invisible; it is now `--panel-3` with a `--panel` active pill. The Tools
+  panel said "finish current job first" while a *proposal* was the blocker; it
+  now names the real reason (`toolsBlockedReason`). Two notices still said
+  "below", a leftover from the vertical layout.
+- Gates: build clean, oxlint 0 errors (same 15 pre-existing warnings), 253 tests
+  pass. Added `shows every version as a layer and keeps approval on the proposal
+  layer` and `defaults to the dark theme and remembers an explicit switch`.
+  Verified in headless Chromium against both the real API and the mock server:
+  layer count matches versions, sticky canvas stays on screen at full scroll
+  (top 131px vs topbar bottom 59px), modal centred and inside the viewport,
+  Escape closes it, compare/single-view toggles, 700px viewport stacks with no
+  horizontal overflow.
+- Note: the `SettingsContext` "window is not defined" unhandled rejection in
+  `Shell.test.tsx` is a pre-existing flake (1 in ~6 runs on the untouched tree,
+  same rate after this work), not a regression from it.
+
+### 2026-11-11 — Five manual-testing UI defects on the design review page
+
+- **Photopea startup failure had no exit.** The boot effect depended only on
+  `[fileUrl, documentName, update]`, so a timed-out embed showed a dead overlay
+  forever. Added a `retry` counter to the dependency list and, when the error
+  mentions "never finished starting up", a `Try again` button plus an
+  `Open Photopea in new tab` escape hatch (`.photopea-retry` in `photopea.css`).
+- **Before/after slider letterboxed instead of filling.** `.comparison-layer
+  .alpha-preview` used `object-fit: cover` on a non-replaced element (a no-op),
+  so the image overflowed and was clipped. Now `contain`, and the slider passes
+  `height: 'auto'` alongside `aspectRatio` so the box derives its height from the
+  ratio rather than collapsing.
+- **Design preview grew without bound.** A tall design stretched its preview to
+  the column width times its ratio, pushing the approve buttons off-screen. The
+  review page root is now `className="stack design-view"` and `design-review.css`
+  caps `.alpha-preview-image` at `min(58vh, 620px)` (slider `min(62vh, 680px)`),
+  letting `object-fit: contain` letterbox. An earlier `100vh`/`overflow: auto`
+  wrapper was dropped: it nested a scroll box inside the page and produced two
+  scrollbars instead of shrinking the content.
+- **Accept/reject confirmation appeared nowhere useful.** Approve ran the API
+  call directly and reject ran its own; neither showed the summary the operator
+  needs before committing. Both buttons now open one modal (`modalOpen`,
+  `modalIntent`, `data-testid="proposal-modal"`), which closes on Cancel, Escape
+  or a backdrop click and confirms via `proposal-modal-approve`. The old
+  `.review-modal` rule centred itself with `place-items: center` *and*
+  `left: 50%; transform: translateX(-50%)`, shifting it half a width off-centre
+  and below the viewport; it is now a flex-end sheet with `max-height: min(86vh,
+  760px)` and a real `overflow: auto` body.
+- **Running jobs were invisible outside a design page.** `LiveJobsBadge` in
+  `App.tsx` polls `api.jobs.list({ limit: 200 })` every 3 s and links to `/jobs`
+  when anything is queued or running; errors are swallowed so a transient read
+  failure just retries.
+- Gates: `npm run build` clean, `npm run lint` exit 0 (15 pre-existing warnings,
+  0 errors), `npm test` 251 passed. Added
+  `confirms approval in a modal that cancels without touching the proposal`,
+  which asserts Approve alone does not approve, Cancel and Escape both close,
+  and the proposal stays pending throughout.
+- Note: `DesignReviewPage.tsx` arrived in the tree corrupted from this work (a
+  `useEffect(()` missing its arrow, seven `</section>` replaced by `</div>`,
+  missing `modalOpen`/`modalIntent`). Rebuilt from `bc40916` with the modal and
+  wrapper applied as seven explicit replacements rather than patched in place.
+
+### 2026-11-10 — BiRefNet archived; colour key gains grow/contract and levels
+
+- Archived the AI cutout: `worker/app/engines/birefnet.py`, its test and every
+  `worker/experiments/*.py` script moved (not deleted) to `archive/birefnet/`,
+  with a README recording why it lost (GBs of RAM, ~7.5 min per 3600 px image,
+  unreliable thin-type edges, hundreds of MB of weights). `onnxruntime` left
+  `worker/pyproject.toml`; the `gpu` extra stays as an empty list so existing
+  `pip install -e '.[gpu]'` keeps working.
+- `ai` remains a legal schema/API enum value so historical jobs render, but the
+  API returns `invalid-request` and the worker `unsupported-parameters` with an
+  actionable message pointing at `color-to-alpha` or a Photoshop import.
+- New `worker/app/mask_ops.py`: `grow_mask` (true circular offset via
+  `cv2.distanceTransformWithLabels`, not a square kernel — a square kernel moves
+  diagonals ~1.41x too far and took 4.8 s vs 0.3 s at 6850 px), `feather_mask`,
+  `levels_lut`/`apply_levels`, `EDGE_THRESHOLD = 128`. Growing inherits the
+  nearest selected alpha so a soft rim stays soft; contracting mirrors it from
+  the nearest unselected pixel.
+- `background.py` now applies one documented order: mode mask -> `min` with the
+  reused mask -> brush ops -> grow/contract -> feather -> mask levels, with
+  `imageLevels` applied independently before the mask is multiplied into alpha.
+  Emits `mask-selection-offset`, `mask-edge-softened`, `mask-levels-applied`,
+  `image-levels-applied`.
+- Contracts (additive, still v2.0.0): `maskGrowPx` (-100..100), `maskLevels`,
+  `imageLevels`, a shared `levelsAdjustment` def, `aiModel` marked deprecated.
+  API `StepService` validates the range and both levels objects; web regenerated
+  `schema.d.ts` and added `MaskControls` (`MaskGrowControl`, `LevelsControl`,
+  live curve) plus `lib/levels.ts` mirroring the worker's LUT exactly.
+- Removed the now-dead `cutout` settings, the `./models/cutout` Compose mount and
+  the `PRINTSHEET_CUTOUT_MODEL_DIR` export; profiles no longer pick an AI model.
+- Gates: worker 225 passed, web `npx vitest run` 250 passed, `npm run build`
+  clean, API build 0 warnings, `scripts/validate_contracts.py` green (5 schemas,
+  15 examples, OpenAPI v2.0.0). No packer change.
+- Note: while finishing this, `DesignReviewPage.tsx` was found mid-edit from the
+  unrelated modal work (a `useEffect(()` missing its arrow, `</section>` replaced
+  by `</div>` in seven places, missing `modalOpen`/`modalIntent` state). Repaired
+  so the file compiles; that repair is not part of this change.
+
+### 2026-11-10 — Editor profile and advanced cutout controls (frontend UI-UX)
+
+- Implemented editor profile presets (logo-text, illustration, soft-artwork,
+  manual; order chosen so presets do not fight real images) with an overwrite
+  notice when a profile changes a control from what the operator typed.
+- Added the advanced cutout panel (alpha floor, alpha curve, despeckle limit,
+  matting underbase) as a collapsed, progressive-disclosure `<details>` row
+  inside the "Remove background" step.
+- Verified tracks A and D: `npm run build` (tsc), `npm run lint` (oxlint) and
+  `npm test` (vitest) all green — 249 tests across 20 files, single ~400 KB
+  production bundle.
+- No contract changes, no new npm dependencies; CSS follows the existing
+  tokens (`--accent`, `--ink`, `--panel`, `--line`, `--muted`, `--dim`,
+  `--radius`, `.row`, `.field`, `.compact-details`).
+- Worker/ untouched; the advanced controls are review-side refinements of the
+  worker-produced mask artifact.
+
+### 2026-11-10 — Restored background removal: BiRefNet tiled ONNX & color-to-alpha
+
+- Restored background removal narrowly targeted at logos, text, simple line-art and B&W artwork (MIT-licensed BiRefNet, rejecting CC BY-NC 4.0 BRIA RMBG 2.0).
+- BiRefNet ONNX runs directly through `onnxruntime` without rembg dependency tree (~200 MB avoided).
+- Fixed resolution loss: eliminated useless input upscaling; implemented native-scale tiling with 1200px window, 96px overlap, raised-cosine blending and budget fallback (benchmarked IoU 0.957 vs 0.659 single-pass). Single-pass matches reference bit-parity.
+- Supported modes: `ai` (`birefnet-massive`, `birefnet-general`, `birefnet-general-lite`), `color-to-alpha` (unmultiplied GIMP ramp), `none` (brush-only mask edits).
+- Non-destructive review workflow: outputs 8-bit mask artifact (`outputArtifacts.mask` / `VersionArtifacts.maskUrl`), source never overwritten. "View mask artifact" links in UI for both current and proposed versions.
+- Added pipeline stage 3: "Remove background" with "Cutout model" disambiguation in `DesignReviewPage.tsx`. Ancestry tracked via `pipelineStatus.ts`.
+- Gates: `make test` green across all services (contracts valid, 22 API tests, 214 worker tests, 161 packer tests, web build/lint and 215 web tests). Compose and native run scripts wired to `./models/cutout` at the time; that wiring was removed on 2026-11-10 when BiRefNet was archived.
+
+- Batch grid was loading every full-resolution PNG. Added `IImageThumbnailer`
+  (`SkiaImageThumbnailer`) and an optional `maxPx` (32–2048) on the version-file
+  endpoint. Two concurrent decodes, 256 MB in-memory cache keyed by immutable
+  version id, `ETag` + immutable `Cache-Control`, `304` on revalidation. Grid
+  cards use 640 px lazy thumbnails; the review page keeps full resolution.
+- Measured on the user's ten PNGs in `~/Downloads/test`: 42.35 MB → 2.62 MB for
+  the grid (93.8% saved, 16.2×). Cold render ~250 ms, cached ~15–22 ms. All ten
+  remain RGBA at 640 px longest side with aspect preserved. Skia ignores PNG
+  `quality` (identical bytes for every value), so output is lossless; WebP was
+  ~48% smaller but rejected to keep review fidelity.
+- Added global `GET /api/v1/jobs` (status/type/limit) plus `/jobs` and
+  `/batches/:id/jobs` screens: live jobs first, 2 s polling, live count, batch
+  and design links, cancel with 409-safe refresh.
+- Design review now links print width/height to the artwork aspect ratio by
+  default with an explicit unlock, "Use artwork size", read-only batch DPI, and
+  derived output pixels. The linked side is computed during render, so a crop or
+  upscale relinks immediately without an effect; a saved non-ratio size is
+  preserved and shown unlinked.
+- Fixed a real contract mismatch: `ApiResults.Problem(code, message)` defaulted
+  to `422`, so missing batch/design returned `422` where OpenAPI documents
+  `404`. Now routed through `StatusFor`; validation errors stay `422`.
+- Also fixed an intermittent web test race: two assertions on the 1 s job poller
+  used `waitFor`'s default 1 s timeout, so a loaded worker could lose by a tick.
+  Raised those two waits to 4 s; three consecutive full runs are green.
+- Gates: API build 0 warnings/errors, 22 API tests pass; web 214 tests across 17
+  files, build green, lint at the same 17 pre-existing warnings; contracts
+  valid; Compose rebuilt with `make up`, `make smoke` and `make e2e-fixtures`
+  passing (batch `6dd8c4a0-ea49-470f-a9d2-c0841df85d24`).
+- Contract changes are additive, so the version stays 2.0.0; recorded in
+  `contracts/CHANGELOG.md`.
+
+### 2026-11-09 — Packer raster search and diagonal gap fix
+
+- Root cause of "packing runs forever": exact Shapely silhouette union and
+  mitre-buffer collision search on full-resolution artwork. On the user's ten
+  ready PNGs (3000–3500 px per side), `load_masks` alone took 17 s and
+  `Packer.__init__` exceeded 5 minutes before being killed.
+- Replaced the polygon placement search with a conservative max-pooled
+  occupancy bitmap and FFT cross-correlation free-space search. `DesignMask`
+  geometry is now lazy; the search never builds it. The search cell keeps the
+  roll at roughly 128 cells wide (64 px at 58 cm/300 DPI) and is capped at
+  5 mm, so the configured occupancy cell cannot make packing pathological.
+- Clearance is certified by single-sided Chebyshev dilation
+  (`d * cell_px + 1 >= margin_px`). Fixed `build_footprint`'s collision buffer
+  to `margin_px / sqrt(2)` via `collision_radius_px()`, replacing the
+  `margin_px / 2 + 1` radius that was ~29% short on diagonals; the previous
+  strict-xfail regression test now passes.
+- Live validation on the user batch: 31 orderings, 20 s budget, search ~5 s,
+  whole `run_pack` ~16 s (integrity ~11 s), 6850 × 11190 px sheet, all ten
+  designs placed, all five checks pass; CLI `pack` and `verify` exit 0.
+  Benchmark on synthetic blobs: 1 design 0.7 s, 10 designs 10.3 s, 40 designs
+  67 s / 1.26 GB peak RSS, all five checks passing.
+- Packer suite: 161 passed; ruff clean. No contract changes. Committed as
+  `fe7e23a`. Rebuilt the Compose packer image and `make e2e-fixtures` passed
+  (batch `d7144197-1277-40ae-8545-1edcc97c5f16`, integrity passed, export
+  written).
 
 ### 2026-11-08 — Photoshop handoff and ready-to-pack intake
 
@@ -936,6 +1236,28 @@ breaking 2.0.0 change on 2026-11-08 after two additive clarifications on
 When a contract changes, add a dated entry here naming the schema/operation,
 the version bump, and which tracks must adapt (API A, worker B, packer C,
 web D). Also update `contracts/CHANGELOG.md` and the examples.
+
+### 2026-11-09 — Additive: `maxPx` thumbnails, global jobs list, honest 404s
+
+No version bump: the contract stays `2.0.0`. Both additions are new optional
+surface and the status fix makes the implementation match what was already
+documented, so no existing client breaks.
+
+- **API (track A):** `GET /api/v1/designs/{designId}/versions/{versionId}/file`
+  accepts optional `maxPx` (32–2048) and returns a derived alpha-preserving PNG
+  with `ETag`/immutable `Cache-Control`; without `maxPx` the response is byte-
+  identical to before. New `GET /api/v1/jobs` lists jobs across all batches
+  (`status`, `type`, `limit` ≤ 200). Not-found conditions for batch, design,
+  version, job, sheet and export now return `404` instead of `422`; validation
+  failures remain `422`.
+- **Web (track D):** design grid uses `versionThumbnailUrl(..., 640)` with lazy
+  loading; the review page keeps the full-resolution file. New `/jobs` and
+  `/batches/:batchId/jobs` screens consume `api.jobs.list`. `DesignSummary`
+  gained no fields.
+- **Worker (track B) / packer (track C):** no changes. Thumbnails are an
+  API-only read-side derivative and never touch stored version files.
+- **Generated types:** `web/src/api/schema.d.ts` regenerated from the OpenAPI
+  document; `scripts/validate_contracts.py` remains green.
 
 ### 2026-11-08 — Contract 2.0.0: retire removal/vectorize, add placement guarantee
 

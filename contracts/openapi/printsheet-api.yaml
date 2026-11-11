@@ -171,6 +171,45 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
+    delete:
+      tags: [Batches]
+      operationId: deleteBatch
+      summary: Delete the entire batch and every file on disk for it
+      description: |
+        Removes the batch record and all its children (designs, versions, sheets,
+        exports, audits). File storage is cleared in one operation: image versions,
+        masks, SVGs, job artifacts, export artifacts and sheets. The jobs table
+        rows are removed separately. Any batch that still has queued or running
+        jobs is left untouched until they settle.
+      responses:
+        '204':
+          description: Batch deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/batches/{batchId}/designs/{designId}:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+      - $ref: '#/components/parameters/DesignId'
+    delete:
+      tags: [Batches, Designs]
+      operationId: deleteDesignImages
+      summary: Delete every file on disk for a design
+      description: |
+        Removes the design's image versions, masks and SVGs from shared storage
+        and marks the design excluded. The design record is retained for
+        history, but no pixels remain on disk and the design cannot be packed.
+        A design with active jobs is left untouched until they settle.
+      responses:
+        '204':
+          description: Design images deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /api/v1/batches/{batchId}/designs:
     parameters:
       - $ref: '#/components/parameters/BatchId'
@@ -504,6 +543,17 @@ paths:
       tags: [Versions]
       operationId: downloadVersionFile
       summary: Download an immutable version file
+      description: |
+        Returns the full-resolution PNG by default. With `maxPx`, the API
+        renders a downscaled, alpha-preserving PNG preview whose longest side is
+        at most `maxPx`; smaller versions are never enlarged. Thumbnails are
+        derived read-only artifacts — the immutable version file is untouched.
+      parameters:
+        - name: maxPx
+          in: query
+          required: false
+          description: Longest-side limit for a derived PNG thumbnail (32–2048).
+          schema: { type: integer, minimum: 32, maximum: 2048 }
       responses:
         '200':
           description: PNG file
@@ -761,6 +811,68 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/designs/{designId}/steps/background-removal:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: proposeBackgroundRemoval
+      summary: Propose background removal (color-to-alpha or mask reuse)
+      description: |
+        Produces a non-destructive mask artifact and transparency. The source is
+        never modified.
+
+        The mask is the reviewable artifact, and it is shaped by the same request:
+        `maskGrowPx` offsets the selection edge, `edgeSoftness` feathers it,
+        `maskLevels` remaps the alpha ramp and `imageLevels` adjusts the cut-out
+        colours. The `ai` mode (BiRefNet) is archived and is rejected by the
+        worker with `unsupported-parameters`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BackgroundRemovalStepRequest' }
+      responses:
+        '202':
+          description: Background removal job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /api/v1/jobs:
+    get:
+      tags: [Jobs]
+      operationId: listJobs
+      summary: List jobs across every batch
+      description: |
+        Newest jobs across all batches, for the global work queue screen. Live
+        (queued or running) jobs are included in the same page; callers should
+        refresh while anything is live.
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/JobStatus' }
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/JobType' }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 200 }
+      responses:
+        '200':
+          description: Job page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobList' }
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
@@ -1367,6 +1479,95 @@ components:
         targetHeightCm: { type: number, minimum: 0.01 }
         fitMode: { type: string, enum: [width, height, contain], default: contain }
         dpi: { type: integer, nullable: true, minimum: 72, maximum: 1200 }
+
+    BackgroundRemovalStepRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [ai, color-to-alpha, none]
+          description: |
+            `color-to-alpha` keys out a flat background colour. `none` re-applies
+            brush strokes and mask shaping to `maskFromVersionId`. `ai` (BiRefNet)
+            is archived: it is still a legal value so historical jobs stay
+            readable, but the worker rejects it with `unsupported-parameters`.
+        keyColor:
+          type: string
+          nullable: true
+          pattern: '^#[0-9A-Fa-f]{6}$'
+        tolerance:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 255
+        edgeSoftness:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 10
+        maskGrowPx:
+          type: number
+          nullable: true
+          minimum: -100
+          maximum: 100
+          description: |
+            Move the selection edge by this many source pixels: positive grows the
+            selection, negative contracts it. The offset is circular (Euclidean),
+            so a diagonal edge moves the same distance as a straight one, and a
+            grown pixel inherits the nearest selected alpha instead of being
+            stamped opaque.
+        maskLevels:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/LevelsAdjustment'
+        imageLevels:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/LevelsAdjustment'
+        aiModel:
+          type: string
+          nullable: true
+          enum: [birefnet-massive, birefnet-general, birefnet-general-lite]
+          deprecated: true
+        brushOps:
+          type: array
+          nullable: true
+          items: { $ref: '#/components/schemas/BrushOp' }
+
+    LevelsAdjustment:
+      type: object
+      description: |
+        Photoshop-style levels. Input black/white points rescale the ramp, `gamma`
+        bends the midpoint (above 1 brightens midtones), and the optional output
+        range clamps the result. Applied through a 256-entry lookup table, so the
+        same parameters always produce the same bytes.
+      properties:
+        blackPoint: { type: integer, minimum: 0, maximum: 254, default: 0 }
+        whitePoint: { type: integer, minimum: 1, maximum: 255, default: 255 }
+        gamma: { type: number, minimum: 0.01, maximum: 9.99, default: 1.0 }
+        outputBlack: { type: integer, minimum: 0, maximum: 255, default: 0 }
+        outputWhite: { type: integer, minimum: 0, maximum: 255, default: 255 }
+
+    BrushOp:
+      type: object
+      required: [tool, radiusPx, points]
+      properties:
+        tool:
+          type: string
+          enum: [erase, restore]
+        radiusPx:
+          type: integer
+          minimum: 1
+          maximum: 4096
+        points:
+          type: array
+          minItems: 1
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: integer }
 
     RejectVersionRequest:
       type: object

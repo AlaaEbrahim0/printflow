@@ -62,6 +62,9 @@ export type TrimStepRequest = components['schemas']['TrimStepRequest']
 export type CropStepRequest = components['schemas']['CropStepRequest']
 export type UpscaleStepRequest = components['schemas']['UpscaleStepRequest']
 export type ResizeStepRequest = components['schemas']['ResizeStepRequest']
+export type BackgroundRemovalStepRequest = components['schemas']['BackgroundRemovalStepRequest']
+export type BrushOp = components['schemas']['BrushOp']
+export type LevelsAdjustment = components['schemas']['LevelsAdjustment']
 export type RejectVersionRequest = components['schemas']['RejectVersionRequest']
 export type RejectVersionResponse = components['schemas']['RejectVersionResponse']
 export type RejectNextAction = components['schemas']['RejectNextAction']
@@ -172,6 +175,10 @@ function put<T>(path: string, body: unknown, options: RequestOptions = {}): Prom
 
 function patch<T>(path: string, body: unknown, options: RequestOptions = {}): Promise<T> {
   return request<T>(path, { method: 'PATCH', body: JSON.stringify(body), signal: options.signal })
+}
+
+function deleteMethod<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return request<T>(path, { method: 'DELETE', signal: options.signal })
 }
 
 export interface UploadProgress {
@@ -308,6 +315,19 @@ export function versionFileUrl(designId: string, versionId: string): string {
   return `${API_ROOT}/designs/${encodeURIComponent(designId)}/versions/${encodeURIComponent(versionId)}/file`
 }
 
+/**
+ * Derived, server-rendered preview of an immutable version. The full-resolution
+ * file is untouched; the browser gets a small PNG whose longest side is at most
+ * `maxPx`.
+ */
+export function versionThumbnailUrl(
+  designId: string,
+  versionId: string,
+  maxPx = 640,
+): string {
+  return withQuery(versionFileUrl(designId, versionId), { maxPx })
+}
+
 export function sheetPreviewUrl(batchId: string): string {
   return `${API_ROOT}/batches/${encodeURIComponent(batchId)}/sheet/preview`
 }
@@ -345,6 +365,17 @@ export const api = {
       query?: { status?: JobStatus; type?: JobType; limit?: number },
       options?: RequestOptions,
     ) => get<JobList>(withQuery(`${API_ROOT}/batches/${encoded(batchId)}/jobs`, query), options),
+    delete: (batchId: string, options?: RequestOptions) =>
+      deleteMethod<void>(`${API_ROOT}/batches/${encoded(batchId)}`, options),
+    deleteDesignImages: (
+      batchId: string,
+      designId: string,
+      options?: RequestOptions,
+    ) =>
+      deleteMethod<void>(
+        `${API_ROOT}/batches/${encoded(batchId)}/designs/${encoded(designId)}`,
+        options,
+      ),
   },
   designs: {
     get: (designId: string, options?: RequestOptions) =>
@@ -405,8 +436,22 @@ export const api = {
       ),
     resize: (designId: string, body: ResizeStepRequest, options?: RequestOptions) =>
       post<JobAccepted>(`${API_ROOT}/designs/${encoded(designId)}/steps/resize`, body, options),
+    backgroundRemoval: (
+      designId: string,
+      body: BackgroundRemovalStepRequest,
+      options?: RequestOptions,
+    ) =>
+      post<JobAccepted>(
+        `${API_ROOT}/designs/${encoded(designId)}/steps/background-removal`,
+        body,
+        options,
+      ),
   },
   jobs: {
+    list: (
+      query?: { status?: JobStatus; type?: JobType; limit?: number },
+      options?: RequestOptions,
+    ) => get<JobList>(withQuery(`${API_ROOT}/jobs`, query), options),
     get: (jobId: string, options?: RequestOptions) =>
       get<Job>(`${API_ROOT}/jobs/${encoded(jobId)}`, options),
     cancel: (jobId: string, options?: RequestOptions) =>

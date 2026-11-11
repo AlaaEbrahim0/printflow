@@ -183,8 +183,8 @@ Highlights:
 - Designs: metadata, garment color, target size, exclude/include, better-source
   flag.
 - Versions: list/download, approve, reject (returns next actions), revert.
-- Steps: trim, crop, upscale, resize. Historical vectorize/background-removal
-  versions and artifacts remain readable; new proposals are not accepted.
+- Steps: trim, crop, upscale, resize, background-removal. Vectorize is retired:
+  its historical versions and SVGs remain readable; new proposals are not accepted.
 - Jobs: poll, cancel, batch listing.
 - Sheets: pack, manual placements, integrity check, preview.
 - Exports: request, list, get, download artifacts.
@@ -250,11 +250,31 @@ The canonical request/response envelopes and per-type parameters are
 | Upscale | `realesrgan-ncnn-vulkan`, models `realesrgan-x4plus` (photos) and `realesrgan-x4plus-anime` (illustrations/logos), 2× or 4×. GPU tile size tuned for 4 GB; one job at a time. Before/after slider in web. |
 | Resize | Resample exactly once with Lanczos to `round(cm * dpi / 2.54)` pixels. Show effective source DPI; warn <150, strongly warn <100. Upscale is a separate proposal. |
 | Classify | Heuristic features: flat-color ratio, edge density, unique-color count, sampled background, full-bleed detection. Suggests trim and upscale settings. Suggestions are always overridable. |
+| Background removal | `color-to-alpha` (unmultiplied GIMP formulation: `keyColor` + `tolerance`) or `none` (re-apply brush edits and shaping to an earlier mask). Produces an 8-bit mask artifact; the stored image is `source alpha × mask / 255`. Optional `maskGrowPx` (circular Euclidean grow/contract), `edgeSoftness` (feather), `maskLevels` and `imageLevels` (Photoshop-style ramps) shape the result. |
 
-Background removal and vectorization were retired in contract v2.0.0. Their
-historical versions, masks and SVGs remain readable and downloadable, but the
-API no longer queues new proposals and the worker rejects those job types with a
-structured `retired` reason.
+The mask is built in one fixed pass so a proposal is reproducible: mode mask →
+`min` with the reused mask → brush strokes in source pixels → grow/contract
+(`maskGrowPx`) → feather (`edgeSoftness`) → mask levels (`maskLevels`). The image
+gets an independent `imageLevels` before the mask is multiplied into its alpha, so
+tone and selection can be judged separately. Grow/contract is a true circular
+distance offset (`cv2.distanceTransformWithLabels`), not a square kernel: a square
+kernel moves diagonal edges ~1.41× too far and costs ~16× more time at print
+resolution. Growing inherits the nearest selected alpha rather than stamping 255,
+so a soft rim stays soft; contracting mirrors that from the nearest unselected
+pixel, with `EDGE_THRESHOLD = 128` as the shared "selected" cut so the two
+directions are symmetric. Levels is a 256-entry LUT
+(`outBlack + ((x − black)/(white − black))^(1/gamma) × (outWhite − outBlack)`)
+with gamma > 1 brightening midtones, matching Photoshop.
+
+The `ai` (BiRefNet) cutout is archived in `archive/birefnet/`. It stays a legal
+schema value so historical jobs render, but `StepService` rejects it with
+`invalid-request` and the worker raises `unsupported-parameters`. Use
+`color-to-alpha` for flat artwork, or cut busy images in Photoshop/Photopea and
+import the result as ready-to-pack.
+
+Vectorization was retired in contract v2.0.0. Its historical versions and SVGs
+remain readable and downloadable, but the API no longer queues new proposals and
+the worker rejects the job type with a structured `retired` reason.
 
 The original is never passed to a destructive operation. The worker writes only
 the assigned new file paths.
@@ -279,8 +299,8 @@ The packer is a standalone package/CLI with no imports from `/api` or
 ```
 printsheet_packer/
   contracts.py      load/validate request and response
-  masks.py          alpha → exact silhouette polygons, dilation, target fit
-  nesting.py        integer-pixel polygon placement, rotations, randomized orderings
+  masks.py          alpha → masks, lazy exact silhouettes, dilation, target fit
+  nesting.py        conservative bitmap search, rotations, randomized orderings
   integrity.py      five blocking checks
   render.py         strip/tile renderer, 90° transforms only
   export.py         flat PNG/TIFF, layered bundle, manifest
@@ -294,15 +314,22 @@ printsheet_packer/
    Keep real interior holes. If an explicit physical target box differs from
    the approved pixels, Lanczos-fit into that box once and emit
    `target-resampled`.
-2. Buffer the silhouette by `margin/2` (Shapely) so visible pixels of any two
-   designs are at least `margin` apart. Edge margins are enforced against the
-   sheet border.
-3. Place largest visible area first at the lowest feasible integer-pixel
-   position. Try rotations 0/90/180/270 when `allowRotation`; collision checks
-   are exact polygon intersections, not downsampled approximations.
-4. Candidate positions come from polygon bounds, holes and obstacle vertices.
-   The full rotated source raster must fit on the sheet; transparent padding
-   cannot be clipped.
+2. Build a conservative occupancy bitmap for each rotation. A cell is occupied
+   when *any* visible pixel inside it is, so the bitmap may overestimate but can
+   never underestimate occupied area. The search cell is a power of two keeping
+   the roll at roughly 128 cells wide (64 px at 58 cm/300 DPI), so full-
+   resolution artwork does not make the search quadratic. Exact Shapely
+   silhouettes are built lazily only for callers that need them.
+3. Certify clearance with a single-sided Chebyshev dilation: with `d` cells of
+   padding, two occupied cells leave at least `d * cellPx + 1` pixels, which
+   covers the blocking `minimum-gap` check. Place the largest visible area first
+   at the lowest feasible grid position; try rotations 0/90/180/270 when
+   `allowRotation`. The bitmap is conservative, not an approximation that can
+   hide a collision.
+4. Candidate positions come from an FFT cross-correlation of the free grid
+   against each rotated query mask, scanning rows from the bottom. The full
+   rotated source raster must fit on the sheet; transparent padding cannot be
+   clipped.
 5. Run the deterministic order plus N seeded random orderings (default ~30)
    under a time budget; keep the layout with the fewest unplaced designs, then
    the shortest sheet. The RNG seed is recorded and reproducible.

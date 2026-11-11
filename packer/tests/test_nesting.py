@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pytest
 from helpers import circle, request_document, ring, solid, specs, write_storage
@@ -209,3 +211,41 @@ def test_empty_design_list_is_rejected() -> None:
     without_designs = PackRequest(**{**request.__dict__, "designs": ()})
     with pytest.raises(PackerError, match="at least one design"):
         Packer(without_designs, {})
+
+
+def test_fragmented_artwork_packs_by_raster_without_building_exact_polygons(tmp_path) -> None:
+    """Real artwork has hundreds of thousands of alpha runs.
+
+    The search must stay on the conservative bitmap. Building and buffering an
+    exact Shapely silhouette for every rotation is what made packing run for
+    many minutes on shop-sized PNGs; this test fails (or hangs) if that path
+    comes back.
+    """
+    rng = np.random.default_rng(7)
+    array = np.zeros((900, 600, 4), dtype=np.uint8)
+    array[..., :3] = 200
+    array[..., 3] = np.where(rng.random((900, 600)) > 0.7, 255, 0).astype(np.uint8)
+    designs = specs([array for _ in range(6)])
+    request = parse_pack_request(
+        request_document(
+            designs,
+            rollWidthCm=10,
+            marginMm=5,
+            cellMm=1,
+            randomizedOrderings=2,
+            timeBudgetMs=5000,
+        )
+    )
+    root = StorageRoot(write_storage(tmp_path, designs))
+    masks, _images = load_masks(request, root)
+    packer = Packer(request, masks)
+
+    assert all(candidate.mask._geometry is None for candidate in packer.candidates)
+
+    started = time.perf_counter()
+    layout = packer.run()
+    elapsed = time.perf_counter() - started
+
+    assert len(layout.placed) == len(designs)
+    assert layout.unplaced == []
+    assert elapsed < 30, f"raster packing took {elapsed:.1f}s for six 600x900 designs"

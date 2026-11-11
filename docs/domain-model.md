@@ -20,7 +20,7 @@ disagreement before merging. The HTTP shape is in
 | **DesignVersion** | One immutable processing result: a file plus step type, parameters, parent and status. |
 | **Current version** | The approved version the rest of the system treats as the design's pixels. A pointer, not a mutation. |
 | **Proposal** | A `proposed` version awaiting human approval. At most one per design. |
-| **Step** | A processing operation that can change visible pixels: trim, crop, upscale, resize. Historical `vectorize`/`background-removal` values remain readable. |
+| **Step** | A processing operation that can change visible pixels: trim, crop, upscale, resize, background-removal. The historical `vectorize` value remains readable. |
 | **Sheet** | A packing result for a batch at one revision: placements, geometry and integrity state. |
 | **Placement** | Translation + 90° rotation of an approved version on the sheet. No resampling. |
 | **Integrity report** | Machine-readable result of five blocking pre-export checks. |
@@ -104,8 +104,8 @@ for its status (`proposed` → `approved` | `rejected`) and audit timestamps.
 Fields:
 
 - `designId`, `parentId` (null only for the original);
-- `stepType`: `original`, `trim`, `crop`, `upscale`, `resize`; historical
-  `vectorize` and `background-removal` values remain readable;
+- `stepType`: `original`, `trim`, `crop`, `upscale`, `resize`, `background-removal`;
+  the historical `vectorize` value remains readable;
 - `status`: `proposed`, `approved`, `rejected`;
 - `filePath` (relative to storage root), `maskPath`, `svgPath` (nullable;
   historical artifacts only);
@@ -166,12 +166,13 @@ timestamps, structured error.
 
 Job types:
 
-- image processing: `classify`, `trim`, `upscale`, `resize`;
+- image processing: `classify`, `trim`, `upscale`, `resize`, `background-removal`;
 - orchestration: `pack-sheet`, `integrity-check`, `export`.
 
-Only the four supported image-processing types are queued. Historical
-`background-removal`/`vectorize` documents remain schema-valid but the worker
-rejects new runs with a structured `retired` reason.
+`background-removal` runs `color-to-alpha` or `none`; its `ai` (BiRefNet) mode is
+archived and is rejected with `unsupported-parameters` (`invalid-request` at the
+API). Historical `vectorize` documents remain schema-valid but the worker rejects
+new runs with a structured `retired` reason.
 
 ---
 

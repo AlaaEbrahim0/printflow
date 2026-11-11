@@ -89,6 +89,12 @@ class Settings(BaseSettings):
     trim_padding_px: int = Field(default=8, ge=0, le=10000)
     trim_tolerance: int = Field(default=12, ge=0, le=255)
 
+    # --- background removal (colour key + mask shaping) -----------------------
+    # There is no model to load: the key colour, the selection offset and the two
+    # levels adjustments are all pure array maths. The BiRefNet engine was archived
+    # because it needed the whole GPU/CPU memory budget for minutes per design and
+    # still produced unreliable edges.
+
     # --- engines -------------------------------------------------------------
     realesrgan_binary: Path = Path("realesrgan-ncnn-vulkan")
     realesrgan_model_dir: Path | None = None

@@ -417,6 +417,30 @@ export const handlers = [
     ),
   ),
 
+  http.post(`${V1}/designs/:designId/steps/background-removal`, async ({ request, params }) =>
+    guarded(async () =>
+      jsonBody(
+        store().proposeStep(params.designId as string, 'background-removal', await readJson(request)),
+        202,
+      ),
+    ),
+  ),
+
+  http.get(`${V1}/jobs`, ({ request }) =>
+    guarded(() => {
+      const url = new URL(request.url)
+      return jsonBody(
+        store().listAllJobs({
+          status:
+            (url.searchParams.get('status') as import('../api/client').JobStatus | null) ?? undefined,
+          type:
+            (url.searchParams.get('type') as import('../api/client').JobType | null) ?? undefined,
+          limit: numberOrNull(url.searchParams.get('limit')) ?? undefined,
+        }),
+      )
+    }),
+  ),
+
   http.get(`${V1}/jobs/:jobId`, ({ params }) => guarded(() => jsonBody(store().getJob(params.jobId as string)))),
 
   http.post(`${V1}/jobs/:jobId/cancel`, ({ params }) =>

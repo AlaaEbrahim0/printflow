@@ -290,6 +290,18 @@
         }
       }
     },
+    "levelsAdjustment": {
+      "type": "object",
+      "description": "Photoshop-style levels: input black/white points, midtone gamma, and an optional output range.",
+      "additionalProperties": false,
+      "properties": {
+        "blackPoint": { "type": "integer", "minimum": 0, "maximum": 254, "default": 0 },
+        "whitePoint": { "type": "integer", "minimum": 1, "maximum": 255, "default": 255 },
+        "gamma": { "type": "number", "minimum": 0.01, "maximum": 9.99, "default": 1.0 },
+        "outputBlack": { "type": "integer", "minimum": 0, "maximum": 255, "default": 0 },
+        "outputWhite": { "type": "integer", "minimum": 0, "maximum": 255, "default": 255 }
+      }
+    },
     "backgroundRemovalParameters": {
       "type": "object",
       "additionalProperties": false,
@@ -299,6 +311,9 @@
         "keyColor": { "$ref": "#/$defs/hexColor" },
         "tolerance": { "type": "integer", "minimum": 0, "maximum": 255 },
         "edgeSoftness": { "type": "number", "minimum": 0, "maximum": 10 },
+        "maskGrowPx": { "type": "number", "minimum": -100, "maximum": 100 },
+        "maskLevels": { "$ref": "#/$defs/levelsAdjustment" },
+        "imageLevels": { "$ref": "#/$defs/levelsAdjustment" },
         "aiModel": { "type": "string", "minLength": 1 },
         "maskFromVersionId": { "type": ["string", "null"], "format": "uuid" },
         "brushOps": {

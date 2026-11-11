@@ -21,7 +21,7 @@ from tests.conftest import (
 EXPECTED = {
     "worker-job-classify.json": "succeeded",
     "worker-job-trim.json": "succeeded",
-    "worker-job-background-removal.json": "unsupported-parameters",
+    "worker-job-background-removal.json": "succeeded",
     "worker-job-resize.json": "succeeded",
     # These two need external binaries that are deliberately not installed.
     "worker-job-upscale.json": "engine-unavailable",

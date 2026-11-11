@@ -15,6 +15,13 @@ public interface IJobRepository
         int limit,
         CancellationToken cancellationToken);
 
+    /// <summary>Newest jobs across every batch — the global jobs screen.</summary>
+    Task<(IReadOnlyList<Job> Items, int Total)> ListAllAsync(
+        JobStatus? status,
+        JobType? type,
+        int limit,
+        CancellationToken cancellationToken);
+
     Task<bool> HasActiveJobAsync(
         Guid batchId,
         JobType type,
@@ -22,6 +29,12 @@ public interface IJobRepository
         CancellationToken cancellationToken);
 
     Task<bool> HasActiveStepJobAsync(Guid designId, CancellationToken cancellationToken);
+
+    /// <summary>True when the batch still has queued or running jobs whose files are on disk.</summary>
+    Task<bool> HasAnyActiveJobAsync(Guid batchId, CancellationToken cancellationToken);
+
+    /// <summary>Deletes the jobs table rows for a batch (separate table, no cascade).</summary>
+    Task DeleteByBatchAsync(Guid batchId, CancellationToken cancellationToken);
 
     void Add(Job job);
 

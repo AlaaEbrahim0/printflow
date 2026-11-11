@@ -35,6 +35,7 @@ public static class DesignEndpoints
         group.MapPost("/{designId:guid}/steps/crop", CropAsync);
         group.MapPost("/{designId:guid}/steps/upscale", UpscaleAsync);
         group.MapPost("/{designId:guid}/steps/resize", ResizeAsync);
+        group.MapPost("/{designId:guid}/steps/background-removal", BackgroundRemovalAsync);
     }
 
     private static async Task<IResult> GetAsync(
@@ -92,12 +93,46 @@ public static class DesignEndpoints
             : Results.Ok(found.Value.Design.Versions.Select(version => version.ToDto()).ToList());
     }
 
-    private static Task<IResult> FileAsync(
+    private static async Task<IResult> FileAsync(
         Guid designId,
         Guid versionId,
+        int? maxPx,
+        HttpRequest request,
+        HttpResponse response,
         DesignService designs,
         CancellationToken cancellationToken)
-        => ServeAsync(designId, versionId, artifact: null, designs, cancellationToken);
+    {
+        if (maxPx is < 32 or > 2048)
+        {
+            return ApiResults.Problem(
+                ErrorCodes.InvalidRequest,
+                "maxPx must be between 32 and 2048.");
+        }
+
+        var file = await designs.OpenVersionFileAsync(
+            designId,
+            versionId,
+            maxPx,
+            cancellationToken);
+        if (!file.IsSuccess)
+        {
+            return ApiResults.Problem(file.Error!);
+        }
+
+        // Version files are immutable, so both the original and any thumbnail
+        // may be cached by the browser indefinitely.
+        var etag = $"\"{versionId:N}-{(maxPx is null ? "full" : maxPx.Value.ToString())}\"";
+        response.Headers.ETag = etag;
+        response.Headers.CacheControl = "public, max-age=31536000, immutable";
+
+        if (request.Headers.IfNoneMatch.Contains(etag))
+        {
+            await file.Value!.Stream.DisposeAsync();
+            return Results.StatusCode(StatusCodes.Status304NotModified);
+        }
+
+        return Results.Stream(file.Value!.Stream, file.Value.ContentType);
+    }
 
     private static Task<IResult> MaskAsync(
         Guid designId,
@@ -116,13 +151,11 @@ public static class DesignEndpoints
     private static async Task<IResult> ServeAsync(
         Guid designId,
         Guid versionId,
-        string? artifact,
+        string artifact,
         DesignService designs,
         CancellationToken cancellationToken)
     {
-        var file = artifact is null
-            ? await designs.OpenVersionFileAsync(designId, versionId, cancellationToken)
-            : await designs.OpenArtifactAsync(designId, versionId, artifact, cancellationToken);
+        var file = await designs.OpenArtifactAsync(designId, versionId, artifact, cancellationToken);
 
         return file.IsSuccess
             ? Results.Stream(file.Value!.Stream, file.Value.ContentType)
@@ -323,13 +356,57 @@ public static class DesignEndpoints
             : ApiResults.Problem(result.Error!);
     }
 
+    private static async Task<IResult> BackgroundRemovalAsync(
+        Guid designId,
+        BackgroundRemovalStepRequest request,
+        StepService steps,
+        CancellationToken cancellationToken)
+    {
+        var result = await steps.ProposeBackgroundRemovalAsync(
+            designId,
+            new BackgroundRemovalStepCommand(
+                request.Mode,
+                request.KeyColor,
+                request.Tolerance,
+                request.EdgeSoftness,
+                request.AiModel,
+                request.BrushOps?
+                    .Select(op => new BrushOpCommand(
+                        op.Tool,
+                        op.RadiusPx,
+                        (op.Points ?? [])
+                            .Select(point => new BrushPointCommand(point[0], point[1]))
+                            .ToArray()))
+                    .ToArray(),
+                request.MaskGrowPx,
+                request.MaskLevels is null
+                    ? null
+                    : new LevelsAdjustmentCommand(
+                        request.MaskLevels.BlackPoint,
+                        request.MaskLevels.WhitePoint,
+                        request.MaskLevels.Gamma,
+                        request.MaskLevels.OutputBlack,
+                        request.MaskLevels.OutputWhite),
+                request.ImageLevels is null
+                    ? null
+                    : new LevelsAdjustmentCommand(
+                        request.ImageLevels.BlackPoint,
+                        request.ImageLevels.WhitePoint,
+                        request.ImageLevels.Gamma,
+                        request.ImageLevels.OutputBlack,
+                        request.ImageLevels.OutputWhite)),
+            cancellationToken);
+        return result.IsSuccess
+            ? Accepted(result.Value!)
+            : ApiResults.Problem(result.Error!);
+    }
+
     private static async Task<IResult> ResizeAsync(
         Guid designId,
         ResizeStepRequest request,
         StepService steps,
         CancellationToken cancellationToken)
-    {
-        var result = await steps.ProposeResizeAsync(
+    {        var result = await steps.ProposeResizeAsync(
             designId,
             new ResizeStepCommand(
                 request.TargetWidthCm,

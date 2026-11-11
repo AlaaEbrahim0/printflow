@@ -60,6 +60,25 @@ describe('AlphaPreview', () => {
     expect(surface.style.backgroundImage).toBe('')
   })
 
+  it('can defer off-screen previews without changing the file source', () => {
+    render(
+      <AlphaPreview
+        fileUrl={`${FILE}?maxPx=640`}
+        alt="Grid thumbnail"
+        background={DEFAULT_PREVIEW_BACKGROUND}
+        loading="lazy"
+        decoding="async"
+        fetchPriority="low"
+      />,
+    )
+
+    const image = screen.getByTestId('preview-image')
+    expect(image.getAttribute('src')).toBe(`${FILE}?maxPx=640`)
+    expect(image).toHaveAttribute('loading', 'lazy')
+    expect(image).toHaveAttribute('decoding', 'async')
+    expect(image).toHaveAttribute('fetchpriority', 'low')
+  })
+
   it('says so when a version has no file at all', () => {
     render(<AlphaPreview fileUrl={null} alt="Missing" background={DEFAULT_PREVIEW_BACKGROUND} />)
     expect(screen.getByText('no file')).toBeInTheDocument()

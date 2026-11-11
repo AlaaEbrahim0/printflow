@@ -35,7 +35,12 @@ from app.storage import StorageRoot
 
 @dataclass
 class Engines:
-    """Injectable engine bundle."""
+    """Injectable engine bundle.
+
+    Only Real-ESRGAN is left: the BiRefNet cutout engine is archived under
+    ``archive/birefnet/`` and background removal now runs on the colour key plus
+    the mask-shaping operations in :mod:`app.mask_ops`.
+    """
 
     realesrgan: RealesrganEngine
 

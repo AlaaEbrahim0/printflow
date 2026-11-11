@@ -192,7 +192,7 @@ array written into a `tmp_path` storage root, and no binary is committed.
 Covered: thresholding and faint pixels, holes, exact dilation against a brute
 force kernel, round-up grids, 90° rotations against Pillow's transposes, storage
 traversal and symlink escapes, ordering and determinism, over-width refusal,
-four-check adversarial failures, strip boundaries through placements, tall
+five-check adversarial failures, strip boundaries through placements, tall
 sheets, PNG/TIFF read back with Pillow (size, mode, DPI, identical pixels),
 atomic failure, manifest validation, and the full `pack → verify → export` CLI
 path. Property-based invariants: grids never underestimate, rotations preserve
@@ -210,30 +210,35 @@ cd packer
 ```
 
 Measured on this machine (AMD Zen, Python 3.11, NumPy 2.4.6, 58 cm roll, 300 DPI,
-30 mm margin, 10 mm edge margin, 5 mm cells, ellipse-like blobs up to 28 cm):
+30 mm margin, 10 mm edge margin, 5 mm cells, ellipse-like blobs up to 28 cm).
+The search runs on a 64 px bitmap (108 cells across the 6850 px roll):
 
 | designs | orderings | sheet | search | integrity | whole pack | peak RSS |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 31 | 6850 × 2399 | 19 ms | 69 ms | 0.3 s | — |
-| 10 | 31 | 6850 × 8364 | 2.6 s | 1.5 s | 5.6 s | — |
-| 20 | 9 | 6850 × 15425 | 2.7 s | 2.6 s | 8.1 s | — |
-| 40 | 31 | 6850 × 34976 (296 cm) | 45 s | 6.3 s | 58 s | 1.26 GB |
-| 40 | 9 | same height | 12.5 s | 5.9 s | 24.5 s | 1.26 GB |
+| 1 | 31 | 6850 × 2364 | 0.2 s | 0.1 s | 0.7 s | — |
+| 10 | 31 | 6850 × 8281 | 4.2 s | 2.9 s | 10.3 s | — |
+| 40 | 31 | 6850 × 33318 (282 cm) | 39.8 s | 12.7 s | 67 s | 1.26 GB |
 
-All four checks passed in every run. The 40-design batch is a hard one (43.7 %
-ink occupancy); the last two rows show that beyond a handful of orderings the
-search cost buys no height improvement on this input, so `randomizedOrderings:
-10` is the sane interactive default and `timeBudgetMs` is the safety net the ADR
-asks for. `preview` (a resampled display file) and `manifest` are separate
-columns in the tool's own output.
+All five checks passed in every run. The 40-design batch is a hard one (~46 %
+ink occupancy); `timeBudgetMs` stops after the current ordering, so a short
+budget may still overshoot by one ordering on large batches.
+
+Real fragmented artwork is where the raster search matters most: a user batch of
+ten ready PNGs at 3000–3500 px per side packs all designs in ~16 s end to end
+(search ~5 s, integrity ~11 s) at 6850 × 11190 px, with all five checks passing.
+The previous exact-polygon search took minutes on the same files.
+
+`preview` (a resampled display file) and `manifest` are separate columns in the
+tool's own output.
 
 ## Deliberately not implemented
 
 * Layered PSD/PSB writing — see the export table above and ADR 0003.
 * Any resampling, recolouring or cropping of artwork. The preview file is the
   only resampled artifact, and it is display-only.
-* FFT/convolution or true polygon nesting. The grid search is heuristic and
-  does not prove optimality.
+* True polygon nesting or an optimality proof. The search is a conservative
+  bitmap heuristic built on FFT correlation; it does not prove a minimum sheet
+  height. The exact full-resolution integrity gate remains authoritative.
 * Cost calculation, batch state, jobs, retries: the API owns those. The packer
   is a pure function over files.
 
@@ -245,9 +250,9 @@ printsheet_packer/
   errors.py      structured codes the API can surface
   contracts.py   schema discovery, referencing registry, typed request/placements
   storage.py     storage-root resolution, input immutability, atomic writes
-  masks.py       alpha masks, Chebyshev dilation, grids, 90° rotation
-  nesting.py     ordering, grid search, sheet sizing
-  integrity.py   the four blocking checks and the report
+  masks.py       alpha masks, lazy silhouettes, Chebyshev dilation, grids, 90° rotation
+  nesting.py     ordering, conservative bitmap search, sheet sizing
+  integrity.py   the five blocking checks and the report
   render.py      strip renderer and preview
   export.py      manifest, flat PNG/TIFF, psd-bundle, format gate
   pipeline.py    pack / verify orchestration

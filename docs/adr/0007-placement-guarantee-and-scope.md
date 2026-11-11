@@ -36,7 +36,9 @@ may be silently omitted from a sheet.
    visible silhouette by `margin/2` (Shapely), generates integer-pixel contact
    candidates from polygon bounds, holes and obstacle vertices, and rejects any
    intersecting placement. The full rotated source raster must fit on the sheet;
-   transparent padding cannot be clipped.
+   transparent padding cannot be clipped. *Amended 2026-11-09: exact polygons are
+   too slow on real artwork; see the amendment below. The placement guarantees
+   are unchanged.*
 3. **Report every unplaced design.** Designs that exceed the roll or have no
    legal placement are returned in `unplacedDesigns` with a stable reason. The
    deterministic order is tried first, then seeded random orderings; the
@@ -81,3 +83,22 @@ may be silently omitted from a sheet.
 - **Keep removal/vectorization behind a flag.** Rejected for now: the user
   explicitly prioritized enhancement, and an unused second path would keep the
   heavy dependencies and tests alive.
+
+## Amendment (2026-11-09) — conservative bitmap search
+
+Exact alpha-silhouette union and buffering made packing unusable on
+full-resolution shop artwork: on ten ready PNGs at 3000–3500 px per side,
+`load_masks` alone took 17 s and packing exceeded five minutes before it was
+killed. The placement search now runs on a conservative max-pooled occupancy
+bitmap and finds free positions by FFT cross-correlation. A cell is occupied if
+any visible pixel inside it is, so the bitmap may overestimate occupied area but
+can never underestimate it. Clearance is certified by Chebyshev dilation
+(`d * cell_px + 1 >= margin_px`); the full-resolution integrity gate remains the
+authority for legality. The search cell is a power of two keeping the roll at
+roughly 128 cells wide (64 px at 58 cm/300 DPI) and is capped at 5 mm.
+
+Exact `DesignMask.geometry` is now lazy for diagnostics and fallback paths,
+and `build_footprint`'s polygon-buffer radius is `margin_px / sqrt(2)` (the old
+`margin_px / 2 + 1` only certified ~71% of a diagonal Chebyshev margin). The
+product decision and the five blocking checks are unchanged; only the search
+implementation and its conservative geometry changed.

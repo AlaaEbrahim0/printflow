@@ -115,12 +115,113 @@ public sealed class StepService
             cancellationToken);
     }
 
+    public async Task<Result<JobAccepted>> ProposeBackgroundRemovalAsync(
+        Guid designId,
+        BackgroundRemovalStepCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (command.Mode is not ("ai" or "color-to-alpha" or "none"))
+        {
+            return Invalid("Background removal mode must be ai, color-to-alpha or none.");
+        }
+
+        if (command.Mode == "ai")
+        {
+            return Invalid(
+                "The BiRefNet AI cutout is archived. Use color-to-alpha, or cut the "
+                + "artwork out in Photoshop and import the PNG as ready-to-pack.");
+        }
+
+        if (command.Mode == "color-to-alpha" && string.IsNullOrWhiteSpace(command.KeyColor))
+        {
+            return Invalid("color-to-alpha requires a keyColor.");
+        }
+
+        if (command.Tolerance is < 0 or > 255)
+        {
+            return Invalid("Tolerance must be between 0 and 255.");
+        }
+
+        if (command.EdgeSoftness is < 0 or > 10)
+        {
+            return Invalid("Edge softness must be between 0 and 10 pixels.");
+        }
+
+        if (command.MaskGrowPx is < -100 or > 100)
+        {
+            return Invalid("Mask grow/contract must be between -100 and 100 pixels.");
+        }
+
+        if (command.AiModel is not null)
+        {
+            return Invalid("aiModel only applied to the archived ai mode.");
+        }
+
+        if (ValidateLevels("maskLevels", command.MaskLevels) is { } maskLevelsError)
+        {
+            return maskLevelsError;
+        }
+
+        if (ValidateLevels("imageLevels", command.ImageLevels) is { } imageLevelsError)
+        {
+            return imageLevelsError;
+        }
+
+        if (command.BrushOps is { Count: > 0 } ops)
+        {
+            foreach (var (op, index) in ops.Select((op, index) => (op, index)))
+            {
+                if (op.Tool is not ("erase" or "restore"))
+                {
+                    return Invalid($"brushOps[{index}].tool must be erase or restore.");
+                }
+
+                if (op.RadiusPx is < 1 or > 2000)
+                {
+                    return Invalid($"brushOps[{index}].radiusPx must be between 1 and 2000.");
+                }
+
+                if (op.Points is null || op.Points.Count == 0)
+                {
+                    return Invalid($"brushOps[{index}] must contain at least one point.");
+                }
+            }
+        }
+
+        var parameters = new
+        {
+            mode = command.Mode,
+            keyColor = command.KeyColor,
+            tolerance = command.Tolerance,
+            edgeSoftness = command.EdgeSoftness,
+            maskGrowPx = command.MaskGrowPx,
+            maskLevels = LevelsPayload(command.MaskLevels),
+            imageLevels = LevelsPayload(command.ImageLevels),
+            aiModel = command.AiModel,
+            brushOps = command.BrushOps?.Select(op => new
+            {
+                tool = op.Tool,
+                radiusPx = op.RadiusPx,
+                points = op.Points!.Select(point => new[] { point.X, point.Y }).ToArray(),
+            }).ToArray(),
+        };
+
+        return await EnqueueStepAsync(
+            designId,
+            JobType.BackgroundRemoval,
+            StepType.BackgroundRemoval,
+            parameters,
+            JobCapability.Image,
+            validateParent: null,
+            cancellationToken,
+            artifactOutputs: new Dictionary<string, string> { ["mask"] = "mask" });
+    }
+
     public async Task<Result<JobAccepted>> ProposeResizeAsync(
         Guid designId,
         ResizeStepCommand command,
         CancellationToken cancellationToken)
-    {
-        if (command.TargetWidthCm <= 0
+    {        if (command.TargetWidthCm <= 0
             || command.TargetHeightCm <= 0
             || command.TargetWidthCm > 500m
             || command.TargetHeightCm > 500m)
@@ -176,7 +277,8 @@ public sealed class StepService
         JobCapability capability,
         Func<DesignVersion, DomainError?>? validateParent,
         CancellationToken cancellationToken,
-        Func<Batch, Design, Result>? beforeEnqueue = null)
+        Func<Batch, Design, Result>? beforeEnqueue = null,
+        IReadOnlyDictionary<string, string>? artifactOutputs = null)
     {
         var batch = await _batches.FindByDesignAsync(designId, cancellationToken);
         var design = batch?.FindDesign(designId);
@@ -275,7 +377,15 @@ public sealed class StepService
 
         var parametersJson = JsonSerializer.Serialize(jobParameters, ApplicationJson.Options);
         var contextJson = JsonSerializer.Serialize(context, ApplicationJson.Options);
-        const string outputArtifactsJson = "{}";
+        // The mask is the reviewable artifact for background removal; the worker
+        // writes it beside the version image and the API serves it back.
+        var outputArtifactsJson = artifactOutputs is null
+            ? "{}"
+            : JsonSerializer.Serialize(
+                artifactOutputs.ToDictionary(
+                    pair => pair.Key,
+                    pair => $"{(batch.Id)}/designs/{design.Id}/versions/{versionId}.{pair.Value}.png"),
+                ApplicationJson.Options);
 
         var jobResult = Job.Create(
             jobId,
@@ -322,4 +432,55 @@ public sealed class StepService
 
     private static Result<JobAccepted> Invalid(string message)
         => Result<JobAccepted>.Failure(ErrorCodes.InvalidRequest, message);
+
+    /// <summary>
+    /// Levels are applied with a 256-entry lookup table, so an inverted or empty
+    /// input range would silently flatten the whole ramp. Reject it here instead
+    /// of writing a version the operator cannot reason about.
+    /// </summary>
+    private static Result<JobAccepted>? ValidateLevels(
+        string name,
+        LevelsAdjustmentCommand? levels)
+    {
+        if (levels is null)
+        {
+            return null;
+        }
+
+        var black = levels.BlackPoint ?? 0;
+        var white = levels.WhitePoint ?? 255;
+        if (black is < 0 or > 254)
+        {
+            return Invalid($"{name}.blackPoint must be between 0 and 254.");
+        }
+
+        if (white is < 1 or > 255 || white <= black)
+        {
+            return Invalid($"{name}.whitePoint must be above blackPoint and at most 255.");
+        }
+
+        if (levels.Gamma is { } gamma && (gamma < 0.01m || gamma > 9.99m))
+        {
+            return Invalid($"{name}.gamma must be between 0.01 and 9.99.");
+        }
+
+        if (levels.OutputBlack is < 0 or > 255 || levels.OutputWhite is < 0 or > 255)
+        {
+            return Invalid($"{name} output points must be between 0 and 255.");
+        }
+
+        return null;
+    }
+
+    private static object? LevelsPayload(LevelsAdjustmentCommand? levels)
+        => levels is null
+            ? null
+            : new
+            {
+                blackPoint = levels.BlackPoint ?? 0,
+                whitePoint = levels.WhitePoint ?? 255,
+                gamma = levels.Gamma ?? 1.0m,
+                outputBlack = levels.OutputBlack ?? 0,
+                outputWhite = levels.OutputWhite ?? 255,
+            };
 }

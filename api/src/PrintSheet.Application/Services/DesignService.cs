@@ -10,12 +10,21 @@ public sealed class DesignService
 {
     private readonly IBatchRepository _batches;
     private readonly IFileStore _files;
+    private readonly IJobRepository _jobs;
+    private readonly IImageThumbnailer _thumbnails;
     private readonly IClock _clock;
 
-    public DesignService(IBatchRepository batches, IFileStore files, IClock clock)
+    public DesignService(
+        IBatchRepository batches,
+        IFileStore files,
+        IJobRepository jobs,
+        IImageThumbnailer thumbnails,
+        IClock clock)
     {
         _batches = batches;
         _files = files;
+        _jobs = jobs;
+        _thumbnails = thumbnails;
         _clock = clock;
     }
 
@@ -123,6 +132,7 @@ public sealed class DesignService
     public async Task<Result<VersionFile>> OpenVersionFileAsync(
         Guid designId,
         Guid versionId,
+        int? maxPx,
         CancellationToken cancellationToken)
     {
         var found = await FindAsync(designId, cancellationToken);
@@ -149,11 +159,40 @@ public sealed class DesignService
         }
 
         var stream = await _files.OpenReadAsync(version.FilePath, cancellationToken);
-        var extension = Path.GetExtension(version.FilePath).ToLowerInvariant();
-        return Result<VersionFile>.Success(new VersionFile(
-            stream,
-            ContentTypeFor(extension),
-            $"{version.Id}{extension}"));
+        if (maxPx is null)
+        {
+            var extension = Path.GetExtension(version.FilePath).ToLowerInvariant();
+            return Result<VersionFile>.Success(new VersionFile(
+                stream,
+                ContentTypeFor(extension),
+                $"{version.Id}{extension}"));
+        }
+
+        try
+        {
+            // The thumbnail is derived from an immutable version file, so the
+            // version id is a safe cache key. The original stream stays
+            // read-only and is disposed here.
+            var thumbnail = await _thumbnails.RenderAsync(
+                version.Id.ToString("N"),
+                stream,
+                maxPx.Value,
+                cancellationToken);
+            return Result<VersionFile>.Success(new VersionFile(
+                thumbnail,
+                "image/png",
+                $"{version.Id}-{maxPx.Value}px.png"));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Result<VersionFile>.Failure(
+                ErrorCodes.UnsupportedImage,
+                exception.Message);
+        }
+        finally
+        {
+            await stream.DisposeAsync();
+        }
     }
 
     /// <summary>
@@ -208,6 +247,74 @@ public sealed class DesignService
             stream,
             contentType,
             $"{version.Id}-{fallbackName}"));
+    }
+
+    /// <summary>
+    /// Deletes every file on disk for a design — the composite, per-version
+    /// masks and SVGs — then marks the design excluded. The design record is
+    /// kept for history, but no pixels remain on disk and it cannot be packed.
+    /// A design with active jobs is left untouched until they settle.
+    /// </summary>
+    public async Task<Result> DeleteDesignImagesAsync(
+        Guid batchId,
+        Guid designId,
+        string actor,
+        CancellationToken cancellationToken)
+    {
+        var found = await FindAsync(designId, cancellationToken);
+        if (found is null)
+        {
+            return Result.Failure(ErrorCodes.DesignNotFound, $"Design {designId} was not found.");
+        }
+
+        var (batch, design) = found.Value;
+
+        // Only a design with no active jobs can be emptied of its pixels.
+        if (await _jobs.HasActiveStepJobAsync(designId, cancellationToken))
+        {
+            return Result.Failure(
+                ErrorCodes.JobInFlight,
+                $"Design {designId} still has active jobs. Cancel them before deleting its images.");
+        }
+
+        foreach (var version in design.Versions)
+        {
+            await DeleteFile(version.FilePath, cancellationToken);
+            await DeleteFile(version.MaskPath, cancellationToken);
+            await DeleteFile(version.SvgPath, cancellationToken);
+        }
+
+        var excludeResult = design.Exclude(_clock.UtcNow);
+        if (!excludeResult.IsSuccess)
+        {
+            return excludeResult;
+        }
+
+        batch.InvalidateSheet(_clock.UtcNow);
+        batch.RecordAudit(
+            "design-images-deleted",
+            actor,
+            null,
+            designId,
+            null,
+            null,
+            _clock.UtcNow);
+        await _batches.SaveChangesAsync(cancellationToken);
+
+        return Result.Success();
+    }
+
+    private async Task DeleteFile(string? path, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        if (await _files.ExistsAsync(path, cancellationToken))
+        {
+            await _files.DeleteAsync(path, cancellationToken);
+        }
     }
 
     private async Task<Result> ChangeStatusAsync(

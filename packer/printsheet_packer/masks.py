@@ -9,7 +9,8 @@ underestimated. Nothing in this module resamples pixels.
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass, replace
+import math
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 from PIL import Image
@@ -58,23 +59,37 @@ class DesignMask:
 
     design: DesignInput
     occupied: np.ndarray  # cropped to ``bbox``
-    geometry: BaseGeometry  # exact alpha silhouette in full-image pixel coordinates
     bbox: BoundingBox
     image_width_px: int
     image_height_px: int
+    # Exact alpha silhouette in full-image pixel coordinates. Built lazily:
+    # the raster search never needs it, and unioning hundreds of thousands of
+    # alpha runs is expensive on real artwork.
+    _geometry: BaseGeometry | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def geometry(self) -> BaseGeometry:
+        geometry = self._geometry
+        if geometry is None:
+            geometry = affinity.translate(
+                _mask_geometry(self.occupied), xoff=self.bbox.x0, yoff=self.bbox.y0
+            )
+            object.__setattr__(self, "_geometry", geometry)
+        return geometry
 
     @property
     def visible_pixels(self) -> int:
         return int(self.occupied.sum())
 
 
-
 @dataclass(frozen=True)
 class Footprint:
-    """One design in one rotation, represented by exact pixel geometry.
+    """One design in one rotation, represented by a conservative occupancy grid.
 
-    The grid is retained for conservative occupancy metrics and legacy
-    diagnostics; placement collision checks use the alpha-derived polygons.
+    The grid is the search footprint: every cell is occupied when any visible
+    pixel inside it is. ``build_footprint`` also populates exact polygon
+    geometry for callers that need it; the production raster search deliberately
+    leaves those geometries empty because unioning real artwork is expensive.
     """
 
     rotation_deg: int
@@ -195,11 +210,6 @@ def build_design_mask(
     return DesignMask(
         design=design,
         occupied=occupied[bbox.y0 : bbox.y1, bbox.x0 : bbox.x1],
-        geometry=affinity.translate(
-            _mask_geometry(occupied[bbox.y0 : bbox.y1, bbox.x0 : bbox.x1]),
-            xoff=bbox.x0,
-            yoff=bbox.y0,
-        ),
         bbox=bbox,
         image_width_px=width,
         image_height_px=height,
@@ -387,6 +397,16 @@ def required_margin_px(margin_mm: float, dpi: int) -> int:
     return ceil_pixels_for_millimeters(margin_mm, dpi)
 
 
+def collision_radius_px(margin_px: int) -> float:
+    """Radial buffer radius that certifies a Chebyshev gap of ``margin_px``.
+
+    A radial offset of ``r`` certifies a Chebyshev gap of ``2r / sqrt(2)`` on a
+    diagonal, so matching the integrity gate needs ``r >= margin / sqrt(2)``.
+    Using ``margin / 2 + 1`` (the old value) is ~29% short at real print margins.
+    """
+    return margin_px / math.sqrt(2) if margin_px > 0 else 0.0
+
+
 def block_radius_cells(margin_px: int, cell_px: int) -> int:
     """Padding cells per side guaranteeing ``margin_px`` between visible pixels.
 
@@ -484,9 +504,14 @@ def build_footprint(
         grid = simple_footprint(grid, "hull")
 
     radius = block_radius_cells(margin_px, cell_px)
-    # The extra pixel makes continuous polygon buffers conservative for discrete masks.
+    # The integrity gate measures a Chebyshev gap, so the collision certificate
+    # must be a square offset. A radial (mitre) buffer of ``r`` only certifies
+    # ``2r / sqrt(2)`` on a diagonal; ``margin_px / sqrt(2)`` matches the gate
+    # exactly at the worst-case diagonal.
     collision_geometry = (
-        geometry.buffer(margin_px / 2 + 1, join_style="mitre") if margin_px else geometry
+        geometry.buffer(collision_radius_px(margin_px), join_style="mitre")
+        if margin_px
+        else geometry
     )
     return Footprint(
         rotation_deg=rotation_deg,
@@ -530,6 +555,7 @@ __all__ = [
     "build_design_mask",
     "build_footprint",
     "cell_size_px",
+    "collision_radius_px",
     "dilate_block",
     "dilate_square",
     "fit_rgba_to_target",

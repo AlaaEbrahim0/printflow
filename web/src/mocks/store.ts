@@ -218,7 +218,7 @@ export class MockStore {
   /** Public entry point used by the step handlers. */
   proposeStep(
     designId: string,
-    type: 'trim' | 'upscale' | 'resize',
+    type: 'trim' | 'upscale' | 'resize' | 'background-removal',
     parameters: Record<string, unknown>,
   ): JobAccepted {
     const stepType: StepType =
@@ -501,7 +501,7 @@ export class MockStore {
         break
       }
       case 'background-removal': {
-        const mode = String(parameters.mode ?? 'ai')
+        const mode = String(parameters.mode ?? 'color-to-alpha')
         const reusesMask = typeof parameters.maskFromVersionId === 'string'
         version.variant = mode === 'none' && !reusesMask ? 'with-bg' : 'transparent'
         version.hasAlpha = mode !== 'none' || reusesMask
@@ -1604,14 +1604,31 @@ export class MockStore {
 
   listJobs(batchId: string, query: { status?: Job['status']; type?: Job['type']; limit?: number }) {
     this.requireBatch(batchId)
-    const items = [...this.jobs.values()]
-      .filter((job) => job.batchId === batchId)
+    return this.filterJobs(
+      (job) => job.batchId === batchId,
+      query,
+      50,
+    )
+  }
+
+  listAllJobs(query: { status?: Job['status']; type?: Job['type']; limit?: number }) {
+    return this.filterJobs(() => true, query, 200)
+  }
+
+  private filterJobs(
+    where: (job: MockJobRecord) => boolean,
+    query: { status?: Job['status']; type?: Job['type']; limit?: number },
+    defaultLimit: number,
+  ) {
+    const matching = [...this.jobs.values()]
+      .filter(where)
       .filter((job) => !query.status || job.status === query.status)
       .filter((job) => !query.type || job.type === query.type)
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-      .slice(0, query.limit ?? 50)
-      .map((job) => this.toJob(job))
-    return { items, total: items.length }
+    return {
+      items: matching.slice(0, query.limit ?? defaultLimit).map((job) => this.toJob(job)),
+      total: matching.length,
+    }
   }
 
   toJob(job: MockJobRecord): Job {
@@ -2030,7 +2047,7 @@ export const SEED_BATCHES: SeedBatch[] = [
         garmentColor: { kind: 'dark' },
         notes: 'Customer screenshot. Halo visible on black tees.',
         chain: [
-          { stepType: 'background-removal', parameters: { mode: 'ai', edgeSoftness: 1.5 } },
+          { stepType: 'background-removal', parameters: { mode: 'color-to-alpha', keyColor: '#ffffff', tolerance: 14, edgeSoftness: 1.5, maskGrowPx: 1 } },
           { stepType: 'upscale', parameters: { model: 'realesrgan-x4plus-anime', scale: 2 }, status: 'proposed' },
         ],
       },

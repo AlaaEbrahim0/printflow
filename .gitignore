@@ -46,7 +46,11 @@ yarn-error.log*
 
 # Runtime storage and generated artifacts
 storage/
+models/
 tmp/
+worker/experiments/bench/
+worker/experiments/cache/
+worker/experiments/*.png
 *.tmp
 *.part
 .tools/
@@ -58,3 +62,12 @@ fixtures/**/contact-sheet.png
 
 # Local agent tooling config (machine-specific, may contain credentials)
 .codex/
+
+# Exported agent session transcripts (large, machine-specific)
+pi-session-*.html
+
+# Empty npm stubs accidentally created at the repo root. The real manifests
+# live in web/, worker/ and tools/. Root-level package.json is intentionally
+# not tracked; remove these lines if a root workspace manifest is ever added.
+/package.json
+/package-lock.json

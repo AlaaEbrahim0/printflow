@@ -8,13 +8,13 @@
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 14px 22px;
+  padding: 12px 22px;
   border-bottom: 1px solid var(--line);
-  background: rgb(24 21 19 / 88%);
+  background: color-mix(in srgb, var(--ink) 82%, transparent);
   position: sticky;
   top: 0;
   z-index: 20;
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(14px);
 }
 
 .brand {
@@ -28,16 +28,17 @@
   place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 9px;
-  background: var(--accent);
-  color: var(--ink);
+  border-radius: 10px;
+  background: var(--accent-fill);
+  color: var(--on-accent);
   font-family: var(--mono);
   font-weight: 700;
   letter-spacing: -0.04em;
+  box-shadow: var(--shadow-2);
 }
 
 .brand-name {
-  font-weight: 760;
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 
@@ -60,6 +61,7 @@
   font-size: 0.9rem;
   color: var(--muted);
   border: 1px solid transparent;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 
 .mainnav a:hover {
@@ -68,14 +70,32 @@
 }
 
 .mainnav a.active {
-  color: var(--ink);
-  background: var(--paper);
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  font-weight: 600;
 }
 
 .topbar-meta {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.topbar-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--good-soft);
+  color: var(--good);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.topbar-live:hover {
+  text-decoration: underline;
 }
 
 .workspace {
@@ -119,16 +139,24 @@
 }
 
 .card {
-  background: var(--panel);
+  background: linear-gradient(180deg, var(--sheen), transparent), var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 16px;
+  box-shadow: var(--shadow-2);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.card:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2);
 }
 
 .card-title {
   margin: 0 0 10px;
-  font-size: 1.05rem;
-  letter-spacing: -0.02em;
+  font-size: 1.08rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
 }
 
 .card-heading {
@@ -319,4 +347,35 @@
 
 .breadcrumbs a:hover {
   color: var(--accent);
+}
+/* --------------------------------------------------------------------------
+ * Theme toggle
+ * A single icon button in the top bar. It shows the theme you would switch
+ * *to*, which is the convention most tools use and avoids a label that lies
+ * about the current state.
+ * ------------------------------------------------------------------------ */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.theme-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+
+.theme-toggle svg {
+  width: 15px;
+  height: 15px;
 }

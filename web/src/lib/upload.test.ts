@@ -47,7 +47,7 @@ describe('intake validation', () => {
   it('rejects oversized uploads before any byte is sent, with the size spelled out', () => {
     const rejection = validateUploadFile(makeFile('big.png', 'image/png', MAX_UPLOAD_BYTES + 1))
     expect(rejection?.code).toBe('upload-too-large')
-    expect(rejection?.message).toContain('25.0 MB')
+    expect(rejection?.message).toContain('50.0 MB')
   })
 
   it('honours a caller-supplied limit', () => {
@@ -72,6 +72,6 @@ describe('intake validation', () => {
     expect(hasAcceptedMimeType('IMAGE/PNG')).toBe(true)
     expect(formatBytes(900)).toBe('900 B')
     expect(formatBytes(2048)).toBe('2.0 KB')
-    expect(formatBytes(MAX_UPLOAD_BYTES)).toBe('25.0 MB')
+    expect(formatBytes(MAX_UPLOAD_BYTES)).toBe('50.0 MB')
   })
 })

@@ -83,6 +83,17 @@ public sealed class LocalFileStore : IFileStore
         return Task.CompletedTask;
     }
 
+    public Task DeleteDirectoryAsync(string relativePath, CancellationToken cancellationToken)
+    {
+        var fullPath = Resolve(relativePath);
+        if (Directory.Exists(fullPath))
+        {
+            Directory.Delete(fullPath, true);
+        }
+
+        return Task.CompletedTask;
+    }
+
     private string Resolve(string relativePath)
     {
         if (string.IsNullOrWhiteSpace(relativePath))

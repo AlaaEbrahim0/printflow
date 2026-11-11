@@ -34,6 +34,9 @@ public static class ErrorCodes
     public const string LeaseInvalid = "lease-invalid";
     public const string JobNotCancellable = "job-not-cancellable";
     public const string ConcurrencyConflict = "concurrency-conflict";
+    public const string BatchImageDeleted = "batch-images-deleted";
+    public const string BatchDeleted = "batch-deleted";
+    public const string BatchInUse = "batch-in-use";
 }
 
 /// <summary>An expected, user-visible failure. Not an exception.</summary>

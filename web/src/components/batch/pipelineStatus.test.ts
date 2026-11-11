@@ -28,6 +28,7 @@ describe('pipelineStatus', () => {
     expect(pipelineStatus(versions, 'v1')).toEqual({
       prepared: false,
       enhanced: false,
+      cutout: false,
       sized: false,
     })
   })
@@ -37,11 +38,13 @@ describe('pipelineStatus', () => {
       version('v1', 'original'),
       version('v2', 'trim', 'v1'),
       version('v3', 'upscale', 'v2'),
-      version('v4', 'resize', 'v3'),
+      version('v4', 'background-removal', 'v3'),
+      version('v5', 'resize', 'v4'),
     ]
-    expect(pipelineStatus(versions, 'v4')).toEqual({
+    expect(pipelineStatus(versions, 'v5')).toEqual({
       prepared: true,
       enhanced: true,
+      cutout: true,
       sized: true,
     })
   })
@@ -58,6 +61,7 @@ describe('pipelineStatus', () => {
     expect(pipelineStatus(versions, 'v4')).toEqual({
       prepared: true,
       enhanced: false,
+      cutout: false,
       sized: true,
     })
   })
@@ -72,6 +76,7 @@ describe('pipelineStatus', () => {
     expect(pipelineStatus(versions, null)).toEqual({
       prepared: false,
       enhanced: false,
+      cutout: false,
       sized: false,
     })
   })
@@ -81,6 +86,7 @@ describe('pipelineStatus', () => {
     expect(pipelineStatus(versions, 'v2')).toEqual({
       prepared: false,
       enhanced: false,
+      cutout: false,
       sized: true,
     })
   })

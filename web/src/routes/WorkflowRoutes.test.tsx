@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { SettingsProvider } from '../state/SettingsContext'
@@ -69,6 +69,173 @@ describe('core workbench routes', () => {
     })
   })
 
+  it('proposes a colour-key background removal', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Cutout batch',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Logo cutout sample',
+        chain: [],
+      }],
+    }])
+    const batch = [...mock.batches.values()][0]!
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+    await user.click(screen.getByRole('button', { name: 'Remove background' }))
+
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'background-removal',
+      )
+      expect(job?.parameters).toMatchObject({
+        mode: 'color-to-alpha',
+        keyColor: '#ffffff',
+        tolerance: 12,
+      })
+      // Neutral levels and a zero offset are omitted so the job stays readable.
+      expect(job?.parameters).not.toHaveProperty('maskGrowPx')
+      expect(job?.parameters).not.toHaveProperty('maskLevels')
+      expect(job?.parameters).not.toHaveProperty('imageLevels')
+      expect(job?.parameters).not.toHaveProperty('aiModel')
+    })
+  })
+
+  it('sends the mask offset and both levels adjustments with the cut-out', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Cutout shaping',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Shaped cutout sample',
+        chain: [],
+      }],
+    }])
+    const batch = [...mock.batches.values()][0]!
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+
+    await user.click(screen.getByRole('button', { name: 'Expand' }))
+    expect(screen.getByLabelText('Selection edge offset')).toHaveValue(8)
+
+    const [maskBlack] = screen.getAllByLabelText('Input black')
+    fireEvent.change(maskBlack!, { target: { value: '12' } })
+
+    await user.click(screen.getByRole('button', { name: 'Remove background' }))
+
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'background-removal',
+      )
+      expect(job?.parameters).toMatchObject({
+        mode: 'color-to-alpha',
+        maskGrowPx: 8,
+        maskLevels: { blackPoint: 12, whitePoint: 255, gamma: 1, outputBlack: 0, outputWhite: 255 },
+      })
+      // Image levels were left alone, so they are not sent at all.
+      expect(job?.parameters).not.toHaveProperty('imageLevels')
+    })
+  })
+
+  it('links print width and height to the artwork aspect ratio at the batch DPI', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Aspect ratio',
+      workingDpi: 300,
+      designs: [{ assetKey: 'full-bleed-collage', name: 'Linked size', chain: [] }],
+    }])
+    const batch = [...mock.batches.values()][0]!
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+    expect(screen.getByTestId('print-resolution')).toHaveTextContent('300 DPI')
+
+    await user.click(screen.getByTestId('use-artwork-size'))
+    const width = screen.getByLabelText('Width') as HTMLInputElement
+    const height = screen.getByLabelText('Height') as HTMLInputElement
+    // 1200 × 900 px at 300 DPI is 10.16 × 7.62 cm.
+    expect(width.value).toBe('10.16')
+    expect(height.value).toBe('7.62')
+
+    await user.clear(width)
+    await user.type(width, '20')
+    // The 4:3 artwork shape links 20 cm to 15 cm, and the output pixels follow
+    // the batch DPI rather than the browser's screen density.
+    expect(height.value).toBe('15')
+    expect(screen.getByTestId('resize-output-pixels')).toHaveTextContent('2362 px × 1772 px')
+  })
+
+  it('keeps an intentionally saved free size instead of silently relinking it', async () => {
+    const user = userEvent.setup()
+    // 1200 × 900 is 4:3, but this design was deliberately saved at 30 × 22 cm.
+    const mock = startTestMockApi([{
+      name: 'Saved free size',
+      workingDpi: 300,
+      designs: [{
+        assetKey: 'full-bleed-collage',
+        name: 'Deliberate size',
+        targetCm: [30, 22],
+        chain: [],
+      }],
+    }])
+    const batch = [...mock.batches.values()][0]!
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+    const width = screen.getByLabelText('Width') as HTMLInputElement
+    const height = screen.getByLabelText('Height') as HTMLInputElement
+    // The saved size arrives with the design payload, one render after mount.
+    await waitFor(() => expect(width.value).toBe('30'))
+    expect(height.value).toBe('22')
+
+    // Editing a side must not snap the other side back to the artwork ratio.
+    await user.clear(width)
+    await user.type(width, '24')
+    expect(height.value).toBe('22')
+
+    // Relinking is an explicit choice, and then the shape follows the artwork.
+    const link = screen.getByRole('checkbox', { name: /Keep width and height at the artwork ratio/ })
+    expect(link).not.toBeChecked()
+    await user.click(link)
+    expect(link).toBeChecked()
+    expect(height.value).toBe('18')
+  })
+
+  it('freezes the displayed height when the operator unlinks the sides', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Unlink',
+      workingDpi: 300,
+      designs: [{ assetKey: 'full-bleed-collage', name: 'Free size', chain: [] }],
+    }])
+    const batch = [...mock.batches.values()][0]!
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+    const width = screen.getByLabelText('Width') as HTMLInputElement
+    const height = screen.getByLabelText('Height') as HTMLInputElement
+    await user.click(screen.getByTestId('use-artwork-size'))
+    expect(height.value).toBe('7.62')
+
+    const link = screen.getByRole('checkbox', { name: /Keep width and height at the artwork ratio/ })
+    await user.click(link)
+    expect(link).not.toBeChecked()
+    // Unlinking must not blank or snap the height: the operator keeps the value
+    // that was on screen and can now change each side independently.
+    expect(height.value).toBe('7.62')
+
+    await user.clear(width)
+    await user.type(width, '20')
+    expect(height.value).toBe('7.62')
+  })
+
   it('shows indeterminate progress, elapsed time, and GPU queue guidance', async () => {
     const user = userEvent.setup()
     const mock = startTestMockApi([{
@@ -98,12 +265,17 @@ describe('core workbench routes', () => {
     if (!job) throw new Error('Enhancement job was not created')
     job.status = 'running'
     job.startedAt = new Date(Date.now() - 3_000).toISOString()
-    await waitFor(() => expect(screen.getByText(/Processing · 0:\d+ elapsed/)).toBeInTheDocument())
+    // The poller ticks once a second; give it more than one tick so a loaded
+    // CI worker cannot lose the race against waitFor's own default timeout.
+    await waitFor(
+      () => expect(screen.getByText(/Processing · 0:\d+ elapsed/)).toBeInTheDocument(),
+      { timeout: 4_000 },
+    )
     expect(screen.getByText(/Small-image GTX tests took about 5–16 seconds/)).toBeInTheDocument()
 
     page.unmount()
     renderAt(route)
-    expect(await screen.findByText(/Processing · 0:\d+ elapsed/)).toBeInTheDocument()
+    expect(await screen.findByText(/Processing · 0:\d+ elapsed/, {}, { timeout: 4_000 })).toBeInTheDocument()
 
     mock.dispose()
   })
@@ -145,6 +317,11 @@ describe('core workbench routes', () => {
     expect(await screen.findByRole('heading', { name: batch.name })).toBeInTheDocument()
     const card = await screen.findByTestId(`design-card-${designId}`)
     expect(card).toHaveAttribute('data-status', 'in-progress')
+    // The grid gets a bounded server-rendered thumbnail, not the full PNG.
+    const thumbnail = within(card).getByTestId('preview-image')
+    expect(thumbnail.getAttribute('src')).toContain('maxPx=640')
+    expect(thumbnail).toHaveAttribute('loading', 'lazy')
+    expect(thumbnail).toHaveAttribute('decoding', 'async')
     await user.click(screen.getByTestId(`toggle-${designId}`))
 
     await waitFor(() => expect(screen.getByTestId(`design-card-${designId}`)).toHaveAttribute('data-status', 'excluded'))
@@ -161,28 +338,107 @@ describe('core workbench routes', () => {
     const proposalId = design.pendingVersionId
 
     renderAt(`/batches/${batch.id}/designs/${designId}`)
-    expect(await screen.findByTestId('current-design-preview')).toBeInTheDocument()
-    expect(screen.getByTestId('proposed-design-preview')).toBeInTheDocument()
+    expect(await screen.findByTestId('design-comparison')).toBeInTheDocument()
     expect(screen.getByRole('radiogroup', { name: 'Preview background' })).toBeInTheDocument()
+    // The approve button now opens the proposal summary modal; approve from there.
     await user.click(screen.getByRole('button', { name: 'Approve proposal' }))
+    await user.click(screen.getByTestId('proposal-modal-approve'))
 
     await waitFor(() => expect(mock.designs.get(designId)?.currentVersionId).toBe(proposalId))
     expect(mock.designs.get(designId)?.pendingVersionId).toBeNull()
   })
 
-  it('offers full-resolution Photoshop downloads for current and proposed artwork', async () => {
+  it('confirms approval in a modal that cancels without touching the proposal', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi()
+    const batch = batchNamed(mock, 'ACME summer drop 01')
+    const designId = batch.designIds[0]!
+    const design = mock.designs.get(designId)
+    if (!design?.pendingVersionId) throw new Error('Expected the seed design to have a proposal')
+    const proposalId = design.pendingVersionId
+
+    renderAt(`/batches/${batch.id}/designs/${designId}`)
+    await screen.findByTestId('design-comparison')
+
+    // Clicking Approve only opens the summary; it must not approve on its own.
+    await user.click(screen.getByRole('button', { name: 'Approve proposal' }))
+    expect(await screen.findByTestId('proposal-modal')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Proposal summary' })).toBeInTheDocument()
+    expect(mock.designs.get(designId)?.currentVersionId).not.toBe(proposalId)
+
+    // Cancel closes the dialog and leaves the proposal pending.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByTestId('proposal-modal')).not.toBeInTheDocument())
+    expect(mock.designs.get(designId)?.pendingVersionId).toBe(proposalId)
+
+    // Escape closes it too.
+    await user.click(screen.getByRole('button', { name: 'Approve proposal' }))
+    await screen.findByTestId('proposal-modal')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('proposal-modal')).not.toBeInTheDocument())
+    expect(mock.designs.get(designId)?.currentVersionId).not.toBe(proposalId)
+  })
+
+  it('shows every version as a layer and keeps approval on the proposal layer', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi()
+    const batch = batchNamed(mock, 'ACME summer drop 01')
+    const designId = batch.designIds[0]!
+    const design = mock.designs.get(designId)!
+    const proposalId = design.pendingVersionId
+    if (!proposalId) throw new Error('Expected the seed design to have a proposal')
+
+    renderAt(`/batches/${batch.id}/designs/${designId}`)
+
+    // One row per version, each addressed by its version id.
+    await screen.findAllByRole('listitem')
+    const layerRows = document.querySelectorAll('[data-layer]')
+    expect(layerRows.length).toBe(mock.versionsOf(designId).length)
+
+    // The proposal is the layer you land on, and the canvas compares it with
+    // the layer below rather than showing it in isolation.
+    const proposalRow = document.querySelector(`[data-layer="${proposalId}"]`)!
+    expect(proposalRow.getAttribute('data-status')).toBe('proposed')
+    expect(await screen.findByTestId('design-comparison')).toBeInTheDocument()
+
+    // Selecting the current layer switches the canvas to it and flips the
+    // preview test id, without touching what the packer would use.
+    await user.click(
+      document.querySelector(`[data-layer="${design.currentVersionId}"] .layer-main`)!,
+    )
+    expect(await screen.findByTestId('current-design-preview')).toBeInTheDocument()
+    expect(screen.queryByTestId('design-comparison')).not.toBeInTheDocument()
+    expect(mock.designs.get(designId)?.currentVersionId).toBe(design.currentVersionId)
+
+    // Hiding a layer takes it off the canvas and offers a way back.
+    const activeRow = document.querySelector('.layer.is-active')!
+    const eye = activeRow.querySelector('.layer-eye')!
+    expect(eye).toHaveAttribute('aria-pressed', 'true')
+    await user.click(eye)
+    expect(eye).toHaveAttribute('aria-pressed', 'false')
+    expect(await screen.findByText('This layer is hidden')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Show layer' }))
+    expect(screen.queryByText('This layer is hidden')).not.toBeInTheDocument()
+
+    // Approving still only happens through the modal, and the layer stack keeps
+    // the version that was current.
+    await user.click(screen.getByRole('button', { name: 'Approve proposal' }))
+    await user.click(screen.getByTestId('proposal-modal-approve'))
+    await waitFor(() => expect(mock.designs.get(designId)?.currentVersionId).toBe(proposalId))
+    await waitFor(() =>
+      expect(document.querySelector(`[data-layer="${design.currentVersionId}"]`)).not.toBeNull(),
+    )
+  })
+
+  it('offers full-resolution Photoshop download for proposed artwork when a proposal exists', async () => {
     const mock = startTestMockApi()
     const batch = batchNamed(mock, 'ACME summer drop 01')
     const designId = batch.designIds[0]!
     renderAt(`/batches/${batch.id}/designs/${designId}`)
 
-    const currentLink = await screen.findByRole('link', { name: 'Download for Photoshop' })
-    expect(currentLink).toHaveAttribute('download')
-    expect(currentLink.getAttribute('href')).toContain('/versions/')
-    expect(currentLink.getAttribute('href')).toContain('/file')
-
-    const proposalLink = screen.getByRole('link', { name: 'Download proposal for Photoshop' })
+    const proposalLink = await screen.findByRole('link', { name: 'Download proposal for Photoshop' })
     expect(proposalLink).toHaveAttribute('download')
+    expect(proposalLink.getAttribute('href')).toContain('/versions/')
     expect(proposalLink.getAttribute('href')).toContain('/file')
   })
 

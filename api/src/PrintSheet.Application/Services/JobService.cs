@@ -62,6 +62,20 @@ public sealed class JobService
         return Result<(IReadOnlyList<Job>, int)>.Success(result);
     }
 
+    public async Task<Result<(IReadOnlyList<Job> Items, int Total)>> ListAllAsync(
+        JobStatus? status,
+        JobType? type,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var result = await _jobs.ListAllAsync(
+            status,
+            type,
+            Math.Clamp(limit, 1, 200),
+            cancellationToken);
+        return Result<(IReadOnlyList<Job>, int)>.Success(result);
+    }
+
     public async Task<Result<Job>> CancelAsync(
         Guid jobId,
         CancellationToken cancellationToken)

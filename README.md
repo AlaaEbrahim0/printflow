@@ -1,10 +1,13 @@
 # PrintSheet Workbench
 
 Internal, review-driven DTF print preparation. Staff upload a batch of customer
-designs, the system proposes trim, crop, Real-ESRGAN enhancement and final print
-sizing, and a human approves every step. Background removal and vectorization
-were retired in contract v2.0.0; staff finish those in Photoshop and can import
-the exported PNGs directly as ready-to-pack artwork. Approved designs are
+designs, the system proposes trim, crop, background removal, Real-ESRGAN
+enhancement and final print sizing, and a human approves every step. Background
+removal keys out a flat colour and exposes mask shaping — grow/contract the
+selection, feather the edge, and apply separate levels to the mask and the image
+— so logos, text and line art cut cleanly; busy artwork is still cut in Photoshop
+and imported as ready-to-pack. Vectorization was retired in contract v2.0.0.
+Approved designs are
 nested onto a master sheet that is exactly **58 cm wide** (6850 px at 300 DPI);
 sheet height — and therefore print cost — is minimized. Every step creates an
 immutable version, originals are never overwritten, and export is blocked
@@ -243,6 +246,29 @@ In the workbench, the design review page offers **Download for Photoshop** for
 the current and proposed versions; the batch page imports the finished PNGs in
 one multi-file step. Nothing is launched automatically — the operator opens the
 file in Photoshop and saves the export back into the batch.
+
+### Open in Photopea (browser editing)
+
+Every design card and the review page also expose **Open in Photopea**, which
+opens `/batches/:batchId/designs/:designId/photopea?versionId=…` — a full-screen
+route outside the workbench shell. It embeds the official editor at
+`https://www.photopea.com/` and talks to it through the documented
+[Live Messaging API](https://www.photopea.com/api/live):
+
+- The exact version file is fetched same-origin (`credentials: 'same-origin'`)
+  and handed to the frame as an `ArrayBuffer` via `postMessage`, so no image URL
+  or token is ever exposed to Photopea.
+- **Save as ready-to-pack** exports with `app.activeDocument.saveToOE("png")`,
+  receives the bytes as an `ArrayBuffer`, wraps them in a PNG `File`, and posts
+  it through the existing ready-to-pack intake as a **new design** in the same
+  batch. The version that was opened is never modified. **Download PNG** is
+  offered for operators who want to bring the file back manually.
+
+The messaging layer lives in `web/src/lib/photopea.ts` (handshake, command
+acknowledgements, export buffers, timeouts, listener cleanup, and rejection of
+messages from foreign windows or origins); the frame is owned by
+`web/src/components/photopea/PhotopeaEditor.tsx`. This is a manual editing
+handoff — there is no AI step, MCP server, or browser automation involved.
 
 ---
 

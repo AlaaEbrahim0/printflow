@@ -61,6 +61,44 @@ public sealed record ResizeStepCommand(
     string? FitMode,
     int? Dpi);
 
+/// <summary>
+/// A background-removal proposal. The mask is the reviewable artifact: the worker
+/// writes an 8-bit grayscale mask and the cut-out image, never touching the source.
+/// </summary>
+public sealed record BackgroundRemovalStepCommand(
+    string Mode,
+    string? KeyColor,
+    int? Tolerance,
+    decimal? EdgeSoftness,
+    string? AiModel,
+    IReadOnlyList<BrushOpCommand>? BrushOps,
+    decimal? MaskGrowPx = null,
+    LevelsAdjustmentCommand? MaskLevels = null,
+    LevelsAdjustmentCommand? ImageLevels = null);
+
+/// <summary>
+/// Photoshop-style levels. The same object shapes the mask alpha ramp and the
+/// cut-out colours, but the two stay independent: tone and selection are judged
+/// separately during review.
+/// </summary>
+public sealed record LevelsAdjustmentCommand(
+    int? BlackPoint,
+    int? WhitePoint,
+    decimal? Gamma,
+    int? OutputBlack,
+    int? OutputWhite);
+
+/// <summary>
+/// One erase/restore stroke. Points are in source pixel coordinates, so a stroke
+/// stays valid against the version it was drawn on.
+/// </summary>
+public sealed record BrushOpCommand(
+    string Tool,
+    int RadiusPx,
+    IReadOnlyList<BrushPointCommand> Points);
+
+public sealed record BrushPointCommand(int X, int Y);
+
 public sealed record PackSheetCommand(
     IReadOnlyList<Guid>? DesignIds,
     int? Seed,

@@ -17,6 +17,9 @@ public interface IBatchRepository
         int offset,
         CancellationToken cancellationToken);
 
+    /// <summary>Deletes the aggregate and cascades to designs, versions, sheets, exports and audits.</summary>
+    Task DeleteAsync(Batch batch, CancellationToken cancellationToken);
+
     void Add(Batch batch);
 
     Task SaveChangesAsync(CancellationToken cancellationToken);

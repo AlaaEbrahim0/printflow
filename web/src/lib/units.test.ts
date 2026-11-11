@@ -1,16 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import {
+  aspectRatioOf,
   centimetersForPixels,
   dpiWarningLevel,
   dpiWarningMessage,
   effectiveDpi,
+  heightForWidth,
+  matchesAspectRatio,
   matchesTargetPixels,
   pixelsForCentimeters,
   resizeOutputPixels,
+  roundCentimeters,
   snapCentimeters,
   targetPixels,
   usableRollWidthCm,
+  widthForHeight,
 } from './units'
+
 
 describe('cm <-> px conversion', () => {
   it('matches PrintUnits.PixelsForCentimeters on the canonical cases', () => {
@@ -84,5 +90,31 @@ describe('cm <-> px conversion', () => {
     expect(snapCentimeters(12.36)).toBe(12.4)
     expect(snapCentimeters(-0.04)).toBe(-0)
     expect(targetPixels({ widthCm: 8, heightCm: 30 }, 300)).toEqual({ widthPx: 945, heightPx: 3543 })
+  })
+})
+
+describe('aspect-linked print sizes', () => {
+  it('derives the ratio from the artwork pixels', () => {
+    expect(aspectRatioOf({ widthPx: 1200, heightPx: 900 })).toBeCloseTo(4 / 3)
+    expect(aspectRatioOf({ widthPx: 0, heightPx: 900 })).toBeNull()
+  })
+
+  it('keeps the other side at the same ratio in both directions', () => {
+    const ratio = 3 / 2
+    expect(heightForWidth(30, ratio)).toBe(20)
+    expect(widthForHeight(20, ratio)).toBe(30)
+    expect(heightForWidth(12, 1)).toBe(12)
+  })
+
+  it('rounds linked sides to two decimals so the shape stays tight', () => {
+    expect(heightForWidth(30, 1.4)).toBe(21.43)
+    expect(widthForHeight(15, 4 / 3)).toBe(20)
+    expect(roundCentimeters(10.164)).toBe(10.16)
+  })
+
+  it('recognises an already-saved ratio within tolerance', () => {
+    expect(matchesAspectRatio({ widthCm: 30, heightCm: 20 }, 3 / 2)).toBe(true)
+    expect(matchesAspectRatio({ widthCm: 30, heightCm: 22 }, 4 / 3)).toBe(false)
+    expect(matchesAspectRatio({ widthCm: 0, heightCm: 20 }, 4 / 3)).toBe(true)
   })
 })
