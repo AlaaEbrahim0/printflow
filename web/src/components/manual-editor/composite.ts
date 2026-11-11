@@ -2,56 +2,87 @@ import { applyAdjustments } from './adjustments'
 import type { EditorDocument, PackedMask, PixelOperation } from './document'
 
 /**
- * Compositor contract: straight-alpha RGBA, sRGB bytes, bottom-to-top layers.
- * Masks apply before layer opacity. Adjustment layers transform the composite
- * below, then blend by opacity × mask. Multiply uses source-over alpha math.
- * RGB becomes 0 whenever output alpha is 0. Every channel conversion rounds
- * with Math.round. Inputs stay immutable; scale uses nearest source samples.
+ * Shared compositor contract. Selection is intentionally ignored. Adjustment
+ * layers transform composite pixels below, then source-over by opacity × mask.
+ * Color-key operates on composite pixels below its layer. Commit and preview
+ * call this same function; `region`/`scale` only change returned sampling.
+ * Transparent output always has RGB = 0.
  */
 export interface PixelResolver { resolve(sourceId: string): ImageData }
 export interface CompositeRegion { x: number; y: number; width: number; height: number }
-export interface CompositeOptions { region?: CompositeRegion; scale?: number }
+export interface CompositeOptions { region?: CompositeRegion; scale?: number; colorKeyCache?: ColorKeyCache; inputRevision?: string }
+
+export class ColorKeyCache {
+  private readonly values = new Map<string, Uint8Array>()
+  get(descriptor: PixelOperation, revision: string): Uint8Array | undefined { return this.values.get(JSON.stringify(descriptor) + revision) }
+  set(descriptor: PixelOperation, revision: string, mask: Uint8Array): void { this.values.set(JSON.stringify(descriptor) + revision, mask) }
+}
 
 function maskValue(mask: PackedMask | null, index: number): number {
   if (!mask) return 255
   return (mask.bytes[index >> 3] >> (index & 7)) & 1 ? 255 : 0
 }
 
-function alphaWithFeather(mask: PackedMask, index: number): number {
-  const value = maskValue(mask, index)
-  if (!mask.feather || value === 255) return value
+function featherValue(mask: PackedMask, index: number): number {
+  if (!mask.feather) return maskValue(mask, index)
+  const radius = Math.max(1, Math.round(mask.feather))
   const x = index % mask.width
   const y = Math.floor(index / mask.width)
-  const radius = Math.max(1, Math.round(mask.feather))
   let total = 0
   let count = 0
   for (let dy = -radius; dy <= radius; dy += 1) for (let dx = -radius; dx <= radius; dx += 1) {
     if (dx * dx + dy * dy > radius * radius) continue
     const nx = x + dx; const ny = y + dy
-    if (nx < 0 || ny < 0 || nx >= mask.width || ny >= mask.height) continue
-    total += maskValue(mask, ny * mask.width + nx); count += 1
+    if (nx >= 0 && ny >= 0 && nx < mask.width && ny < mask.height) { total += maskValue(mask, ny * mask.width + nx); count += 1 }
   }
-  return Math.round(total / Math.max(1, count))
+  return Math.round(total / count)
 }
 
-function applyMask(data: ImageData, mask: PackedMask | null): void {
-  if (!mask) return
-  for (let i = 0; i < mask.width * mask.height; i += 1) data.data[i * 4 + 3] = Math.round(data.data[i * 4 + 3] * alphaWithFeather(mask, i) / 255)
+function alphaAt(mask: PackedMask | null, index: number): number { return mask ? featherValue(mask, index) / 255 : 1 }
+
+function sourceOver(dst: Uint8ClampedArray, src: Uint8ClampedArray, index: number, opacity: number, blend: 'normal' | 'multiply', mask: PackedMask | null): void {
+  const sa = src[index + 3] / 255 * opacity * alphaAt(mask, index / 4)
+  const da = dst[index + 3] / 255
+  const oa = sa + da * (1 - sa)
+  if (!oa) { dst[index] = 0; dst[index + 1] = 0; dst[index + 2] = 0; dst[index + 3] = 0; return }
+  for (let channel = 0; channel < 3; channel += 1) {
+    const sv = blend === 'multiply' ? src[index + channel] * dst[index + channel] / 255 : src[index + channel]
+    dst[index + channel] = Math.round((sv * sa + dst[index + channel] * da * (1 - sa)) / oa)
+  }
+  dst[index + 3] = Math.round(oa * 255)
 }
 
-function applyPixelOperation(data: ImageData, operation: PixelOperation): void {
-  if (operation.type !== 'color-key') return
+function colorKeyMask(input: ImageData, operation: PixelOperation): Uint8Array {
+  const result = new Uint8Array(input.width * input.height)
   const threshold = Math.max(0, operation.tolerance) * 3
-  for (let i = 0; i < data.data.length; i += 4) {
-    const distance = Math.abs(data.data[i] - operation.color.r) + Math.abs(data.data[i + 1] - operation.color.g) + Math.abs(data.data[i + 2] - operation.color.b)
-    if (distance <= threshold) data.data[i + 3] = 0
+  const matches = (index: number) => {
+    const p = index * 4
+    return Math.abs(input.data[p] - operation.color.r) + Math.abs(input.data[p + 1] - operation.color.g) + Math.abs(input.data[p + 2] - operation.color.b) <= threshold
   }
+  if (!operation.contiguous) { for (let i = 0; i < result.length; i += 1) result[i] = matches(i) ? 255 : 0; return result }
+  const queue: number[] = []
+  for (const seed of operation.seeds) {
+    const x = Math.floor(seed.x); const y = Math.floor(seed.y)
+    if (x >= 0 && y >= 0 && x < input.width && y < input.height) queue.push(y * input.width + x)
+  }
+  while (queue.length) {
+    const index = queue.pop()!
+    if (result[index] || !matches(index)) continue
+    result[index] = 255
+    const x = index % input.width; const y = Math.floor(index / input.width)
+    if (x) queue.push(index - 1); if (x + 1 < input.width) queue.push(index + 1)
+    if (y) queue.push(index - input.width); if (y + 1 < input.height) queue.push(index + input.width)
+  }
+  return result
 }
 
-export function compositeDocument(document: EditorDocument, resolver: PixelResolver, options: CompositeOptions = {}): ImageData {
-  const region = options.region ?? { x: 0, y: 0, width: document.width, height: document.height }
-  const scale = options.scale ?? 1
-  const out = new ImageData(Math.max(1, Math.round(region.width * scale)), Math.max(1, Math.round(region.height * scale)))
+function applyPixelOperation(pixels: ImageData, operation: PixelOperation, cache?: ColorKeyCache, revision = ''): void {
+  const mask = cache?.get(operation, revision) ?? colorKeyMask(pixels, operation)
+  if (cache && !cache.get(operation, revision)) cache.set(operation, revision, mask)
+  for (let i = 0; i < mask.length; i += 1) if (mask[i]) pixels.data[i * 4 + 3] = 0
+}
+
+function compositeFull(document: EditorDocument, resolver: PixelResolver, options: CompositeOptions): ImageData {
   const full = new ImageData(document.width, document.height)
   for (const layer of document.layers) {
     if (!layer.visible) continue
@@ -59,26 +90,23 @@ export function compositeDocument(document: EditorDocument, resolver: PixelResol
       ? new ImageData(resolver.resolve(layer.sourceId).data.slice(), document.width, document.height)
       : new ImageData(full.data.slice(), document.width, document.height)
     if (layer.kind === 'adjustment') applyAdjustments(pixels, layer.adjustment)
-    if (layer.kind === 'pixel-op') applyPixelOperation(pixels, layer.operation)
-    applyMask(pixels, layer.mask)
-    const opacity = Math.max(0, Math.min(1, layer.opacity))
-    for (let y = region.y; y < region.y + region.height; y += 1) for (let x = region.x; x < region.x + region.width; x += 1) {
-      const source = (y * document.width + x) * 4
-      const targetX = Math.min(out.width - 1, Math.max(0, Math.round((x - region.x) * scale)))
-      const targetY = Math.min(out.height - 1, Math.max(0, Math.round((y - region.y) * scale)))
-      const target = (targetY * out.width + targetX) * 4
-      const sa = pixels.data[source + 3] / 255 * opacity
-      const da = full.data[source + 3] / 255
-      const blend = layer.blendMode === 'multiply' ? pixels.data[source] * full.data[source] / 255 : pixels.data[source]
-      const oa = sa + da * (1 - sa)
-      out.data[target] = oa ? Math.round((blend * sa + full.data[source] * da * (1 - sa)) / oa) : 0
-      out.data[target + 1] = oa ? Math.round((pixels.data[source + 1] * sa + full.data[source + 1] * da * (1 - sa)) / oa) : 0
-      out.data[target + 2] = oa ? Math.round((pixels.data[source + 2] * sa + full.data[source + 2] * da * (1 - sa)) / oa) : 0
-      out.data[target + 3] = Math.round(oa * 255)
-      full.data[source + 3] = out.data[target + 3]
-      full.data[source] = out.data[target]; full.data[source + 1] = out.data[target + 1]; full.data[source + 2] = out.data[target + 2]
-    }
+    if (layer.kind === 'pixel-op') applyPixelOperation(pixels, layer.operation, options.colorKeyCache, options.inputRevision)
+    for (let i = 0; i < full.data.length; i += 4) sourceOver(full.data, pixels.data, i, Math.max(0, Math.min(1, layer.opacity)), layer.blendMode, layer.mask)
   }
-  for (let i = 0; i < out.data.length; i += 4) if (out.data[i + 3] === 0) out.data[i] = out.data[i + 1] = out.data[i + 2] = 0
+  for (let i = 0; i < full.data.length; i += 4) if (!full.data[i + 3]) full.data[i] = full.data[i + 1] = full.data[i + 2] = 0
+  return full
+}
+
+export function compositeDocument(document: EditorDocument, resolver: PixelResolver, options: CompositeOptions = {}): ImageData {
+  const full = compositeFull(document, resolver, options)
+  const region = options.region ?? { x: 0, y: 0, width: document.width, height: document.height }
+  const scale = options.scale ?? 1
+  const out = new ImageData(Math.max(1, Math.round(region.width * scale)), Math.max(1, Math.round(region.height * scale)))
+  for (let y = 0; y < out.height; y += 1) for (let x = 0; x < out.width; x += 1) {
+    const sx = Math.min(document.width - 1, region.x + Math.floor(x / scale))
+    const sy = Math.min(document.height - 1, region.y + Math.floor(y / scale))
+    const source = (sy * document.width + sx) * 4; const target = (y * out.width + x) * 4
+    out.data.set(full.data.subarray(source, source + 4), target)
+  }
   return out
 }
