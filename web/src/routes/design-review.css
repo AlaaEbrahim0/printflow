@@ -1,5 +1,444 @@
-.job-progress {
+/* Design review, as an editor.
+ *
+ * The page used to be one long column: preview, readiness, a four-step
+ * accordion, then history. Comparing a change with its result meant scrolling
+ * the artwork off-screen, so this is now a canvas with a side rail:
+ *
+ *   .editor          grid: canvas | rail
+ *   .editor-stage    canvas, background picker, job progress, decisions
+ *   .editor-side     layers, readiness, tools
+ *
+ * The canvas pane is the only thing that grows; the rail scrolls inside its own
+ * column so the artwork never leaves the screen while you work a tool.
+ */
+
+.design-view {
+  display: block;
+  min-width: 0;
+}
+
+.editor-head {
+  margin-bottom: 14px;
+}
+
+.editor {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 440px);
+  gap: var(--gap);
+  align-items: start;
+}
+
+/* --------------------------------------------------------------------------
+ * Canvas pane
+ * ------------------------------------------------------------------------ */
+
+.editor-stage {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  /* Pin the artwork. The rail beside it is taller than the viewport, so the
+   * page scrolls — but the canvas you are judging never leaves the screen.
+   * Deliberately *not* an overflow box: nesting a scroll pane here would give
+   * the page two scrollbars and trap the wheel over the artwork. */
+  position: sticky;
+  top: calc(var(--topbar-h) + 12px);
+}
+
+.editor-stage-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* The stage itself: a neutral, theme-aware backdrop so a transparent PNG is
+ * judged against something consistent rather than the page behind it. */
+.editor-canvas {
+  display: grid;
+  place-items: center;
+  min-height: 260px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--stage-bg);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+
+.editor-canvas .alpha-preview {
+  border: 0;
+  background: transparent;
+  min-height: 0;
+  padding: 0;
+  width: 100%;
+}
+
+/* Cap tall artwork so a 1:3 poster cannot push the decisions off-screen. The
+ * image letterboxes instead of growing, and the slider keeps its own ratio. */
+.editor-canvas .alpha-preview-image {
+  max-height: min(52vh, 560px);
+  width: auto;
+}
+
+.editor-canvas .comparison-slider {
+  max-height: min(54vh, 580px);
+}
+
+.editor-canvas.is-hidden {
+  opacity: 0.55;
+}
+
+.editor-canvas-empty {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 32px 12px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.editor-canvas-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+/* --------------------------------------------------------------------------
+ * Side rail
+ * ------------------------------------------------------------------------ */
+
+.editor-side {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  /* The rail scrolls with the page. Making it its own scroll box as well would
+   * put a second scrollbar next to the page's, and a wheel gesture over the
+   * layers would then scroll a nested area instead of the document. */
+}
+
+@media (max-width: 1080px) {
+  .editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* One column: a sticky canvas would eat most of a short viewport, so the
+   * page simply stacks. */
+  .editor-stage {
+    position: static;
+  }
+}
+
+/* A panel is the rail's card: same surface as `.card`, tighter padding, and it
+ * does not lift on hover because nothing in the rail is clickable as a whole. */
+.panel {
+  display: grid;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--sheen), transparent), var(--panel);
+  box-shadow: var(--shadow-1);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* --------------------------------------------------------------------------
+ * Layer stack
+ * ------------------------------------------------------------------------ */
+
+.layer-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.layer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 4px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  transition: background 100ms ease, border-color 100ms ease;
+}
+
+.layer:hover {
+  background: var(--hover);
+}
+
+.layer.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.layer.is-hidden .layer-thumb,
+.layer.is-hidden .layer-text {
+  opacity: 0.4;
+}
+
+.layer-eye {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.layer-eye:hover {
+  color: var(--paper);
+  background: var(--hover);
+}
+
+.layer-eye svg {
+  width: 15px;
+  height: 15px;
+}
+
+.layer-main {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.layer-thumb {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  object-fit: contain;
+  /* Thumbnails are PNGs with alpha; a checkerboard keeps them readable. */
+  background-image:
+    linear-gradient(45deg, var(--checker-a) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--checker-a) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--checker-a) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--checker-a) 75%);
+  background-color: var(--checker-b);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+}
+
+.layer-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.layer-text strong {
+  font-size: 0.84rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.layer-text small {
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.layer-flags {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.layer-flags .chip {
+  font-size: 0.64rem;
+  padding: 1px 6px;
+}
+
+/* --------------------------------------------------------------------------
+ * Readiness
+ * ------------------------------------------------------------------------ */
+
+.readiness-steps {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.readiness-steps li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 0.8rem;
+}
+
+.readiness-steps li.is-done {
+  border-color: var(--good-line);
+  background: var(--good-soft);
+}
+
+.readiness-mark {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--good);
+  line-height: 1.5;
+}
+
+.readiness-steps li.is-open .readiness-mark {
+  color: var(--dim);
+}
+
+.readiness-steps li div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.readiness-steps li div span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+/* --------------------------------------------------------------------------
+ * Tools
+ * ------------------------------------------------------------------------ */
+
+.tool-list {
+  display: grid;
+  gap: 6px;
+}
+
+.tool {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.tool.is-done {
+  border-color: var(--good-line);
+}
+
+.tool > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool > summary::after {
+  content: '▾';
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 0.78rem;
+  transition: transform 120ms ease;
+}
+
+.tool[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+.tool-index {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-3);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.tool.is-done .tool-index {
+  border-color: var(--good-line);
+  background: var(--good-soft);
+  color: var(--good);
+}
+
+.tool-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.tool-text strong {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.tool-text small {
+  color: var(--muted);
+  font-size: 0.73rem;
+  line-height: 1.3;
+}
+
+.tool-body {
+  padding: 0 11px 11px;
+}
+
+.tool-body.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* --------------------------------------------------------------------------
+ * Job progress
+ * ------------------------------------------------------------------------ */
+
+.job-progress {
   gap: 8px;
 }
 
@@ -24,7 +463,7 @@
   height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: var(--line);
+  background: var(--panel-3);
 }
 
 .progress-indicator {
@@ -37,269 +476,69 @@
 }
 
 @keyframes processing-indeterminate {
-  from { transform: translateX(-110%); }
-  to { transform: translateX(290%); }
+  from {
+    transform: translateX(-110%);
+  }
+
+  to {
+    transform: translateX(290%);
+  }
 }
 
-.pipeline {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
+/* --------------------------------------------------------------------------
+ * Collapsible detail blocks inside a panel
+ * ------------------------------------------------------------------------ */
 
-.pipeline-step {
+.compact-details {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)), var(--panel);
-  transition: border-color 120ms ease, box-shadow 120ms ease;
-}
-
-.pipeline-step:hover {
-  border-color: var(--line-strong);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-}
-
-.pipeline-step summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.pipeline-step summary::-webkit-details-marker,
-.compact-details summary::-webkit-details-marker {
-  display: none;
-}
-
-.pipeline-step summary::after {
-  content: '+';
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 1.15rem;
-}
-
-.pipeline-step details[open] > summary::after {
-  content: '−';
-}
-
-.pipeline-number {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
-  place-items: center;
-  border: 1px solid var(--line-strong);
-  border-radius: 50%;
-  color: var(--accent);
-  font-family: var(--mono);
-}
-
-.pipeline-step summary strong,
-.pipeline-step summary small {
-  display: block;
-}
-
-.pipeline-step summary small {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-/* What approving this proposal would change, stated before the buttons. */
-.proposal-diff {
-  margin: 10px 0;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  padding: 9px 11px;
   background: var(--panel-2);
-}
-
-.proposal-diff dt {
-  padding-top: 3px;
-}
-
-/* A step whose result is already part of the current artwork. The chip in the
-   summary states it in words, so the border is only reinforcement. */
-.pipeline-step.is-done {
-  border-color: color-mix(in srgb, var(--good) 40%, var(--line));
-}
-
-.pipeline-step.is-done .pipeline-number {
-  border-color: var(--good);
-  color: var(--good);
-}
-
-.pipeline-content {
-  padding: 0 12px 14px 54px;
-}
-
-.pipeline-content > .row {
-  align-items: end;
 }
 
 .compact-details > summary {
   cursor: pointer;
-  font-weight: 650;
-}
-
-.compact-details[open] > summary {
-  margin-bottom: 12px;
-}
-
-/* "Can this be packed?" — the four conditions a design must satisfy, each
-   marked done or open, so the operator sees the rule instead of a bare status
-   word. Open steps carry the fix, not just the failure. */
-.readiness-steps {
-  display: grid;
-  gap: 2px;
-  margin: 10px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.readiness-steps li {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  align-items: start;
-  gap: 9px;
-  padding: 7px 0;
-  border-top: 1px solid var(--line);
-  font-size: 0.83rem;
-}
-
-.readiness-steps li:first-child {
-  border-top: 0;
-}
-
-.readiness-steps li > div {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.readiness-steps li strong {
+  font-size: 0.82rem;
   font-weight: 600;
-}
-
-.readiness-steps li span:not(.readiness-mark):not(.sr-only) {
-  color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.4;
-}
-
-.readiness-mark {
-  font-size: 0.9rem;
-  line-height: 1.3;
-  text-align: center;
-}
-
-.readiness-steps .is-done .readiness-mark {
-  color: var(--good);
-}
-
-.readiness-steps .is-open .readiness-mark {
-  color: var(--warn);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .progress-indicator {
-    animation: none;
-    transform: translateX(90%);
-  }
-}
-
-.profile-selector {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)), var(--panel);
-}
-
-.profile-pill {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 8px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--panel-2);
-  color: var(--muted);
-  font-size: 0.78rem;
-  cursor: pointer;
-  text-align: center;
-  min-width: 80px;
-}
-
-.profile-pill:hover {
-  border-color: var(--line);
-  color: var(--paper);
-}
-
-.profile-pill.is-active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.profile-pill.is-active small {
-  color: var(--accent);
-}
-
-.advanced {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)), var(--panel);
-  overflow: hidden;
-}
-
-.advanced summary {
-  cursor: pointer;
-  font-weight: 650;
-  padding: 12px 14px;
   list-style: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
 }
 
-.advanced[open] > summary {
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 12px;
-  color: var(--paper);
+.compact-details > summary::-webkit-details-marker {
+  display: none;
 }
 
-.advanced .row {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 14px;
-  padding: 6px 14px 14px;
+.compact-details > summary::after {
+  content: '▾';
+  float: right;
+  color: var(--dim);
+  font-size: 0.78rem;
 }
 
-.advanced .hint {
-  margin-bottom: 6px;
+.compact-details[open] > summary::after {
+  transform: rotate(180deg);
 }
 
-/*
- * The review page is a single scrolling column. Tall artwork (a 1:3 poster)
- * would otherwise stretch its preview to three times the column width and push
- * the approve buttons off-screen, so cap the image and letterbox it instead.
- */
-.design-view .alpha-preview-image {
-  max-height: min(58vh, 620px);
+.compact-details > summary + * {
+  margin-top: 8px;
 }
 
-.design-view .comparison-slider {
-  max-height: min(62vh, 680px);
+.compact-details pre {
+  margin: 8px 0 0;
+  padding: 9px;
+  border-radius: var(--radius-sm);
+  background: var(--field-bg);
+  border: 1px solid var(--line);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  overflow: auto;
+  max-height: 240px;
 }
+
+/* --------------------------------------------------------------------------
+ * Proposal modal
+ * A bottom sheet: it rises from the edge nearest the decisions that opened it,
+ * so the summary stays anchored to the artwork instead of covering it.
+ * ------------------------------------------------------------------------ */
 
 .review-modal-backdrop {
   position: fixed;
@@ -309,7 +548,7 @@
   align-items: flex-end;
   justify-content: center;
   padding: 24px;
-  background: rgba(0, 0, 0, 0.62);
+  background: var(--overlay);
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
@@ -328,8 +567,8 @@
   max-height: min(86vh, 760px);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)), var(--panel);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  background: linear-gradient(180deg, var(--sheen), transparent), var(--panel);
+  box-shadow: var(--shadow-3);
 }
 
 .review-modal-head {
@@ -361,4 +600,25 @@
   gap: 8px;
   justify-content: flex-end;
   flex-wrap: wrap;
+}
+
+.proposal-diff {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.proposal-diff dt {
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.proposal-diff dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
 }

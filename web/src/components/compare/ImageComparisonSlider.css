@@ -4,7 +4,7 @@
   max-width: 100%;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: var(--ink);
+  background: var(--stage-bg);
   border: 1px solid var(--line-strong);
   user-select: none;
   touch-action: none;
@@ -58,7 +58,7 @@
   border-radius: 50%;
   background: var(--panel);
   border: 2px solid var(--accent);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-2);
   display: grid;
   place-items: center;
   color: var(--accent);
@@ -69,7 +69,7 @@
 .comparison-slider:hover .comparison-handle,
 .comparison-slider:focus-visible .comparison-handle {
   transform: translate(-50%, -50%) scale(1.1);
-  box-shadow: 0 6px 20px rgba(255, 106, 61, 0.4);
+  box-shadow: 0 6px 20px var(--accent-line);
 }
 
 .comparison-handle::before,
@@ -100,7 +100,7 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--paper);
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--overlay);
   backdrop-filter: blur(4px);
   white-space: nowrap;
   pointer-events: none;
@@ -130,7 +130,7 @@
   border-radius: 999px;
   font-size: 0.7rem;
   color: var(--muted);
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--overlay);
   backdrop-filter: blur(4px);
   white-space: nowrap;
   pointer-events: none;
