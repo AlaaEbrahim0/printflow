@@ -117,7 +117,8 @@ export function magicWandSelect(
   seed: Point,
   options: WandOptions,
 ): Uint8Array | null {
-  if (width <= 0 || height <= 0) return null
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+  if (image.length < width * height * 4 || !Number.isFinite(seed.x) || !Number.isFinite(seed.y)) return null
   const sx = Math.round(seed.x)
   const sy = Math.round(seed.y)
   if (sx < 0 || sy < 0 || sx >= width || sy >= height) return null

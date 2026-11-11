@@ -89,7 +89,7 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
       setDrag(null)
       setHover(null)
       setAdjustments(DEFAULT_ADJUSTMENTS)
-      setHistory(emptyHistory({ selection: null, mask: null, label: 'Original' }))
+      setHistory(emptyHistory({ selection: null, mask: null, adjustments: DEFAULT_ADJUSTMENTS, label: 'Original' }))
       setDirty(false)
       setSaveState('idle')
       setReady(true)
@@ -126,7 +126,7 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
       drawPathOverlay(ants, path.points, width, height, { closed: path.closed, dashed: !path.closed })
       return
     }
-    if (showMask) {
+    if (showMask && mask) {
       drawMaskOverlay(ants, mask, width, height, { show: true })
       return
     }
@@ -153,7 +153,7 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
     setSaveState('idle')
     setSelection(nextSelection)
     setMask(nextMask)
-    setHistory(state => commitHistory(state, { selection: nextSelection, mask: nextMask, label }))
+    setHistory(state => commitHistory(state, { selection: nextSelection, mask: nextMask, adjustments, label }))
   }
 
   function restore(next: HistoryState) {
@@ -161,6 +161,9 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
     const snapshot = currentSnapshot(next)
     setSelection(snapshot?.selection ?? null)
     setMask(snapshot?.mask ?? null)
+    setAdjustments(snapshot?.adjustments ?? DEFAULT_ADJUSTMENTS)
+    setDirty(true)
+    setSaveState('idle')
   }
 
   useEffect(() => {
@@ -187,6 +190,7 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
 
   function onPointerDown(event: React.PointerEvent) {
     if (!ready) return
+    event.currentTarget.setPointerCapture(event.pointerId)
     const p = point(event)
     if (tool === 'wand' || tool === 'color-range') {
       const image = imageData()
@@ -226,15 +230,24 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
     if (tool === 'lasso') setPath(prev => ({ ...prev, points: [...prev.points, p] }))
   }
 
+  function onPointerCancel(event: React.PointerEvent) {
+    if (drag) event.currentTarget.releasePointerCapture(event.pointerId)
+    setDrag(null)
+    setHover(null)
+    setPath(EMPTY_PATH)
+  }
+
   function onPointerUp(event: React.PointerEvent) {
     if (!drag) return
+    event.currentTarget.releasePointerCapture(event.pointerId)
     const end = point(event)
     const src = source.current
     if (!src) return
     if (tool === 'lasso') {
       setDrag(null)
       setHover(null)
-      const points = [...path.points, end]
+      const last = path.points[path.points.length - 1]
+      const points = last && last.x === end.x && last.y === end.y ? path.points : [...path.points, end]
       setPath(EMPTY_PATH)
       if (points.length >= 3) {
         commit('Lasso', {
@@ -376,7 +389,9 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
         <section className="manual-stage">
           <div className="manual-canvas-wrap" style={{ transform: `scale(${zoom})` }}>
             <canvas ref={source} hidden />
-            <canvas ref={base} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={() => drag && onPointerUp} />
+            <canvas ref={base} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onPointerLeave={event => {
+                if (drag) onPointerUp(event)
+              }} />
             <canvas ref={overlay} className="manual-overlay" aria-hidden />
           </div>
         </section>

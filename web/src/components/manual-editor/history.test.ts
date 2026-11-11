@@ -14,6 +14,7 @@ import { growMask } from './maskOps'
 const snapshot = (label: string, selection: number[] | null = null) => ({
   selection: selection ? Uint8Array.from(selection) : null,
   mask: null,
+  adjustments: { levels: { black: 0, white: 255, gamma: 1, outputBlack: 0, outputWhite: 255 }, hue: 0, saturation: 0, lightness: 0 },
   label,
 })
 
@@ -83,7 +84,7 @@ describe('editor history', () => {
     selection[4] = 255
     let history = emptyHistory(snapshot('Original'))
     history = commitHistory(history, snapshot('Selection', [...selection]))
-    history = commitHistory(history, { selection, mask: growMask(selection, size, 1), label: 'Grow mask' })
+    history = commitHistory(history, { selection, mask: growMask(selection, size, 1), adjustments: snapshot('Grow mask').adjustments, label: 'Grow mask' })
     expect(currentSnapshot(history)?.mask?.filter(Boolean)).toHaveLength(9)
     history = undoHistory(history)
     expect(currentSnapshot(history)?.mask).toBeNull()

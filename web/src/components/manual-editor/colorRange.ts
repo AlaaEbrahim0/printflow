@@ -119,7 +119,7 @@ export function colorRangeSelect(
   const threshold = Math.round((Math.min(100, Math.max(0, options.fuzziness)) / 100) * 255)
   const useAlpha = Boolean(options.useAlpha)
   const channels = useAlpha ? 4 : 3
-  const budget = Math.max(1, threshold * channels)
+  const budget = threshold * channels
   // The last quarter of the window is the soft edge; see the doc comment.
   const feather = 0.25
   for (let i = 0; i < out.length; i += 1) {

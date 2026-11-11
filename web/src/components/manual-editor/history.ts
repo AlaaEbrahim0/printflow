@@ -20,11 +20,15 @@
  * buffer means undoing a mask stroke also rewrites the redo state.
  */
 
+import { DEFAULT_ADJUSTMENTS, type Adjustments } from './adjustments'
+
 export interface EditorSnapshot {
   /** Row-major selection mask, one byte per pixel, or `null` for none. */
   selection: Uint8Array | null
   /** Row-major layer mask, one byte per pixel, or `null` for none. */
   mask: Uint8Array | null
+  /** Colour adjustments active in editor. */
+  adjustments: Adjustments
   /** Human label for the entry, e.g. "Lasso" or "Feather mask". */
   label: string
 }
@@ -61,6 +65,12 @@ export function cloneSnapshot(snapshot: EditorSnapshot): EditorSnapshot {
   return {
     selection: snapshot.selection ? snapshot.selection.slice() : null,
     mask: snapshot.mask ? snapshot.mask.slice() : null,
+    adjustments: {
+      levels: { ...(snapshot.adjustments ?? DEFAULT_ADJUSTMENTS).levels },
+      hue: (snapshot.adjustments ?? DEFAULT_ADJUSTMENTS).hue,
+      saturation: (snapshot.adjustments ?? DEFAULT_ADJUSTMENTS).saturation,
+      lightness: (snapshot.adjustments ?? DEFAULT_ADJUSTMENTS).lightness,
+    },
     label: snapshot.label,
   }
 }
@@ -71,7 +81,8 @@ export function cloneSnapshot(snapshot: EditorSnapshot): EditorSnapshot {
  * the operator an Undo that appears to do nothing.
  */
 export function snapshotsEqual(a: EditorSnapshot, b: EditorSnapshot): boolean {
-  return bytesEqual(a.selection, b.selection) && bytesEqual(a.mask, b.mask)
+  return bytesEqual(a.selection, b.selection) && bytesEqual(a.mask, b.mask) &&
+    JSON.stringify(a.adjustments ?? DEFAULT_ADJUSTMENTS) === JSON.stringify(b.adjustments ?? DEFAULT_ADJUSTMENTS)
 }
 
 function bytesEqual(a: Uint8Array | null, b: Uint8Array | null): boolean {
