@@ -74,14 +74,16 @@ describe('document core contracts', () => {
 
   it('evicts oldest 16MP history entries at 200MB and keeps accounting correct', () => {
     const pixels = 16_000_000
-    const big = mask(4000, 4000, 0)
-    expect(big.bytes.byteLength).toBe(Math.ceil(pixels / 8))
-    const command: DocumentCommand = { type: 'set-selection', before: big, after: big, delta: null }
+    const before = mask(4000, 4000, 0)
+    const after = mask(4000, 4000, 255)
+    const delta = createMaskDelta(before, after)!
+    expect(before.bytes.byteLength).toBe(Math.ceil(pixels / 8))
+    const command: DocumentCommand = { type: 'set-selection', before, after, delta }
     const one = pushHistory(history(), 'big', command).entries[0].byteSize
     const fit = Math.floor((200 * 1024 * 1024) / one)
     expect(fit).toBeGreaterThan(0)
     let state = history()
-    for (let i = 0; i < fit + 2; i += 1) state = pushHistory(state, 'big', command)
+    for (let i = 0; i < fit + 2; i += 1) state = pushHistory(state, 'big', { ...command, coalesceKey: `big-${i}` })
     expect(state.entries).toHaveLength(fit)
     expect(state.usedBytes).toBeLessThanOrEqual(state.maxBytes)
     expect(state.evictedSteps).toBe(2)
@@ -97,9 +99,9 @@ describe('document core contracts', () => {
     expect(restored).toEqual(before.bytes)
     let state = history()
     state = pushHistory(state, 'brush', { type: 'set-selection', before, after, delta, coalesceKey: 'brush' })
-    state = pushHistory(state, 'brush', { type: 'set-selection', before: after, after: before, delta, coalesceKey: 'brush' })
+    state = pushHistory(state, 'brush', { type: 'set-selection', before: after, after: before, delta: createMaskDelta(after, before), coalesceKey: 'brush' })
     expect(state.entries).toHaveLength(1)
-    expect(state.entries[0].command).toMatchObject({ before, after: before })
+    expect(state.entries[0].command).toMatchObject({ before: after, after: before })
   })
 
   it('covers document validation invariants', () => {

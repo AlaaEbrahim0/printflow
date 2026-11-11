@@ -11,7 +11,7 @@ export interface PackedMask {
 }
 
 export interface MaskDelta {
-  encoding: 'xor-bitpack-v1'
+  encoding: 'xor-rle-v1' | 'xor-bitpack-v1'
   width: number
   height: number
   feather: number
