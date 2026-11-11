@@ -83,9 +83,9 @@ describe('document core contracts', () => {
     const capped = { ...history(), maxBytes: one * 3 }
     let state = capped
     for (let i = 0; i < 5; i += 1) state = pushHistory(state, 'big', { ...command, coalesceKey: `big-${i}` })
-    expect(state.entries).toHaveLength(2)
+    expect(state.entries).toHaveLength(3)
     expect(state.usedBytes).toBeLessThanOrEqual(state.maxBytes)
-    expect(state.evictedSteps).toBe(3)
+    expect(state.evictedSteps).toBe(2)
   })
 
   it('round-trips and coalesces brush mask deltas', () => {
