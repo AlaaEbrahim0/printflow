@@ -119,7 +119,11 @@ export function colorRangeSelect(
   const threshold = Math.round((Math.min(100, Math.max(0, options.fuzziness)) / 100) * 255)
   const useAlpha = Boolean(options.useAlpha)
   const channels = useAlpha ? 4 : 3
-  const budget = threshold * channels
+  // Never zero: at fuzziness 0 the window is still one unit wide, so an exact
+  // match normalises to 0 (selected) and a one-step difference to 1 (rejected).
+  // Dividing by a zero budget made every pixel NaN, which stored as 0 and left
+  // the operator with an empty selection and no explanation.
+  const budget = Math.max(1, threshold * channels)
   // The last quarter of the window is the soft edge; see the doc comment.
   const feather = 0.25
   for (let i = 0; i < out.length; i += 1) {
