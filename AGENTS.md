@@ -752,7 +752,10 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 **In progress / immediate next:**
 
-1. Phase 1b draft store is implemented and focused tests pass. Remaining UI lifecycle wiring: restore prompt, debounced autosave, visibility flush, and clear only after confirmed API save.
+1. Phase 1b complete and committed (`f5441f8`): draft store + editor lifecycle
+   (restore prompt, debounced autosave, visibility flush, clear after confirmed
+   API save). Next: Phase 4 Quick Levels and Clean for background removal in
+   design review, then validate on logo/text/simple-illustration samples.
 2. Keep worker loop sequential with concurrency 1 for every job type.
 3. After 1b, implement Phase 4 Quick Levels and Clean for background removal in
    design review, then validate on logo/text/simple-illustration samples.
