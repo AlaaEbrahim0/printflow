@@ -11,6 +11,10 @@
 - Worker A audit: `composite.preview.test.ts` imports `compositeDocument` from `./composite`, contains no compositing implementation, and would fail on missing compositor import. Accepted structurally.
 - Worker B review: initial 3 failures were assertion failures against current structural contract, not import/compile failures. Accepted as valid red test; turns green when 1a-iii integration lands.
 - Worker C review: normalization candidate produced expected red assertions before normalization lands; redo required under amended gate.
+- Worker A audit complete: imports `compositeDocument`; no pixel/downsampling implementation; focused test passes.
+- Worker B accepted as valid red structural test: failures are expected assertions, not import/compile errors. Turns green at 1a-iii integration.
+- Worker C candidate accepted as valid red behavior test under amended gate; compositor normalization now makes it green.
+- Worker D added 1a-ii documentation skeleton and ran web suite; 402 tests passed.
 
 ## 2026-11-12 — Phase 1a-i parallel test slice
 

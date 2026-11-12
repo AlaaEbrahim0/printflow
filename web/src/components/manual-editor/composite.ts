@@ -40,7 +40,9 @@ function featherValue(mask: PackedMask, index: number): number {
     const nx = x + dx; const ny = y + dy
     if (nx >= 0 && ny >= 0 && nx < mask.width && ny < mask.height) { total += maskValue(mask, ny * mask.width + nx); count += 1 }
   }
-  return Math.round(total / count)
+  // Halo rows outside canvas remain transparent; do not renormalize edge samples.
+  const diameter = (radius * 2 + 1) ** 2
+  return Math.round(total / diameter)
 }
 
 function alphaAt(mask: PackedMask | null, index: number): number { return mask ? featherValue(mask, index) / 255 : 1 }
