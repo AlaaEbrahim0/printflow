@@ -22,6 +22,7 @@
 import {
   addPathPoint,
   canFillPath,
+  closePath,
   hitPathVertex,
   movePathVertex,
   removePathVertex,
@@ -49,6 +50,15 @@ export function pressWorkPath(
     // is fixed without discarding the whole polygon.
     if (options.altKey) {
       return { path: removePathVertex(path, hit), vertex: null, completed: false }
+    }
+    // Pressing the *first* corner of a fillable path closes it — the "click the
+    // start point to finish" gesture every pen tool has. This has to be decided
+    // before the grab, because the hit radius (8 px) is far larger than
+    // `addPathPoint`'s one-pixel duplicate test, so otherwise a press on the
+    // start corner could only ever grab it and the path could never be closed
+    // by clicking.
+    if (hit === 0 && canFillPath(path) && !path.closed) {
+      return { path: closePath(path), vertex: null, completed: true }
     }
     return { path, vertex: hit, completed: false }
   }

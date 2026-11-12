@@ -17,7 +17,8 @@ import {
 } from './history'
 import { contractMask, featherMask, growMask, maskCoverage, thresholdMask } from './maskOps'
 import { assertSupportedSize } from './memoryBudget'
-import { EMPTY_PATH, addPathPoint, canFillPath, fillPath, type PathState } from './pathModel'
+import { EMPTY_PATH, canFillPath, fillPath, undoPathPoint, type PathState } from './pathModel'
+import { dragWorkPath, pressWorkPath, workPathKeyAction } from './workPath'
 import { drawMaskOverlay, drawPathOverlay, drawSelectionOverlay } from './render'
 import { compositeDocument } from './composite'
 import type { EditorDocument } from './document'
@@ -61,6 +62,8 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
   const [mask, setMask] = useState<Uint8Array | null>(null)
   const [path, setPath] = useState<PathState>(EMPTY_PATH)
   const [drag, setDrag] = useState<Point | null>(null)
+  /** Corner grabbed by a polygon press, or null when the press was not a grab. */
+  const dragVertex = useRef<number | null>(null)
   const [hover, setHover] = useState<Point | null>(null)
   const [history, setHistory] = useState<HistoryState>(() => emptyHistory())
   const [zoom, setZoom] = useState(1)
@@ -282,6 +285,27 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      // An open work path claims Enter/Escape/Backspace. Every other key falls
+      // through untouched so Ctrl+Z and friends still reach history below.
+      if (tool === 'polygon' && path.points.length > 0 && !event.ctrlKey && !event.metaKey) {
+        const action = workPathKeyAction(path, event.key)
+        if (action === 'fill') {
+          event.preventDefault()
+          commitPath(path)
+          return
+        }
+        if (action === 'cancel') {
+          event.preventDefault()
+          setPath(EMPTY_PATH)
+          return
+        }
+        if (action === 'undo-point') {
+          event.preventDefault()
+          const next = undoPathPoint(path)
+          setPath(next)
+          return
+        }
+      }
       if (!(event.ctrlKey || event.metaKey)) return
       const key = event.key.toLowerCase()
       if (key === 'z') {
@@ -294,7 +318,8 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [history])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history, tool, path])
 
   function imageData(): ImageData | null {
     const src = source.current
@@ -328,9 +353,16 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
       return
     }
     if (tool === 'polygon') {
-      const next = addPathPoint(path, p)
-      setPath(next)
-      if (next.closed) commitPath(next)
+      // The pen-tool gestures (drag a corner, Alt-click to drop one, click the
+      // start point to close) live in workPath so they can be reasoned about
+      // without a canvas. Adding a point is only the simplest of them.
+      const press = pressWorkPath(path, p, { altKey: event.altKey })
+      setPath(press.path)
+      if (press.completed) commitPath(press.path)
+      else if (press.vertex !== null) {
+        dragVertex.current = press.vertex
+        setDrag(p)
+      }
       return
     }
     setDrag(p)
@@ -342,10 +374,14 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     const p = point(event)
     setHover(p)
     if (tool === 'lasso') setPath(prev => ({ ...prev, points: [...prev.points, p] }))
+    else if (tool === 'polygon' && dragVertex.current !== null) {
+      setPath(prev => dragWorkPath(prev, dragVertex.current, p))
+    }
   }
 
   function onPointerCancel(event: React.PointerEvent) {
     if (drag) event.currentTarget.releasePointerCapture(event.pointerId)
+    dragVertex.current = null
     setDrag(null)
     setHover(null)
     setPath(EMPTY_PATH)
@@ -357,6 +393,14 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     const end = point(event)
     const src = source.current
     if (!src) return
+    if (tool === 'polygon') {
+      // Releasing a corner drag ends the drag but keeps the path open, so the
+      // operator can keep adding corners.
+      dragVertex.current = null
+      setDrag(null)
+      setHover(null)
+      return
+    }
     if (tool === 'lasso') {
       setDrag(null)
       setHover(null)
