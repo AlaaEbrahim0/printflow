@@ -781,8 +781,29 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
    23–230); the narrow-range refusal is unit-tested, not fixture-triggered.
    Web suite 428 tests / 41 files green; full `make phase-gates` green.
    Next: Phase 2 selection tools.
-4. Keep worker loop sequential with concurrency 1 for every job type.
-5. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
+4. Phase 2 selection tools done. The six tools (marquee, ellipse, lasso,
+   polygon, wand, color-range) and four combine modes were already implemented
+   and wired; this pass found and closed the gaps around them:
+   - `colorRange.ts` was the only selection module with no test file. Writing
+     the tests found a divide by zero: RGB mode at fuzziness 0 built a zero
+     budget, so every pixel normalised to NaN and an exact match selected
+     nothing. Latent, because the editor only calls it with `metric: 'hsl'`,
+     but the budget is now floored at 1 and 18 tests cover both metrics.
+   - `memoryBudget.assertSupportedSize` documented a 40 MP refusal that nothing
+     imported. A 6850 px square (a real 58 cm target at 300 DPI) is 46.9 MP and
+     would have asked for ~750 MB across the three canvases. The guard now runs
+     on load, before allocation, and saving is blocked for a refused document.
+   - `workPath.ts` implemented the whole pen tool and had no importer; the
+     editor inlined only corner placement. Wiring it exposed a defect in the
+     module: the 8 px vertex hit radius shadowed `addPathPoint`'s one-pixel
+     duplicate test, so pressing the start corner could only grab it and a
+     polygon could never be closed by clicking. Fixed, then wired with
+     Enter/Escape/Delete handling that leaves other keys to history.
+   Every module under `web/src/components/manual-editor/` is now imported and
+   tested. Web suite 473 tests / 45 files green; full `make phase-gates` green.
+   Next: Phase 3 complex editor shell.
+5. Keep worker loop sequential with concurrency 1 for every job type.
+6. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
    measured need appears.
 
 Historical runtime notes follow; native GPU and prior Phase 3 measurements remain
