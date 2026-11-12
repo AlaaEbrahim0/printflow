@@ -16,6 +16,7 @@ import {
   type HistoryState,
 } from './history'
 import { contractMask, featherMask, growMask, maskCoverage, thresholdMask } from './maskOps'
+import { assertSupportedSize } from './memoryBudget'
 import { EMPTY_PATH, addPathPoint, canFillPath, fillPath, type PathState } from './pathModel'
 import { drawMaskOverlay, drawPathOverlay, drawSelectionOverlay } from './render'
 import { compositeDocument } from './composite'
@@ -73,6 +74,7 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
   const [dirty, setDirty] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState('')
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [draftNotice, setDraftNotice] = useState<string | null>(null)
   const [restorePrompt, setRestorePrompt] = useState<DraftSnapshot | null>(null)
   const draftReady = Boolean(batchId && designId)
@@ -100,6 +102,18 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     img.onload = async () => {
       const s = source.current
       if (!s) return
+      // Refuse a document the editor cannot hold *before* allocating its
+      // canvases: the source, base and overlay buffers are four bytes a pixel
+      // each, so a 46.9 MP square source would ask for roughly 750 MB. The
+      // guard lives in memoryBudget.ts and this is the only place that can
+      // enforce it, because it is the only place the real size is known.
+      try {
+        assertSupportedSize(img.naturalWidth, img.naturalHeight)
+      } catch (error) {
+        setDimensions({ width: img.naturalWidth, height: img.naturalHeight })
+        setLoadError(error instanceof Error ? error.message : 'This image is too large to edit.')
+        return
+      }
       s.width = img.naturalWidth
       s.height = img.naturalHeight
       s.getContext('2d')?.drawImage(img, 0, 0)
@@ -407,7 +421,9 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
   }
 
   async function save() {
-    if (saveState === 'saving') return
+    // Disabling the button is not enough: a refused or still-loading document
+    // has no pixels to render, so guard the action itself.
+    if (!ready || saveState === 'saving') return
     setSaveState('saving')
     setSaveError('')
     try {
@@ -447,10 +463,15 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
         <button className="btn" onClick={exportPng}>
           Export PNG
         </button>
-        <button className="btn primary" data-testid="manual-save" disabled={saveState === 'saving'} onClick={() => void save()}>
+        <button className="btn primary" data-testid="manual-save" disabled={!ready || saveState === 'saving'} onClick={() => void save()}>
           {saveState === 'saving' ? 'Saving…' : 'Save as proposal'}
         </button>
       </header>
+      {loadError && (
+        <div className="draft-notice" data-testid="manual-load-error" role="alert">
+          {loadError} Open the original in Photopea instead, or downscale it before importing.
+        </div>
+      )}
       {restorePrompt && (
         <div className="draft-restore" data-testid="draft-restore">
           <span>Draft found — restore it?</span>
