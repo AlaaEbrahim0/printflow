@@ -18,12 +18,14 @@ import { EmptyState, ErrorState, Loading } from '../components/ui/States'
 import { ImageComparisonSlider } from '../components/compare'
 import CropTool from '../components/crop/CropTool'
 import { LevelsControl, MaskGrowControl } from '../components/cutout/MaskControls'
+import { BackgroundReadout, QuickLevels } from '../components/cutout/QuickLevels'
 import { useAsync, useJobPoller } from '../hooks/useAsync'
 import { formatPixels, shortId, statusLabel, stepLabel } from '../lib/format'
 import { reviewReadiness } from '../components/batch/reviewReadiness'
 import { pipelineStatus } from '../components/batch/pipelineStatus'
 import { WORKBENCH_DEFAULTS } from '../lib/defaults'
 import { LEVELS_DEFAULTS, isIdentityLevels } from '../lib/levels'
+import { isHexColor } from '../lib/preview'
 import { photopeaEditorPath } from '../lib/photopea'
 import { DEFAULT_PREVIEW_BACKGROUND, previewBackgroundFor, type PreviewBackground } from '../lib/preview'
 import {
@@ -535,6 +537,19 @@ export default function DesignReviewPage() {
   const sourceDpi = data?.suggestions.status === 'ready'
     ? data.suggestions.source?.effectiveDpiAtTarget
     : null
+  const suggestions = data?.suggestions.status === 'ready' ? data.suggestions : null
+  // One-click Clean defaults, taken from what the classifier sampled. Only
+  // offered when the sampled background is a real colour worth keying out;
+  // transparency needs no cut-out and a low-confidence sample would guess.
+  const cleanDefaults = (() => {
+    const sample = suggestions?.features?.sampledBackground
+    if (!sample || sample.kind === 'transparent') return null
+    const keyColor = sample.hex ?? (sample.kind === 'black' ? '#000000' : sample.kind === 'white' ? '#ffffff' : null)
+    if (!keyColor || !isHexColor(keyColor)) return null
+    const confidence = sample.confidence ?? 0
+    const tolerance = confidence >= 0.9 ? 10 : confidence >= 0.7 ? 16 : 24
+    return { keyColor: keyColor.toLowerCase(), tolerance }
+  })()
   const jobStartedAt = job ? Date.parse(job.startedAt ?? job.createdAt) : Number.NaN
   const elapsedMs = Number.isFinite(jobStartedAt) ? Math.max(0, observedAt - jobStartedAt) : null
   const elapsedText = elapsedMs === null ? null : formatElapsed(elapsedMs)
@@ -1111,6 +1126,13 @@ export default function DesignReviewPage() {
                   {toolDone.cutout ? <Chip tone="good">done</Chip> : null}
                 </summary>
                 <div className="tool-body stack-sm">
+                  {suggestions?.features?.sampledBackground ? (
+                    <BackgroundReadout
+                      kind={suggestions.features.sampledBackground.kind ?? null}
+                      hex={suggestions.features.sampledBackground.hex ?? null}
+                      confidence={suggestions.features.sampledBackground.confidence ?? null}
+                    />
+                  ) : null}
                   <div className="row">
                     <ColorField
                       label="Key color"
@@ -1136,6 +1158,12 @@ export default function DesignReviewPage() {
                       onValueChange={(val) => setCutoutEdgeSoftness(val ?? 0)}
                     />
                   </div>
+                  <QuickLevels
+                    fileUrl={activeLayer.fileUrl}
+                    value={imageLevels}
+                    onChange={setImageLevels}
+                    disabled={!canPropose}
+                  />
                   <button
                     type="button"
                     className="btn primary"
@@ -1156,9 +1184,34 @@ export default function DesignReviewPage() {
                   >
                     Remove background
                   </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={!canPropose || !cleanDefaults}
+                    onClick={() => {
+                      const clean = cleanDefaults
+                      if (!clean) return
+                      setCutoutKeyColor(clean.keyColor)
+                      setCutoutTolerance(clean.tolerance)
+                      setImageLevels({ ...LEVELS_DEFAULTS })
+                      setMaskLevels({ ...LEVELS_DEFAULTS })
+                      setMaskGrowPx(0)
+                      void submitJob(() =>
+                        api.steps.backgroundRemoval(designId, {
+                          mode: 'color-to-alpha',
+                          keyColor: clean.keyColor,
+                          tolerance: clean.tolerance,
+                        }),
+                      )
+                    }}
+                    data-testid="clean-cutout"
+                  >
+                    Clean
+                  </button>
                   <p className="hint">
-                    Keys out one flat background colour — built for logos, text and flat
-                    illustrations. Busy backgrounds should be cut in Photopea and imported.
+                    Clean keys out the sampled background colour in one click — for logos, text
+                    and flat illustrations. Busy backgrounds should be cut in Photopea and
+                    imported.
                   </p>
                   <MaskGrowControl value={maskGrowPx} onChange={setMaskGrowPx} disabled={!canPropose} />
                   <details className="compact-details advanced">

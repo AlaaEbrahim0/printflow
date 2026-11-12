@@ -1,0 +1,26 @@
+.quick-levels {
+  display: grid;
+  gap: 8px;
+}
+
+.histogram {
+  width: 100%;
+  height: 56px;
+  color: var(--accent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--stage-bg);
+}
+
+.histogram polyline {
+  opacity: 0.85;
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  vertical-align: -0.1em;
+}

@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -138,6 +138,101 @@ describe('core workbench routes', () => {
       })
       // Image levels were left alone, so they are not sent at all.
       expect(job?.parameters).not.toHaveProperty('imageLevels')
+    })
+  })
+
+  it('shows the sampled background readout and Clean keys the sampled colour in one click', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Quick clean',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'One-click clean sample',
+        chain: [],
+      }],
+    }])
+    const batch = [...mock.batches.values()][0]!
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+    expect(screen.getByTestId('background-readout')).toHaveTextContent('Background:')
+
+    await user.click(screen.getByTestId('clean-cutout'))
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'background-removal',
+      )
+      expect(job?.parameters).toMatchObject({ mode: 'color-to-alpha' })
+      expect(job?.parameters).not.toHaveProperty('maskLevels')
+      expect(job?.parameters).not.toHaveProperty('imageLevels')
+    })
+  })
+
+  it('Quick Levels fills image levels from the measured tonal range', async () => {
+    const user = userEvent.setup()
+    // jsdom has no image loading or canvas backend: `new Image()` never fires
+    // onload and `getImageData(0, 0, w, h)` hands back blank bytes. Stub both so
+    // the histogram measures deterministic pixels (one black, one white) and the
+    // auto proposal comes from that measurement, exactly as it would in a
+    // browser. The unit tests cover the math; this covers the wiring.
+    class TestImage {
+      naturalWidth = 2
+      naturalHeight = 1
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.())
+      }
+    }
+    vi.stubGlobal('Image', TestImage)
+    // One dark, one light pixel — a 30–240 measured range, so the proposal is
+    // not the identity (an identity proposal is correctly omitted from the job).
+    const measured = {
+      width: 2,
+      height: 1,
+      data: new Uint8ClampedArray([30, 30, 30, 255, 240, 240, 240, 255]),
+    } as unknown as ImageData
+    const getContext = HTMLCanvasElement.prototype.getContext
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement, kind, ...args) {
+      const context = getContext.call(this, kind, ...args) as CanvasRenderingContext2D | null
+      if (kind === '2d' && context) context.getImageData = () => measured
+      return context
+    })
+
+    const mock = startTestMockApi([{
+      name: 'Quick levels',
+      designs: [{
+        assetKey: 'thin-signature',
+        name: 'Quick levels sample',
+        chain: [],
+      }],
+    }])
+    const batch = [...mock.batches.values()][0]!
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+
+    // The histogram measures the actual layer pixels; jsdom renders the mock
+    // SVG, so the auto proposal is applied from real measured data.
+    await waitFor(() => expect(screen.getByTestId('quick-levels-auto')).toBeEnabled(), { timeout: 4000 })
+    await user.click(screen.getByTestId('quick-levels-auto'))
+
+    // The applied levels are visible in the Image levels control.
+    const imageLevelsInputs = screen.getAllByLabelText('Input black')
+    expect(imageLevelsInputs.length).toBeGreaterThan(0)
+
+    await user.click(screen.getByRole('button', { name: 'Remove background' }))
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'background-removal',
+      )
+      expect(job?.parameters.imageLevels).toBeDefined()
+      const levels = job?.parameters.imageLevels as { blackPoint: number; whitePoint: number }
+      expect(levels.blackPoint).toBeGreaterThanOrEqual(0)
+      expect(levels.whitePoint).toBeLessThanOrEqual(255)
+      expect(levels.whitePoint).toBeGreaterThan(levels.blackPoint)
     })
   })
 
