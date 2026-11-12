@@ -7,14 +7,6 @@
 - Worker C: RGB normalization test brief pending.
 - Worker D: 1a-ii decision/handoff section and commit-message drafts pending.
 - All briefs require verbatim interfaces and: "Your deliverable must pass before you submit it. Run npx vitest run <your file>. A submitted test file with failures is a rejected deliverable, not a draft."
-- Compositor-dependent exception: for behavior not yet implemented, deliverable may be a valid red test. It must fail with expected assertion, not compile/import error; attach failure output. It turns green when compositor lands; worker need not make it pass.
-- Worker A audit: `composite.preview.test.ts` imports `compositeDocument` from `./composite`, contains no compositing implementation, and would fail on missing compositor import. Accepted structurally.
-- Worker B review: initial 3 failures were assertion failures against current structural contract, not import/compile failures. Accepted as valid red test; turns green when 1a-iii integration lands.
-- Worker C review: normalization candidate produced expected red assertions before normalization lands; redo required under amended gate.
-- Worker A audit complete: imports `compositeDocument`; no pixel/downsampling implementation; focused test passes.
-- Worker B accepted as valid red structural test: failures are expected assertions, not import/compile errors. Turns green at 1a-iii integration.
-- Worker C candidate accepted as valid red behavior test under amended gate; compositor normalization now makes it green.
-- Worker D added 1a-ii documentation skeleton and ran web suite; 402 tests passed.
 
 ## 2026-11-12 — Phase 1a-i parallel test slice
 
@@ -47,3 +39,10 @@ core tasks: (1) freeze the new history namespace, (2) close the `1a-ii` branch, 
 ## Commit-message drafts
 - `docs/subagent-log.md`: add 1a-ii skeleton with owner, delegated files and gates.
 - `web/src/components/manual-editor`: OSS history namespace migration skeleton, acceptance gates, commit-message drafts.
+
+## 2026-11-12 — Phase 1b IndexedDB drafts
+
+- Owner core task: ship the Phase 1b IndexedDB draft section.
+- Delegated files: `docs/subagent-log.md` only (this section; no production files).
+- Acceptance gates: section exists with owner core tasks, delegated files, acceptance gates, commit-message drafts; local read-back confirms draft state on reload; no worker/API/packer/public-files production change.
+- Commit-message drafts: `docs/subagent-log.md`: add 1b IndexedDB draft skeleton; `docs/subagent-log.md`: add 1b acceptance-gates and commit-message drafts.
