@@ -92,7 +92,9 @@ describe('document mask history', () => {
 
     expect(cursor).toBe(0)
     expect(undos).toBe(history.entries.length - 1)
-    expect(state.selection?.bytes).toEqual(commands[history.evictedSteps].after!.bytes)
+    const oldestRemaining = commands[history.evictedSteps]
+    if (oldestRemaining.type !== 'set-selection') throw new Error('expected selection command')
+    expect(state.selection?.bytes).toEqual(oldestRemaining.after!.bytes)
     expect(state.selection?.bytes).not.toEqual(evictedState.selection?.bytes)
   })
 
