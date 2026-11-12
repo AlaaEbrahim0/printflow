@@ -123,7 +123,7 @@ authorized images, preserve soft mattes without thresholding, compare
 removal-first versus upscale-first, and record measured CPU/GPU and memory
 numbers before any production proposal.
 
-## withoutbg spike — runtime blocked after bundle download (2026-11-12)
+## withoutbg spike — measured small CPU run, adoption deferred (2026-11-12)
 
 Package and bundle setup completed in Compose worker:
 
@@ -136,7 +136,7 @@ Package and bundle setup completed in Compose worker:
 - `WithoutBG` exposes `open_weights`, `opensource`, `remove_background`, and `remove_background_batch`.
 - `open_weights(model_path)` and `opensource(model_path)` both exist. Smoke preload completed successfully with explicit local model path.
 
-Full image inference did not produce a result within the available execution window. The worker remained healthy and was not OOM-killed, but the test command returned no result for stored images, including small inputs, after several minutes. Therefore no valid `r.size`, `r.mode`, per-image timings, route categories, RAM measurements, matte comparisons, or failure-mode conclusions exist. The required 4349×5669 original-size smoke check did not run. Adoption recommendation: **defer** until a bounded, observable inference run completes.
+A valid unbuffered run completed on a 1000 × 1000 image in the Compose CPU worker. Runtime metadata: `nproc=8`, `cpu.max=max 100000` (no cgroup cap); observed CPU stayed near one saturated core. Router category printed before branch inference: `flat_scene`. Route time was 1.074 s; total `remove_background()` wall time was 16.07 s in this run. Output was 1000 × 1000 `RGBA`; alpha range was 0–255 with 10,696 partial-alpha pixels; peak RSS was 5,359,493,120 bytes (~5.0 GiB). A second run measured 27.738 s total and ~5.38 GiB RSS, showing large runtime variance. The log did not preserve preload duration separately, so preload-versus-inference remains incomplete. The required 4349×5669 original-size smoke check did not run. Adoption recommendation: **defer**; one small CPU result is insufficient for production quality or throughput approval.
 
 The spike script is `worker/experiments/withoutbg_spike.py`. It uses one `remove_background()` call per image, records input/output dimensions and mode, checks alpha statistics, and uses no cloud API. Bundle path is spike-only; adoption would require a dedicated models mount outside shared artwork storage.
 
