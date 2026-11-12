@@ -21,6 +21,12 @@ import { drawMaskOverlay, drawPathOverlay, drawSelectionOverlay } from './render
 import { compositeDocument } from './composite'
 import type { EditorDocument } from './document'
 import {
+  clearEditorDraft,
+  loadEditorDraft,
+  saveEditorDraft,
+  type DraftSnapshot,
+} from '../../lib/editorDrafts'
+import {
   combineSelection,
   invertSelection,
   magicWandSelect,
@@ -34,7 +40,15 @@ type Tool = 'marquee' | 'ellipse' | 'lasso' | 'polygon' | 'wand' | 'color-range'
 const TOOLS: Tool[] = ['marquee', 'ellipse', 'lasso', 'polygon', 'wand', 'color-range']
 const MODES: SelectionMode[] = ['replace', 'add', 'subtract', 'intersect']
 
-export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string; fileUrl: string; onSave: (file: File) => Promise<void>; onBack: () => void }) {
+export function buildDraftDocument(width: number, height: number, mask: Uint8Array | null, threshold: number, fileUrl: string): EditorDocument {
+  return {
+    schemaVersion: 1, id: 'manual-editor', designId: fileUrl, sourceVersionId: fileUrl,
+    width, height, activeLayerId: 'base', selection: null,
+    layers: [{ id: 'base', kind: 'base-raster', name: 'Original', sourceId: 'source', visible: true, opacity: 1, blendMode: 'normal', mask: mask ? { encoding: 'bitpack-v1', width, height, feather: 0, bytes: Uint8Array.from(mask, value => value >= threshold ? 255 : 0) } : null }],
+  }
+}
+
+export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack }: { title: string; fileUrl: string; batchId?: string; designId?: string; onSave: (file: File) => Promise<void>; onBack: () => void }) {
   const base = useRef<HTMLCanvasElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const source = useRef<HTMLCanvasElement>(null)
@@ -59,6 +73,10 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
   const [dirty, setDirty] = useState(false)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState('')
+  const [draftNotice, setDraftNotice] = useState<string | null>(null)
+  const [restorePrompt, setRestorePrompt] = useState<DraftSnapshot | null>(null)
+  const draftReady = Boolean(batchId && designId)
+  const pendingDraft = useRef(false)
 
   useEffect(() => {
     if (!dirty) return
@@ -76,9 +94,10 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
   }
 
   useEffect(() => {
+    let cancelled = false
     const img = new Image()
     img.crossOrigin = 'anonymous'
-    img.onload = () => {
+    img.onload = async () => {
       const s = source.current
       if (!s) return
       s.width = img.naturalWidth
@@ -95,9 +114,78 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
       setDirty(false)
       setSaveState('idle')
       setReady(true)
+      if (!draftReady || cancelled) return
+      try {
+        const draft = await loadEditorDraft(batchId!, designId!)
+        if (cancelled) return
+        if (!draft) return
+        if (draft.document.width !== img.naturalWidth || draft.document.height !== img.naturalHeight) {
+          // Source changed since the draft was written; a stale draft is not restorable.
+          await clearEditorDraft(batchId!, designId!)
+          return
+        }
+        setRestorePrompt(draft.snapshot)
+      } catch {
+        setDraftNotice('Drafts unavailable — save manually.')
+      }
     }
     img.src = fileUrl
-  }, [fileUrl])
+    return () => { cancelled = true }
+  }, [fileUrl, batchId, designId, draftReady])
+
+  function acceptRestore() {
+    const snapshot = restorePrompt
+    setRestorePrompt(null)
+    if (!snapshot) return
+    setSelection(snapshot.selection?.slice() ?? null)
+    setMask(snapshot.mask?.slice() ?? null)
+    setAdjustments(snapshot.adjustments)
+    setHistory(emptyHistory({ selection: snapshot.selection?.slice() ?? null, mask: snapshot.mask?.slice() ?? null, adjustments: snapshot.adjustments, label: snapshot.label }))
+  }
+
+  function declineRestore() {
+    setRestorePrompt(null)
+    if (draftReady) clearEditorDraft(batchId!, designId!).catch(() => undefined)
+  }
+
+  function writeDraft() {
+    if (!draftReady || !dirty) return
+    const src = source.current
+    if (!src) return
+    saveEditorDraft({
+      batchId: batchId!, designId: designId!,
+      document: buildDraftDocument(src.width, src.height, mask, threshold, fileUrl),
+      snapshot: { selection, mask, adjustments, label: currentSnapshot(history)?.label ?? 'Original' },
+    }).catch(() => {
+      // In-memory editing state is untouched; only persistence failed.
+      setDraftNotice('Draft save failed — edits are kept, but reload will lose them. Save manually.')
+    })
+  }
+
+  useEffect(() => {
+    if (!draftReady || !dirty) return
+    pendingDraft.current = true
+    const timer = window.setTimeout(() => { pendingDraft.current = false; writeDraft() }, 1200)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection, mask, adjustments, dirty, draftReady])
+
+  useEffect(() => {
+    if (!draftReady) return
+    function flush() {
+      if (!dirty || !pendingDraft.current) return
+      pendingDraft.current = false
+      writeDraft()
+    }
+    const onHide = () => { if (dirty) flush() }
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', flush)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, draftReady])
 
   useEffect(() => {
     if (!ready) return
@@ -327,6 +415,9 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
       await onSave(new File([blob], 'manual-cleanup.png', { type: 'image/png' }))
       setDirty(false)
       setSaveState('saved')
+      setDraftNotice(null)
+      // Clear only after the API confirmed the proposal is stored.
+      if (draftReady) clearEditorDraft(batchId!, designId!).catch(() => undefined)
     } catch (error) {
       setSaveState('error')
       setSaveError(toDisplayMessage(error))
@@ -360,6 +451,14 @@ export function ManualEditor({ title, fileUrl, onSave, onBack }: { title: string
           {saveState === 'saving' ? 'Saving…' : 'Save as proposal'}
         </button>
       </header>
+      {restorePrompt && (
+        <div className="draft-restore" data-testid="draft-restore">
+          <span>Draft found — restore it?</span>
+          <button className="btn primary" data-testid="draft-restore-accept" onClick={acceptRestore}>Restore</button>
+          <button className="btn" data-testid="draft-restore-decline" onClick={declineRestore}>Discard</button>
+        </div>
+      )}
+      {draftNotice && <div className="draft-notice" data-testid="draft-notice">{draftNotice}</div>}
       <main className="manual-body">
         <aside className="manual-tools">
           {TOOLS.map(t => (

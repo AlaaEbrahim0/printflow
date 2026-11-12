@@ -43,6 +43,8 @@ export default function ManualEditorPage() {
   return (
     <ManualEditor
       title={design.name}
+      batchId={batchId}
+      designId={designId}
       fileUrl={version.fileUrl}
       onBack={back}
       onSave={async file => {

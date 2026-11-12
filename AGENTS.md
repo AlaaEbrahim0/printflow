@@ -71,11 +71,18 @@ present** in the conversation. The agent working on 2026-11-05 assumed the
 assignment was **Phase 0**, because Phase 0 is explicitly single-agent and
 blocks every other track. That assumption is recorded here.
 
-**Current phase: Phase 3 real-world image-quality and GPU validation.** Phase 2
-integration and Compose runtime verification are complete. Focus is image
-enhancement and upscaling: enhancement quality, fast GPU execution,
-source-resolution guidance, and review UX. The final Photoshop sheet remains
-human-reviewed and updated.
+**Current phase: Phase 1b IndexedDB drafts.** Scope corrected 2026-11-12:
+designs process one at a time; bulk upload exists only for packing intake;
+3–6 occasional users; no speculative scaling, pagination, queue throughput,
+or multi-worker work. Phase 1a remains complete and serves careful single-design
+sessions. Finish IndexedDB drafts, then pull Phase 4 ahead for Quick Levels,
+one-click Clean for background removal, background color/uniformity readout,
+and color-key flow. Then Phase 2 selection tools, Phase 3 complex editor shell,
+Phase 5 packing integrity, Phase 6 export. withoutbg stays deferred; color key
+and Quick Levels serve logos/text/simple illustrations, manual editor serves
+complex designs. Subagents run sequentially, at most one, mechanical tasks only;
+core work stays owner-written. Worker processing stays sequential, concurrency 1
+for all job types.
 
 Contract v2.0.0 retired background removal and vectorization, added optional
 packing of a selected subset, made `all-designs-placed` the fifth blocking
@@ -744,6 +751,16 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
   listing and filtering, and `404` for missing batch/design.
 
 **In progress / immediate next:**
+
+1. Phase 1b draft store is implemented and focused tests pass. Remaining UI lifecycle wiring: restore prompt, debounced autosave, visibility flush, and clear only after confirmed API save.
+2. Keep worker loop sequential with concurrency 1 for every job type.
+3. After 1b, implement Phase 4 Quick Levels and Clean for background removal in
+   design review, then validate on logo/text/simple-illustration samples.
+4. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
+   measured need appears.
+
+Historical runtime notes follow; native GPU and prior Phase 3 measurements remain
+reference data, not immediate work.
 
 1. The native GPU worker is running from `make worker-gpu` on port 8001
    (GPU-only); the Compose CPU worker stays on port 8000. Re-run the launcher
