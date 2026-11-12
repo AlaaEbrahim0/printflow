@@ -32,10 +32,13 @@ describe('compositor', () => {
 
   it('caches color-key masks by descriptor and revision', () => {
     const cache = new ColorKeyCache()
-    const operation = { type: 'color-key' as const, color: { r: 255, g: 0, b: 0 }, tolerance: 0, feather: 0, contiguous: false, useAlpha: false, seeds: [] }
-    const d = { ...doc(), layers: [{ ...doc().layers[0], kind: 'pixel-op' as const, operation }] }
-    const resolver = { resolve: () => image }
+    const operation = { type: 'color-key' as const, color: { r: 255, g: 0, b: 0 }, tolerance: 0, feather: 0, contiguous: true, useAlpha: false, seeds: [{ x: 0, y: 0 }] }
+    const d = { ...doc(), layers: [doc().layers[0], { id: 'op', kind: 'pixel-op' as const, name: 'op', visible: true, opacity: 1, blendMode: 'normal' as const, mask: null, operation }] }
+    let resolves = 0
+    const resolver = { resolve: () => { resolves += 1; return image } }
+    compositeDocument(d, resolver, { colorKeyCache: cache, inputRevision: '1' })
     compositeDocument(d, resolver, { colorKeyCache: cache, inputRevision: '1' })
     expect(cache.get(operation, '1')).toBeDefined()
+    expect(resolves).toBe(2)
   })
 })

@@ -26,7 +26,16 @@ describe('compositor golden fixture', () => {
     const first = compositeDocument(document, resolver)
     const second = compositeDocument(document, resolver)
     expect(Array.from(first.data)).toEqual(Array.from(second.data))
-    expect(Array.from(compositeDocument({ ...document, selection: { encoding: 'bitpack-v1', width: 4, height: 4, feather: 0, bytes: new Uint8Array([0]) } }, resolver).data)).toEqual(Array.from(first.data))
+    const selected = { ...document, selection: { encoding: 'bitpack-v1' as const, width: 4, height: 4, feather: 0, bytes: new Uint8Array([0]) } }
+    expect(Array.from(compositeDocument(selected, resolver).data)).toEqual(Array.from(first.data))
+  })
+
+  it('golden sensitivity probe changes output when one source byte changes', () => {
+    const baseline = Array.from(compositeDocument(document, resolver).data)
+    const original = source.data[0]
+    source.data[0] = original === 255 ? 254 : original + 1
+    expect(Array.from(compositeDocument(document, resolver).data)).not.toEqual(baseline)
+    source.data[0] = original
   })
 
   it('keeps transparent RGB normalized', () => {
