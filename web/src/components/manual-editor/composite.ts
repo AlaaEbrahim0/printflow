@@ -13,7 +13,7 @@ export interface CompositeRegion { x: number; y: number; width: number; height: 
 export interface CompositeOptions { region?: CompositeRegion; scale?: number; colorKeyCache?: ColorKeyCache; inputRevision?: string }
 
 function makeImageData(width: number, height: number, data?: Uint8ClampedArray): ImageData {
-  if (typeof ImageData !== 'undefined') return data ? new ImageData(data, width, height) : new ImageData(width, height)
+  if (typeof ImageData !== 'undefined') return data ? new ImageData(new Uint8ClampedArray(data), width, height) : new ImageData(width, height)
   return { data: data ?? new Uint8ClampedArray(width * height * 4), width, height, colorSpace: 'srgb' } as ImageData
 }
 
