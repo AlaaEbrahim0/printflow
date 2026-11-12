@@ -116,4 +116,27 @@ describe('editor draft lifecycle', () => {
     await waitFor(() => expect(screen.queryByTestId('draft-restore')).toBeNull())
     expect(screen.getByTestId('manual-save')).toBeEnabled()
   })
+
+  it('persists a mask edit and restores it after a reload', async () => {
+    // Regression: the packed mask used to carry one byte per pixel, which
+    // `validateDocument` rejects (it requires ceil(w*h/8)). Every draft with a
+    // non-empty mask therefore failed to save and the restore prompt never
+    // appeared — for the whole of Phase 1b, because the earlier tests only ever
+    // used a null mask.
+    const view = editor()
+    await makeEdit()
+    fireEvent.click(screen.getByTestId('selection-to-mask'))
+    await waitFor(async () => {
+      const stored = await testStore.load(draftKey('b1', 'd1'))
+      const layer = stored?.document.layers[0]
+      expect(layer?.kind).toBe('base-raster')
+      expect((layer as { mask: { bytes: Uint8Array } | null }).mask).not.toBeNull()
+    }, { timeout: 4000 })
+
+    view.unmount()
+    editor()
+    await screen.findByTestId('draft-restore')
+    fireEvent.click(screen.getByTestId('draft-restore-accept'))
+    await waitFor(() => expect(screen.getByTestId('mask-status')).not.toHaveTextContent('No mask'))
+  })
 })

@@ -17,11 +17,11 @@ import {
 } from './history'
 import { contractMask, featherMask, growMask, maskCoverage, thresholdMask } from './maskOps'
 import { assertSupportedSize } from './memoryBudget'
+import { buildDraftDocument, buildRenderDocument } from './documentBuild'
 import { EMPTY_PATH, canFillPath, fillPath, undoPathPoint, type PathState } from './pathModel'
 import { dragWorkPath, pressWorkPath, workPathKeyAction } from './workPath'
 import { drawMaskOverlay, drawPathOverlay, drawSelectionOverlay } from './render'
 import { compositeDocument } from './composite'
-import type { EditorDocument } from './document'
 import {
   clearEditorDraft,
   loadEditorDraft,
@@ -41,14 +41,6 @@ type Tool = 'marquee' | 'ellipse' | 'lasso' | 'polygon' | 'wand' | 'color-range'
 
 const TOOLS: Tool[] = ['marquee', 'ellipse', 'lasso', 'polygon', 'wand', 'color-range']
 const MODES: SelectionMode[] = ['replace', 'add', 'subtract', 'intersect']
-
-export function buildDraftDocument(width: number, height: number, mask: Uint8Array | null, threshold: number, fileUrl: string): EditorDocument {
-  return {
-    schemaVersion: 1, id: 'manual-editor', designId: fileUrl, sourceVersionId: fileUrl,
-    width, height, activeLayerId: 'base', selection: null,
-    layers: [{ id: 'base', kind: 'base-raster', name: 'Original', sourceId: 'source', visible: true, opacity: 1, blendMode: 'normal', mask: mask ? { encoding: 'bitpack-v1', width, height, feather: 0, bytes: Uint8Array.from(mask, value => value >= threshold ? 255 : 0) } : null }],
-  }
-}
 
 export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack }: { title: string; fileUrl: string; batchId?: string; designId?: string; onSave: (file: File) => Promise<void>; onBack: () => void }) {
   const base = useRef<HTMLCanvasElement>(null)
@@ -212,11 +204,18 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     if (!src || !canvas || !ants) return
     const pixels = src.getContext('2d')?.getImageData(0, 0, src.width, src.height)
     if (pixels) {
-      const document: EditorDocument = {
-        schemaVersion: 1, id: 'manual-editor', designId: title, sourceVersionId: fileUrl,
-        width: src.width, height: src.height, activeLayerId: 'base', selection: null,
-        layers: [{ id: 'base', kind: 'base-raster', name: 'Original', sourceId: 'source', visible: true, opacity: 1, blendMode: 'normal', mask: mask ? { encoding: 'bitpack-v1', width: src.width, height: src.height, feather: featherRadius, bytes: Uint8Array.from(mask, value => value >= threshold ? 255 : 0) } : null }],
-      }
+      // The adjustment layer carries the Levels/HSL sliders into the composite.
+      // Without it the panel moved only `dirty`, so every slider was decorative:
+      // the preview never changed and the exported PNG never changed either.
+      const document = buildRenderDocument({
+        width: src.width,
+        height: src.height,
+        mask,
+        feather: featherRadius,
+        threshold,
+        sourceId: fileUrl,
+        adjustments,
+      })
       const rendered = compositeDocument(document, { resolve: () => pixels })
       canvas.width = rendered.width; canvas.height = rendered.height
       canvas.getContext('2d')?.putImageData(rendered, 0, 0)

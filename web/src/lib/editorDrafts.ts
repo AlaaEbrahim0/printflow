@@ -1,4 +1,5 @@
 import { validateDocument, type EditorDocument } from '../components/manual-editor/document'
+import { buildDraftDocument } from '../components/manual-editor/documentBuild'
 import type { Adjustments } from '../components/manual-editor/adjustments'
 
 export interface DraftSnapshot {
@@ -120,14 +121,9 @@ export const editorDrafts: DraftStore = new IndexedDbDraftStore()
 
 /** The immutable document the draft validates and restores. The layer mask is
  * derived from the live byte-per-pixel mask at the editor's threshold, so a
- * restored draft recomposes identically. */
-export function buildDraftDocument(width: number, height: number, mask: Uint8Array | null, threshold: number, fileUrl: string): EditorDocument {
-  return {
-    schemaVersion: 1, id: 'manual-editor', designId: fileUrl, sourceVersionId: fileUrl,
-    width, height, activeLayerId: 'base', selection: null,
-    layers: [{ id: 'base', kind: 'base-raster', name: 'Original', sourceId: 'source', visible: true, opacity: 1, blendMode: 'normal', mask: mask ? { encoding: 'bitpack-v1', width, height, feather: 0, bytes: Uint8Array.from(mask, value => value >= threshold ? 255 : 0) } : null }],
-  }
-}
+ * restored draft recomposes identically. Building it lives in documentBuild so
+ * the preview and the draft can never describe different documents. */
+export { buildDraftDocument }
 
 export const loadEditorDraft = (batchId: string, designId: string): Promise<EditorDraft | null> => editorDrafts.load(draftKey(batchId, designId))
 export const saveEditorDraft = (draft: Omit<EditorDraft, 'key' | 'updatedAt'>): Promise<EditorDraft> => editorDrafts.save(draftKey(draft.batchId, draft.designId), draft)

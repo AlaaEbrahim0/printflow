@@ -59,6 +59,35 @@ function sourceOver(dst: Uint8ClampedArray, src: Uint8ClampedArray, index: numbe
   dst[index + 3] = Math.round(oa * 255)
 }
 
+/**
+ * Blend an adjustment or pixel-op layer.
+ *
+ * These layers are not new artwork — they are a *transform of everything below
+ * them*. Compositing them with `sourceOver` was wrong twice over: a pixel at
+ * 50% alpha came out at 75% (sa + da(1 - sa)), so a masked-away edge crept back
+ * into the export, and at full opacity the layer's own alpha was doubled again
+ * on every pass. They interpolate between the underlying composite and the
+ * transformed copy instead. For an adjustment the two sides carry identical
+ * coverage, so alpha passes through untouched; for a colour key the transformed
+ * side is transparent where it matched, so keyed pixels actually clear.
+ */
+function blendTransformed(
+  dst: Uint8ClampedArray,
+  src: Uint8ClampedArray,
+  index: number,
+  opacity: number,
+  blend: 'normal' | 'multiply',
+  mask: PackedMask | null,
+): void {
+  const strength = opacity * alphaAt(mask, index / 4)
+  if (strength <= 0) return
+  for (let channel = 0; channel < 3; channel += 1) {
+    const value = blend === 'multiply' ? src[index + channel] * dst[index + channel] / 255 : src[index + channel]
+    dst[index + channel] = Math.round(dst[index + channel] + (value - dst[index + channel]) * strength)
+  }
+  dst[index + 3] = Math.round(dst[index + 3] + (src[index + 3] - dst[index + 3]) * strength)
+}
+
 function colorKeyMask(input: ImageData, operation: PixelOperation): Uint8Array {
   const result = new Uint8Array(input.width * input.height)
   const threshold = Math.max(0, operation.tolerance) * 3
@@ -98,7 +127,9 @@ function compositeFull(document: EditorDocument, resolver: PixelResolver, option
       : makeImageData(document.width, document.height, full.data.slice())
     if (layer.kind === 'adjustment') applyAdjustments(pixels, layer.adjustment)
     if (layer.kind === 'pixel-op') applyPixelOperation(pixels, layer.operation, options.colorKeyCache, options.inputRevision)
-    for (let i = 0; i < full.data.length; i += 4) sourceOver(full.data, pixels.data, i, Math.max(0, Math.min(1, layer.opacity)), layer.blendMode, layer.mask)
+    const opacity = Math.max(0, Math.min(1, layer.opacity))
+    const write = layer.kind === 'base-raster' ? sourceOver : blendTransformed
+    for (let i = 0; i < full.data.length; i += 4) write(full.data, pixels.data, i, opacity, layer.blendMode, layer.mask)
   }
   for (let i = 0; i < full.data.length; i += 4) if (!full.data[i + 3]) full.data[i] = full.data[i + 1] = full.data[i + 2] = 0
   return full
