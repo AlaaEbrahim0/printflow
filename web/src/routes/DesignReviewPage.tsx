@@ -538,17 +538,37 @@ export default function DesignReviewPage() {
     ? data.suggestions.source?.effectiveDpiAtTarget
     : null
   const suggestions = data?.suggestions.status === 'ready' ? data.suggestions : null
-  // One-click Clean defaults, taken from what the classifier sampled. Only
-  // offered when the sampled background is a real colour worth keying out;
-  // transparency needs no cut-out and a low-confidence sample would guess.
+  // One-click Clean defaults, taken from what the classifier sampled.
+  //
+  // Both numbers were measured against the fixture artwork with
+  // `scripts/check_clean_preset.py`, which runs the worker's own
+  // `sample_background` + `background_matches` and scores the result against a
+  // ground truth that does not depend on the sampled colour (border pixels are
+  // background by construction; pixels >60 away from the border median are
+  // artwork).
+  //
+  // Confidence is a *uniformity* score — the share of border pixels within the
+  // matching tolerance of the median — so it answers "is there one background
+  // colour here at all", not "how tight should the key be". Below 0.7 there is
+  // no single background to key: the busy collage (0.00) and the phone
+  // screenshot (0.13) each left 66-99% of their border behind. So the gate
+  // lives here, and tolerance stays fixed.
+  //
+  // 24 is the tightest tolerance that clears the residual second tone in the
+  // pale-mist and overwide-banner fixtures (3% of border at 10-20, 0% at 24)
+  // while removing no artwork on any design. It is also exactly the manual
+  // control's default, so Clean and a hand-set key agree.
+  const CLEAN_MIN_CONFIDENCE = 0.7
+  const CLEAN_TOLERANCE = 24
   const cleanDefaults = (() => {
     const sample = suggestions?.features?.sampledBackground
     if (!sample || sample.kind === 'transparent') return null
-    const keyColor = sample.hex ?? (sample.kind === 'black' ? '#000000' : sample.kind === 'white' ? '#ffffff' : null)
-    if (!keyColor || !isHexColor(keyColor)) return null
     const confidence = sample.confidence ?? 0
-    const tolerance = confidence >= 0.9 ? 10 : confidence >= 0.7 ? 16 : 24
-    return { keyColor: keyColor.toLowerCase(), tolerance }
+    if (confidence < CLEAN_MIN_CONFIDENCE) return null
+    const keyColor =
+      sample.hex ?? (sample.kind === 'black' ? '#000000' : sample.kind === 'white' ? '#ffffff' : null)
+    if (!keyColor || !isHexColor(keyColor)) return null
+    return { keyColor: keyColor.toLowerCase(), tolerance: CLEAN_TOLERANCE, confidence }
   })()
   const jobStartedAt = job ? Date.parse(job.startedAt ?? job.createdAt) : Number.NaN
   const elapsedMs = Number.isFinite(jobStartedAt) ? Math.max(0, observedAt - jobStartedAt) : null
@@ -1188,6 +1208,11 @@ export default function DesignReviewPage() {
                     type="button"
                     className="btn"
                     disabled={!canPropose || !cleanDefaults}
+                    title={
+                      cleanDefaults
+                        ? `Keys out ${cleanDefaults.keyColor} at tolerance ${cleanDefaults.tolerance} (${Math.round(cleanDefaults.confidence * 100)}% uniform border)`
+                        : 'Clean is only offered when the artwork has a uniform background colour.'
+                    }
                     onClick={() => {
                       const clean = cleanDefaults
                       if (!clean) return
@@ -1208,10 +1233,10 @@ export default function DesignReviewPage() {
                   >
                     Clean
                   </button>
-                  <p className="hint">
-                    Clean keys out the sampled background colour in one click — for logos, text
-                    and flat illustrations. Busy backgrounds should be cut in Photopea and
-                    imported.
+                  <p className="hint" data-testid="cutout-hint">
+                    {cleanDefaults
+                      ? 'Clean keys out the sampled background colour in one click — for logos, text and flat illustrations.'
+                      : 'The border is not a uniform colour, so there is no background to key. Cut this one in the manual editor, or pick the key colour by hand.'}
                   </p>
                   <MaskGrowControl value={maskGrowPx} onChange={setMaskGrowPx} disabled={!canPropose} />
                   <details className="compact-details advanced">

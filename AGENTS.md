@@ -759,14 +759,30 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
    (histogram + percentile auto levels, pure functions, BT.601 luminance),
    `QuickLevels` + `BackgroundReadout` components in the design-review cutout
    step, and a one-click Clean button that keys the classifier's
-   `sampledBackground` hex with tolerance 10/16/24 at confidence ≥0.9/≥0.7/else
-   and resets levels/grow to identity before submitting color-to-alpha. No
-   contract change (`sampledBackground`, `imageLevels` already in schema).
-   Web suite 427 tests / 41 files green; full `make phase-gates` green. Next:
-   validate on logo/text/simple-illustration samples, then Phase 2 selection
-   tools.
-3. Keep worker loop sequential with concurrency 1 for every job type.
-4. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
+   `sampledBackground` hex and resets levels/grow to identity before submitting
+   color-to-alpha. No contract change (`sampledBackground`, `imageLevels`
+   already in schema).
+3. Phase 4 fixture validation done (`scripts/check_clean_preset.py`,
+   `make clean-preset`). It runs the worker's own `sample_background` +
+   `background_matches` over the ten generated fixtures and scores against a
+   ground truth independent of the sampled colour (border pixels are background
+   by construction; pixels >60 from the border median are artwork). Findings:
+   - Clean is offered only at `sampledBackground.confidence ≥ 0.7`. Below it the
+     border is not a single colour and keying is hopeless: the full-bleed
+     collage (0.00) and low-res phone screenshot (0.13) left 66–99% of their
+     border behind. The gate is the fix; a wider tolerance only made it worse.
+   - Tolerance is fixed at 24, the manual control's default. It was the tightest
+     value clearing the residual second tone in the pale-mist and overwide
+     banner fixtures (3% of border left at 10–20, 0% at 24) with no artwork
+     removed on any design. The earlier confidence-scaled 10/16/24 rule was
+     backwards: confidence measures uniformity, not how tight the key should be.
+   - Transparent-background fixtures correctly never offer Clean.
+   Quick Levels proposes auto levels on all ten fixtures (measured spans
+   23–230); the narrow-range refusal is unit-tested, not fixture-triggered.
+   Web suite 428 tests / 41 files green; full `make phase-gates` green.
+   Next: Phase 2 selection tools.
+4. Keep worker loop sequential with concurrency 1 for every job type.
+5. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
    measured need appears.
 
 Historical runtime notes follow; native GPU and prior Phase 3 measurements remain

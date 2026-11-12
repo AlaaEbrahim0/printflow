@@ -110,6 +110,9 @@ build: ## Build API and web (worker/packer are installed editable)
 fixtures: packer-setup ## Regenerate realistic fixtures under fixtures/generated
 	packer/.venv/bin/python scripts/generate_fixtures.py --clean
 
+clean-preset: fixtures ## Verify one-click Clean only offers itself where it works
+	worker/.venv/bin/python scripts/check_clean_preset.py
+
 e2e-fixtures: fixtures ## Exercise intake, resize, pack, integrity and export against a running stack
 	$(PYTHON) scripts/e2e_fixture_flow.py
 

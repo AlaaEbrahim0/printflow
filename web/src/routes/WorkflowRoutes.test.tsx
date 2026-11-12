@@ -163,9 +163,16 @@ describe('core workbench routes', () => {
       const job = [...mock.jobs.values()].find(
         (item) => item.designId === design.id && item.type === 'background-removal',
       )
-      expect(job?.parameters).toMatchObject({ mode: 'color-to-alpha' })
+      // The sampled colour is keyed at the tolerance the fixture evidence
+      // supports (scripts/check_clean_preset.py), with no leftover shaping.
+      expect(job?.parameters).toMatchObject({
+        mode: 'color-to-alpha',
+        keyColor: '#ffffff',
+        tolerance: 24,
+      })
       expect(job?.parameters).not.toHaveProperty('maskLevels')
       expect(job?.parameters).not.toHaveProperty('imageLevels')
+      expect(job?.parameters).not.toHaveProperty('maskGrowPx')
     })
   })
 
@@ -234,6 +241,37 @@ describe('core workbench routes', () => {
       expect(levels.whitePoint).toBeLessThanOrEqual(255)
       expect(levels.whitePoint).toBeGreaterThan(levels.blackPoint)
     })
+  })
+
+  it('does not offer Clean when the sampled background is not uniform', async () => {
+    // Fixture evidence: designs whose border sample was uniform below 0.7 left
+    // 66-99% of their background behind, so Clean must not be offered at all
+    // rather than offered with a wider tolerance.
+    const mock = startTestMockApi([{
+      name: 'Busy background',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Busy background sample',
+        chain: [],
+      }],
+    }])
+    const batch = [...mock.batches.values()][0]!
+    const design = mock.designs.get(batch.designIds[0]!)!
+    const base = mock.suggestions(design.id)
+    mock.designs.get(design.id)!.suggestions = {
+      ...base,
+      features: {
+        ...base.features,
+        sampledBackground: { kind: 'custom', hex: '#E45757', confidence: 0.12 },
+      },
+    }
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+    await waitFor(() => expect(screen.getByTestId('clean-cutout')).toBeDisabled())
+    // The absence is explained, and the hand-keyed path stays available.
+    expect(screen.getByTestId('cutout-hint')).toHaveTextContent(/not a uniform colour/i)
+    expect(screen.getByRole('button', { name: 'Remove background' })).toBeEnabled()
   })
 
   it('links print width and height to the artwork aspect ratio at the batch DPI', async () => {
