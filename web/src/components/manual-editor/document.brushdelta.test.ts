@@ -204,4 +204,21 @@ describe('brush mask deltas', () => {
     expect(applyMaskDelta(sparse, sparseDelta)).toEqual(empty)
     expect(applyMaskDelta(large, largeDelta)).toEqual(empty)
   }, 30_000)
+
+  it('uses raw fallback for synthetic PRNG noise and never exceeds raw mask bytes', () => {
+    const width = 6000
+    const height = 6000
+    const length = maskBytes(width, height)
+    const before = packed(width, height, new Uint8Array(length))
+    const noisyBytes = new Uint8Array(length)
+    let state = 0x12345678
+    for (let index = 0; index < noisyBytes.length; index += 1) {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+      noisyBytes[index] = state >>> 24
+    }
+    const delta = createMaskDelta(before, packed(width, height, noisyBytes))!
+    expect(delta.encoding).toBe('xor-bitpack-v1')
+    expect(delta.bytes.byteLength).toBe(length)
+    expect(delta.bytes.byteLength).toBeLessThanOrEqual(4_500_000)
+  }, 30_000)
 })

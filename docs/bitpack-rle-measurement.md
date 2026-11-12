@@ -169,14 +169,14 @@ Focused Vitest results on 6000 × 6000 (36 MP):
 
 - raw PackedMask bytes: `4,500,000`
 - xor-rle-v1 sparse dab: `35,298` bytes
-- xor-rle-v1 noisy: pending dedicated noisy fixture; no number invented
+- PRNG-noise 36 MP: `xor-bitpack-v1`, `4,500,000` bytes; raw fallback ceiling asserted
 - xor-bitpack-v1 large-area: `4,500,000` bytes
 - sparse-to-large encoded-size ratio: `127.5×`
 - 100 MB cap capacity for 2,000,000-byte 16 MP raw deltas: `104` command entries
 - coalesced 24-stroke gesture: one history entry; accounting matched `128 + delta bytes`
 - regression point reached: no; focused test passed
 
-Remaining noisy-pattern measurement is deferred until dedicated fixture exists. No production behavior depends on this report.
+Noisy-pattern fallback ceiling is covered by synthetic PRNG test. No production behavior depends on this report.
 
 ## Commit-message drafts
 
