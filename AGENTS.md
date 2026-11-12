@@ -754,11 +754,18 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 1. Phase 1b complete and committed (`f5441f8`): draft store + editor lifecycle
    (restore prompt, debounced autosave, visibility flush, clear after confirmed
-   API save). Next: Phase 4 Quick Levels and Clean for background removal in
-   design review, then validate on logo/text/simple-illustration samples.
-2. Keep worker loop sequential with concurrency 1 for every job type.
-3. After 1b, implement Phase 4 Quick Levels and Clean for background removal in
-   design review, then validate on logo/text/simple-illustration samples.
+   API save).
+2. Phase 4 complete and committed (`f869dc1`): `web/src/lib/quickLevels.ts`
+   (histogram + percentile auto levels, pure functions, BT.601 luminance),
+   `QuickLevels` + `BackgroundReadout` components in the design-review cutout
+   step, and a one-click Clean button that keys the classifier's
+   `sampledBackground` hex with tolerance 10/16/24 at confidence ≥0.9/≥0.7/else
+   and resets levels/grow to identity before submitting color-to-alpha. No
+   contract change (`sampledBackground`, `imageLevels` already in schema).
+   Web suite 427 tests / 41 files green; full `make phase-gates` green. Next:
+   validate on logo/text/simple-illustration samples, then Phase 2 selection
+   tools.
+3. Keep worker loop sequential with concurrency 1 for every job type.
 4. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
    measured need appears.
 
