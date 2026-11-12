@@ -100,3 +100,25 @@ range of shop artwork. Remaining useful samples are low-quality photos and
 screenshots where operators currently spend time cleaning halos, thin strokes or
 backgrounds, plus color-heavy artwork at print size. Ready-to-pack intake is the
 supported path once background removal and final sizing are done in Photoshop.
+
+## withoutbg spike — blocked (2026-11-12)
+
+Spike stopped before model download or image processing.
+
+- Python 3.12 is unavailable on this host. `python3` is 3.14.8; no
+  `worker/.venv/bin/python` exists.
+- PyPI check at install time: `python3 -m pip index versions withoutbg-python`
+  returned `ERROR: No matching distribution found for withoutbg-python`.
+- Therefore package install, bundle download, offline verification, five-image
+  test, CPU/GPU timings, RAM/VRAM measurements, routing, matte edge review,
+  removal/upscale order comparison and failure-mode validation could not run.
+- No model bundle was downloaded. Existing `models/cutout/*.onnx` files belong
+  to archived BiRefNet work and were not reused.
+- No production API, worker, web or editor code changed. No spike script was
+  added because required package and runtime were unavailable.
+
+Decision: do not adopt `withoutbg-python` yet. Re-run only when Python 3.12
+venv and an installable package/model bundle are available; then test five
+authorized images, preserve soft mattes without thresholding, compare
+removal-first versus upscale-first, and record measured CPU/GPU and memory
+numbers before any production proposal.
