@@ -845,6 +845,46 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
    Web suite 551 tests / 50 files green; full `make phase-gates` green.
    Next: still Phase 3 — the stack renders but per-layer mask painting, layer
    rename and a pixel-op layer the operator can configure are not wired.
+5b. Phase 3, per-layer masks. A mask used to belong to "the document", so the
+   only thing it could limit was the artwork itself. That is the wrong shape for
+   complex designs: the reason to add a Levels layer is usually to fix one
+   region, and without a per-layer mask the adjustment applies everywhere or not
+   at all. `maskLayerId` now names the layer the live bytes belong to;
+   `buildRenderDocument` overrides only that layer's packed mask and leaves the
+   rest of the stack alone; `layerMaskBytes` decodes a layer's mask back to bytes
+   when the operator selects it; `applyLiveMaskToStack` folds the live bytes back
+   onto their owner before any stack read.
+   The defect this exposed is worth recording because the symptom was misleading.
+   Switching layers silently discarded the mask just painted: the stack still
+   held the stale packed copy from before the stroke, and selecting another layer
+   replaced the live buffer with that layer's (usually null) mask. The first
+   version of the test caught it as "back to the base layer shows no mask", which
+   looked like a status-line bug and was actually data loss.
+   The second misleading symptom was a test failure reading `[0,0,0,0]` where the
+   compositor independently produced `[145,145,145,200]`. The compositor was
+   correct all along. The editor draws the composite to the artwork canvas and
+   the selection/mask tint to the overlay canvas, and both receive
+   `putImageData`; the test helper recorded "the last call" and sometimes read the
+   overlay's cleared buffer as if it were the render. The helper now identifies
+   the artwork canvas by what it is (not `hidden`, no `manual-overlay` class)
+   instead of by call order.
+   That in turn exposed a real test race: `manual-save` becomes enabled when the
+   image loads, while the first composite is drawn in a later effect, so reading
+   a pixel in between passes on an idle machine and fails under a full parallel
+   run. It failed roughly half the full-suite runs before the helper waited for
+   the first draw. This is why the suite was intermittently red on
+   `darkens the render when the Levels black point is raised` — the same test
+   that failed once earlier and could not be reproduced in isolation.
+   Masks are per-layer, but only one is painted at a time, so the editor keeps a
+   single live buffer plus its owner id rather than a byte map per layer: a
+   stroke costs one array, and switching layers is a decode of that layer's
+   packed mask. Deleting the layer that owns the live mask drops the paint target
+   back to the active layer; every other layer edit leaves it alone.
+   Web suite 565 tests / 51 files green, four consecutive full runs; full
+   `make phase-gates` green; `npm run build` green.
+   Next: still Phase 3 — layer rename, a pixel-op layer the operator can
+   configure (colour key is added at a fixed white seed), and per-layer mask
+   feather are not wired.
 6. Keep worker loop sequential with concurrency 1 for every job type.
 7. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
    measured need appears.

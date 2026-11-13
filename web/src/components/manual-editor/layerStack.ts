@@ -23,6 +23,7 @@ import {
   type PixelOperation,
   type PixelOpLayer,
 } from './document'
+import { packMask, unpackMask } from './documentBuild'
 
 /** Layers the operator can add. The base raster is created with the document. */
 export type AddableLayerKind = 'adjustment' | 'pixel-op'
@@ -214,7 +215,39 @@ export function setLayerAdjustment(
 }
 
 /**
- * How a layer is described in the list.
+ * Write the live mask bytes back onto the layer that owns them.
+ *
+ * The editor paints one mask at a time, but the stack is the record of every
+ * layer's coverage. Without this fold, switching layers would drop the mask that
+ * was just painted: the stack still held the stale packed copy, and the new
+ * paint target replaced the live bytes. Folding before every stack read is what
+ * makes per-layer masks survive a switch.
+ */
+export function applyLiveMaskToStack(
+  stack: EditorLayer[],
+  maskLayerId: string,
+  mask: Uint8Array | null,
+  width: number,
+  height: number,
+  threshold: number,
+  feather = 0,
+): EditorLayer[] {
+  const packed = packMask(mask, width, height, threshold, feather)
+  return stack.map(layer => (layer.id === maskLayerId ? { ...layer, mask: packed } : layer))
+}
+
+/**
+ * Read a layer's mask as one byte per pixel.
+ *
+ * Returns null when the layer has no mask, which the editor treats as "every
+ * pixel kept" — the same meaning the compositor gives it.
+ */
+export function layerMaskBytes(layer: EditorLayer | undefined): Uint8Array | null {
+  if (!layer?.mask) return null
+  return unpackMask(layer.mask)
+}
+
+/** How a layer is described in the list.
  *
  * The panel has to say what each row *is* without the operator opening it, and
  * "adjustment" is not a word that means anything at a glance.

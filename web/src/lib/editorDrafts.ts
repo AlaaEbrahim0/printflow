@@ -19,6 +19,8 @@ export interface DraftSnapshot {
   layers?: EditorLayer[]
   /** Which layer was selected when the draft was written. */
   activeLayerId?: string
+  /** Which layer the `mask` bytes above belong to. */
+  maskLayerId?: string
   label: string
 }
 

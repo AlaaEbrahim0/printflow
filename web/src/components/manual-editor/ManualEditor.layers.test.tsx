@@ -28,10 +28,17 @@ const ManualEditor = (await import('./ManualEditor')).ManualEditor
 /** A saturated source so a Levels layer has something visible to do. */
 const SOURCE = [200, 100, 50, 255] as const
 
-let putImageData: ReturnType<typeof vi.fn>
+/**
+ * Pixels the *artwork* canvas was last given.
+ *
+ * The overlay canvas also receives `putImageData` (marching ants and the mask
+ * tint), so recording every call would sometimes report an empty overlay buffer
+ * as if it were the render. Source is hidden and created first; artwork second.
+ */
+let renderedPixels: number[] | null = null
 
 beforeEach(() => {
-  putImageData = vi.fn()
+  renderedPixels = null
   vi.stubGlobal('Image', TestImage)
   HTMLCanvasElement.prototype.setPointerCapture = vi.fn()
   HTMLCanvasElement.prototype.releasePointerCapture = vi.fn()
@@ -39,9 +46,17 @@ beforeEach(() => {
     configurable: true,
     writable: true,
     value(this: HTMLCanvasElement) {
+      const element = this
       return {
         canvas: this,
-        putImageData,
+        putImageData: (image: { data: Uint8ClampedArray }) => {
+          // Identify the artwork canvas by what it *is*, not by creation order:
+          // the source canvas is hidden and the overlay carries a class, so
+          // anything else is the composite target.
+          const isSource = element.hasAttribute('hidden')
+          const isOverlay = element.classList.contains('manual-overlay')
+          if (!isSource && !isOverlay) renderedPixels = Array.from(image.data.slice(0, 4))
+        },
         drawImage: () => {},
         clearRect: () => {},
         save: () => {},
@@ -74,17 +89,23 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+/**
+ * Mount the editor and wait until the first composite has been drawn.
+ *
+ * The Save button flips to enabled as soon as the image loads, while the draw
+ * happens in a later effect. Reading a pixel between the two is a race that
+ * passes alone and fails under a full parallel run.
+ */
 async function editor() {
   const view = render(<ManualEditor title="Test" fileUrl="/test.png" onSave={async () => {}} onBack={() => {}} />)
   await waitFor(() => expect(view.getByTestId('manual-save')).toBeEnabled())
+  await waitFor(() => expect(renderedPixels).not.toBeNull())
   return view
 }
 
 function lastRenderedPixel(): number[] {
-  const call = putImageData.mock.calls.at(-1)
-  const image = call?.[0] as { data: Uint8ClampedArray } | undefined
-  if (!image) throw new Error('the editor never drew the composite')
-  return Array.from(image.data.slice(0, 4))
+  if (!renderedPixels) throw new Error('the editor never drew the composite')
+  return renderedPixels
 }
 
 /** The layer rows, in the order the panel shows them (top first). */

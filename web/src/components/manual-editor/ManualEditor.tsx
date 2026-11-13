@@ -21,6 +21,8 @@ import { buildBaseLayer, buildDraftDocument, buildRenderDocument } from './docum
 import {
   addAdjustmentLayer,
   addColorKeyLayer,
+  applyLiveMaskToStack,
+  layerMaskBytes,
   moveLayer,
   removeLayer,
   setActiveLayer,
@@ -63,7 +65,18 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
   const [tool, setTool] = useState<Tool>('marquee')
   const [mode, setMode] = useState<SelectionMode>('replace')
   const [selection, setSelection] = useState<Uint8Array | null>(null)
+  /**
+   * The live byte mask, and which layer owns it.
+   *
+   * Masks are per-layer in the document, but only one is painted at a time.
+   * `maskLayerId` names its owner; the other layers keep the packed masks inside
+   * `stack`, which `buildRenderDocument` leaves untouched. Keeping a single live
+   * buffer (rather than a map of every layer's bytes) means a mask stroke costs
+   * one array, not one per layer, and switching layers is a decode of that
+   * layer's packed mask.
+   */
   const [mask, setMask] = useState<Uint8Array | null>(null)
+  const [maskLayerId, setMaskLayerId] = useState('base')
   /**
    * The full layer stack, bottom-first, including the base raster.
    *
@@ -137,6 +150,7 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
       setDimensions({ width: img.naturalWidth, height: img.naturalHeight })
       setSelection(null)
       setMask(null)
+      setMaskLayerId('base')
       // A fresh stack with just the artwork on it, so the layer panel has
       // something to show and to select before the operator adds anything.
       const initialStack = [buildBaseLayer({ width: img.naturalWidth, height: img.naturalHeight, mask: null, threshold: 128, sourceId: fileUrl })]
@@ -155,6 +169,7 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
         adjustments: DEFAULT_ADJUSTMENTS,
         layers: initialStack,
         activeLayerId: 'base',
+        maskLayerId: 'base',
         label: 'Original',
       }))
       setDirty(false)
@@ -188,6 +203,7 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     // An older draft has no stack; keep the single-artwork one the load built.
     if (snapshot.layers?.length) setStack(snapshot.layers)
     if (snapshot.activeLayerId) setActiveLayerId(snapshot.activeLayerId)
+    if (snapshot.maskLayerId) setMaskLayerId(snapshot.maskLayerId)
     setAdjustments(snapshot.adjustments)
     setHistory(emptyHistory({
       selection: snapshot.selection?.slice() ?? null,
@@ -195,6 +211,7 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
       adjustments: snapshot.adjustments,
       layers: snapshot.layers,
       activeLayerId: snapshot.activeLayerId,
+      maskLayerId: snapshot.maskLayerId,
       label: snapshot.label,
     }))
   }
@@ -219,6 +236,7 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
         // stack the operator built, not just the artwork underneath it.
         layers: stack,
         activeLayerId,
+        maskLayerId,
         label: currentSnapshot(history)?.label ?? 'Original',
       },
     }).catch(() => {
@@ -271,8 +289,12 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
         threshold,
         sourceId: fileUrl,
         adjustments,
-        stack,
+        // Fold the live bytes into the stack so the layers that are *not* being
+        // painted keep their own masks. The paint target itself is overridden by
+        // `mask` below, so folding it is harmless.
+        stack: applyLiveMaskToStack(stack, maskLayerId, mask, src.width, src.height, threshold, featherRadius),
         activeLayerId,
+        maskLayerId,
       })
       const rendered = compositeDocument(document, { resolve: () => pixels })
       canvas.width = rendered.width; canvas.height = rendered.height
@@ -305,7 +327,7 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
       return
     }
     drawSelectionOverlay(ants, selection, width, height)
-  }, [ready, selection, mask, adjustments, path, drag, hover, tool, showMask, stack, activeLayerId, threshold, featherRadius])
+  }, [ready, selection, mask, adjustments, path, drag, hover, tool, showMask, stack, activeLayerId, maskLayerId, threshold, featherRadius])
 
   function point(event: React.PointerEvent): Point {
     const canvas = base.current!
@@ -322,18 +344,26 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
 
   function commit(
     label: string,
-    next: { selection?: Uint8Array | null; mask?: Uint8Array | null; stack?: EditorLayer[]; activeLayerId?: string },
+    next: {
+      selection?: Uint8Array | null
+      mask?: Uint8Array | null
+      stack?: EditorLayer[]
+      activeLayerId?: string
+      maskLayerId?: string
+    },
   ) {
     const nextSelection = next.selection === undefined ? selection : next.selection
     const nextMask = next.mask === undefined ? mask : next.mask
     const nextStack = next.stack === undefined ? stack : next.stack
     const nextActive = next.activeLayerId === undefined ? activeLayerId : next.activeLayerId
+    const nextMaskLayer = next.maskLayerId === undefined ? maskLayerId : next.maskLayerId
     setDirty(true)
     setSaveState('idle')
     setSelection(nextSelection)
     setMask(nextMask)
     setStack(nextStack)
     setActiveLayerId(nextActive)
+    setMaskLayerId(nextMaskLayer)
     setHistory(state =>
       commitHistory(state, {
         selection: nextSelection,
@@ -341,6 +371,7 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
         adjustments,
         layers: nextStack,
         activeLayerId: nextActive,
+        maskLayerId: nextMaskLayer,
         label,
       }),
     )
@@ -357,6 +388,10 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
   function applyLayers(label: string, change: (document: EditorDocument) => EditorDocument) {
     const src = source.current
     if (!src) return
+    // Fold the live mask into the stack before the operation runs, so a layer
+    // edit (delete, reorder, add) sees the coverage the operator just painted
+    // rather than the stale packed copy from before the stroke.
+    const folded = applyLiveMaskToStack(stack, maskLayerId, mask, src.width, src.height, threshold, featherRadius)
     // Built *without* the global Levels layer on purpose. That layer is derived
     // from the sliders and always sits on top; if it were present here, "move up"
     // on the topmost real layer would appear to do nothing while the panel order
@@ -368,12 +403,20 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
       feather: featherRadius,
       threshold,
       sourceId: fileUrl,
-      stack,
+      stack: folded,
       activeLayerId,
+      maskLayerId,
     })
     const next = change(current)
     if (next === current) return
-    commit(label, { stack: next.layers, activeLayerId: next.activeLayerId })
+    // The stack now carries the live bytes for its owner, so the live mask must
+    // be cleared only when its layer went away; otherwise keep painting it.
+    const survives = next.layers.some(layer => layer.id === maskLayerId)
+    commit(label, {
+      stack: next.layers,
+      activeLayerId: next.activeLayerId,
+      ...(survives ? {} : { mask: null, maskLayerId: next.activeLayerId }),
+    })
   }
 
   /*
@@ -391,8 +434,12 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
       applyLayers('Add colour key layer', doc =>
         addColorKeyLayer(doc, {
           type: 'color-key',
-          // Seed from the current mask's colour pick when there is one, so the
-          // new layer starts as the same key the operator just sampled.
+          // White is the seed for artwork on a white ground, which is the common
+          // case for logos and line art. A design whose background is a different
+          // flat colour gets nothing from the default, which is why the layer is
+          // added at identity and the operator is expected to re-point it — the
+          // panel reports "Colour key ±24" so an ineffective key is visible
+          // rather than silently doing nothing.
           color: { r: 255, g: 255, b: 255 },
           tolerance: 24,
           feather: 0,
@@ -417,6 +464,9 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
       // is not in the stack is ignored rather than stored as a dangling pointer.
       const src = source.current
       if (!src) return
+      // Fold the live mask into the stack first, or selecting another layer
+      // would discard the coverage just painted on this one.
+      const folded = applyLiveMaskToStack(stack, maskLayerId, mask, src.width, src.height, threshold, featherRadius)
       const current = buildRenderDocument({
         width: src.width,
         height: src.height,
@@ -425,10 +475,20 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
         threshold,
         sourceId: fileUrl,
         adjustments,
-        stack,
+        stack: folded,
         activeLayerId,
+        maskLayerId,
       })
-      setActiveLayerId(setActiveLayer(current, layerId).activeLayerId)
+      const next = setActiveLayer(current, layerId)
+      setStack(folded)
+      setActiveLayerId(next.activeLayerId)
+      // Painting follows the selection: switch the live mask to the new layer's
+      // own coverage, so a stroke lands where the operator is looking. The old
+      // layer keeps its bytes in `stack` untouched.
+      if (next.activeLayerId !== maskLayerId) {
+        setMask(layerMaskBytes(next.layers.find(layer => layer.id === next.activeLayerId)))
+        setMaskLayerId(next.activeLayerId)
+      }
     },
   }
 
@@ -439,6 +499,7 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     setMask(snapshot?.mask ?? null)
     setStack(snapshot?.layers ?? [])
     setActiveLayerId(snapshot?.activeLayerId ?? 'base')
+    setMaskLayerId(snapshot?.maskLayerId ?? 'base')
     setAdjustments(snapshot?.adjustments ?? DEFAULT_ADJUSTMENTS)
     setDirty(true)
     setSaveState('idle')
@@ -602,7 +663,10 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     const target = mask ?? selection
     if (!src || !target) return
     const next = operation(target)
-    if (mask) commit(label, { mask: next })
+    // A mask operation belongs to the layer being painted, so it commits both the
+    // new bytes and the layer they belong to. Committing only the bytes would
+    // leave the previous owner attached to them after an undo.
+    if (mask) commit(label, { mask: next, maskLayerId })
     else commit(label, { selection: next })
   }
 
@@ -648,6 +712,8 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
   const maskTarget = mask ?? selection
   const size = dimensions
   const busy = !ready || !maskTarget
+  /** The layer the mask panel is painting, named for the status line. */
+  const layerName = stack.find(layer => layer.id === maskLayerId)?.name ?? 'artwork'
 
   return (
     <div className="manual-editor">
@@ -718,7 +784,7 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
           <button className="tool" disabled={!selection} onClick={() => selection && commit('Invert selection', { selection: invertSelection(selection) })}>
             Invert
           </button>
-          <button className="tool" disabled={!selection} data-testid="selection-to-mask" onClick={() => selection && commit('Selection → mask', { mask: selection })}>
+          <button className="tool" disabled={!selection} data-testid="selection-to-mask" onClick={() => selection && commit('Selection → mask', { mask: selection, maskLayerId: activeLayerId })}>
             Selection → mask
           </button>
         </aside>
@@ -756,7 +822,9 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
           )}
           <h3>Layer mask</h3>
           <p data-testid="mask-status">
-            {mask ? `Enabled · keeps ${Math.round(maskCoverage(mask) * 100)}%` : maskTarget ? 'From selection' : 'No mask'}
+            {mask
+              ? `Mask on ${layerName} · keeps ${Math.round(maskCoverage(mask) * 100)}%`
+              : maskTarget ? `Painting ${layerName} · mask from selection` : `Painting ${layerName} · no mask`}
           </p>
           <label className="manual-toggle">
             <input type="checkbox" checked={showMask} onChange={e => setShowMask(e.target.checked)} /> Show mask overlay

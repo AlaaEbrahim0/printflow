@@ -42,6 +42,14 @@ export interface EditorSnapshot {
   layers?: EditorDocument['layers']
   /** Which layer edits apply to. */
   activeLayerId?: string
+  /**
+   * Which layer the live `mask` bytes belong to.
+   *
+   * Masks are per-layer, but the editor paints one at a time. Without this, an
+   * undo that restored the mask would put those bytes on whichever layer
+   * happened to be selected afterwards.
+   */
+  maskLayerId?: string
   /** Human label for the entry, e.g. "Lasso" or "Feather mask". */
   label: string
 }
@@ -98,6 +106,7 @@ export function cloneSnapshot(snapshot: EditorSnapshot): EditorSnapshot {
         : {}),
     })) as EditorDocument['layers'],
     activeLayerId: snapshot.activeLayerId,
+    maskLayerId: snapshot.maskLayerId,
     label: snapshot.label,
   }
 }
@@ -113,7 +122,10 @@ export function snapshotsEqual(a: EditorSnapshot, b: EditorSnapshot): boolean {
     // Mask bytes are stripped before comparison: `mask` above already covers
     // them, and comparing them twice is pure cost on a 36 MP document.
     JSON.stringify(stripLayerMasks(a.layers)) === JSON.stringify(stripLayerMasks(b.layers)) &&
-    (a.activeLayerId ?? null) === (b.activeLayerId ?? null)
+    (a.activeLayerId ?? null) === (b.activeLayerId ?? null) &&
+    // The mask bytes above are meaningless without knowing which layer owns
+    // them: moving the paint target without changing any bytes is a real edit.
+    (a.maskLayerId ?? 'base') === (b.maskLayerId ?? 'base')
 }
 
 function stripLayerMasks(layers: EditorDocument['layers'] | undefined): unknown {

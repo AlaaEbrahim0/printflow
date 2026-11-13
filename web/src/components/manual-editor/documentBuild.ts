@@ -39,6 +39,14 @@ export interface DocumentBuildOptions {
   layers?: EditorLayer[]
   /** Which layer edits apply to. Defaults to the base. */
   activeLayerId?: string
+  /**
+   * Which layer the live `mask` bytes belong to. Defaults to the base.
+   *
+   * Masks are per-layer in the document, but the editor paints one at a time:
+   * the active layer's. The layers in `stack` keep their own packed masks; this
+   * one is overridden with the bytes the operator is currently painting.
+   */
+  maskLayerId?: string
   /** Global colour adjustments; appended as a layer when non-identity. */
   adjustments?: Adjustments
 }
@@ -65,6 +73,23 @@ export function packMask(
     if (mask[i] >= threshold) bytes[i >> 3] |= 1 << (i & 7)
   }
   return { encoding: 'bitpack-v1', width, height, feather, bytes }
+}
+
+/**
+ * Unpack a layer mask back to one byte per pixel.
+ *
+ * The inverse of `packMask`, and it lives here so the two cannot drift: a layer
+ * mask is packed for storage and rendering, but the editor paints it as bytes.
+ * A mask packed at a threshold of 128 is a binary decision, so the unpacked
+ * values are 0 or 255 — the same shape every `maskOps` function expects.
+ */
+export function unpackMask(packed: PackedMask): Uint8Array {
+  const pixels = packed.width * packed.height
+  const mask = new Uint8Array(pixels)
+  for (let i = 0; i < pixels; i += 1) {
+    mask[i] = (packed.bytes[i >> 3] >> (i & 7)) & 1 ? 255 : 0
+  }
+  return mask
 }
 
 export function buildBaseLayer(options: DocumentBuildOptions): BaseRasterLayer {
@@ -95,24 +120,26 @@ export function buildAdjustmentLayer(adjustments: Adjustments, id = 'adjustments
 
 /** The document the compositor renders for the editor's current state. */
 export function buildRenderDocument(options: DocumentBuildOptions): EditorDocument {
+  // The live byte mask belongs to one layer at a time. Everything else keeps the
+  // packed mask it was given, so switching the paint target never discards the
+  // coverage the operator already painted elsewhere.
+  const maskLayerId = options.maskLayerId ?? 'base'
+  const liveMask = packMask(options.mask, options.width, options.height, options.threshold, options.feather ?? 0)
+  const applyLiveMask = (layer: EditorLayer): EditorLayer =>
+    layer.id === maskLayerId ? { ...layer, mask: liveMask } : layer
+
   // A stack supplied by the caller already contains its base layer, and that
   // base carries the artwork's visibility/opacity/blend. Rebuilding it here
   // would silently reset those three to their defaults on every render.
   const suppliedBase = options.stack?.find(layer => layer.kind === 'base-raster')
   const base: EditorLayer = suppliedBase
-    ? {
-        ...suppliedBase,
-        kind: 'base-raster',
-        sourceId: 'source',
-        // Coverage stays owned by the live mask, never by the packed copy.
-        mask: packMask(options.mask, options.width, options.height, options.threshold, options.feather ?? 0),
-      }
-    : buildBaseLayer(options)
+    ? applyLiveMask({ ...suppliedBase, kind: 'base-raster', sourceId: 'source' })
+    : applyLiveMask(buildBaseLayer(options))
 
   const layers: EditorLayer[] = [
     base,
     ...(options.stack
-      ? options.stack.filter(layer => layer.kind !== 'base-raster')
+      ? options.stack.filter(layer => layer.kind !== 'base-raster').map(applyLiveMask)
       : (options.layers ?? [])),
   ]
   const adjustments = options.adjustments

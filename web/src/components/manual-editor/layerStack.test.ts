@@ -4,6 +4,8 @@ import { validateDocument, type EditorDocument, type PixelOperation } from './do
 import {
   activeLayer,
   addAdjustmentLayer,
+  applyLiveMaskToStack,
+  layerMaskBytes,
   addColorKeyLayer,
   baseLayer,
   canMoveLayer,
@@ -21,6 +23,7 @@ import {
   setLayerVisible,
 } from './layerStack'
 import { buildRenderDocument } from './documentBuild'
+import type { EditorLayer } from './document'
 
 const document = (): EditorDocument =>
   buildRenderDocument({ width: 4, height: 4, mask: null, threshold: 128, sourceId: 'art' })
@@ -214,5 +217,57 @@ describe('presentation', () => {
   it('says so when an adjustment layer would change nothing', () => {
     const doc = addAdjustmentLayer(document(), { ...DEFAULT_ADJUSTMENTS, hue: 10 })
     expect(describeLayer(doc.layers[1])).toBe('Levels')
+  })
+})
+
+describe('per-layer masks', () => {
+  const stack = (): EditorLayer[] => [
+    { id: 'base', kind: 'base-raster', name: 'Original', sourceId: 'source', visible: true, opacity: 1, blendMode: 'normal', mask: null },
+    { id: 'adjust-1', kind: 'adjustment', name: 'Levels', visible: true, opacity: 1, blendMode: 'normal', mask: null, adjustment: DEFAULT_ADJUSTMENTS },
+  ]
+
+  it('writes the live bytes onto the owning layer only', () => {
+    // The regression this exists for: switching layers dropped the mask just
+    // painted, because the stack kept a stale packed copy.
+    const mask = Uint8Array.from([255, 0, 255, 0])
+    const folded = applyLiveMaskToStack(stack(), 'adjust-1', mask, 2, 2, 128)
+    expect(folded[0].mask).toBeNull()
+    expect(folded[1].mask).not.toBeNull()
+    expect(Array.from(layerMaskBytes(folded[1])!)).toEqual([255, 0, 255, 0])
+  })
+
+  it('packs the bytes at the editor threshold, not at 128', () => {
+    const folded = applyLiveMaskToStack(stack(), 'base', Uint8Array.from([100, 200]), 2, 1, 200)
+    expect(Array.from(layerMaskBytes(folded[0])!)).toEqual([0, 255])
+  })
+
+  it('carries the feather radius so soft edges survive a round trip', () => {
+    const folded = applyLiveMaskToStack(stack(), 'base', Uint8Array.from([255, 255]), 2, 1, 128, 5)
+    expect(folded[0].mask!.feather).toBe(5)
+  })
+
+  it('clears a layer mask when the live bytes are null', () => {
+    const withMask = applyLiveMaskToStack(stack(), 'base', Uint8Array.from([255, 255]), 2, 1, 128)
+    expect(withMask[0].mask).not.toBeNull()
+    expect(applyLiveMaskToStack(withMask, 'base', null, 2, 1, 128)[0].mask).toBeNull()
+  })
+
+  it('leaves the layers it does not own untouched by identity', () => {
+    const original = stack()
+    const folded = applyLiveMaskToStack(original, 'adjust-1', Uint8Array.from([255, 255]), 2, 1, 128)
+    // The base was not the paint target, so its object is reused as-is.
+    expect(folded[0]).toBe(original[0])
+  })
+
+  it('reads null for a layer with no mask, meaning every pixel is kept', () => {
+    expect(layerMaskBytes(stack()[0])).toBeNull()
+    expect(layerMaskBytes(undefined)).toBeNull()
+  })
+
+  it('round-trips through the packed representation exactly', () => {
+    const mask = new Uint8Array(37)
+    for (let i = 0; i < mask.length; i += 1) mask[i] = i % 3 === 0 ? 255 : 0
+    const folded = applyLiveMaskToStack(stack(), 'base', mask, 37, 1, 128)
+    expect(Array.from(layerMaskBytes(folded[0])!)).toEqual(Array.from(mask))
   })
 })
