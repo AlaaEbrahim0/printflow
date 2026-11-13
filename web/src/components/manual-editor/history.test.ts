@@ -90,3 +90,72 @@ describe('editor history', () => {
     expect(currentSnapshot(history)?.mask).toBeNull()
   })
 })
+
+describe('layer history', () => {
+  const layers = (ids: string[]): { id: string; kind: 'adjustment'; name: string; visible: boolean; opacity: number; blendMode: 'normal'; mask: null; adjustment: ReturnType<typeof snapshot>['adjustments'] }[] =>
+    ids.map(id => ({
+      id, kind: 'adjustment' as const, name: id, visible: true, opacity: 1,
+      blendMode: 'normal' as const, mask: null, adjustment: snapshot(id).adjustments,
+    }))
+
+  it('carries the layer stack through a snapshot', () => {
+    const history = commitHistory(emptyHistory(), {
+      ...snapshot('Add layer'), layers: layers(['adjust-1']), activeLayerId: 'adjust-1',
+    })
+    expect(currentSnapshot(history)?.layers).toHaveLength(1)
+    expect(currentSnapshot(history)?.activeLayerId).toBe('adjust-1')
+  })
+
+  it('treats a layer change as a real edit, not a duplicate', () => {
+    // Without the stack in the comparison, adding a layer would look identical
+    // to the previous state and Undo would silently do nothing.
+    const before = commitHistory(emptyHistory(), { ...snapshot('Original'), layers: layers(['adjust-1']) })
+    const after = commitHistory(before, { ...snapshot('Add layer'), layers: layers(['adjust-1', 'adjust-2']) })
+    expect(after.entries).toHaveLength(2)
+    expect(undoHistory(after).cursor).toBe(0)
+    expect(currentSnapshot(undoHistory(after))?.layers).toHaveLength(1)
+  })
+
+  it('detects a reorder even though the layer count is unchanged', () => {
+    const before = commitHistory(emptyHistory(), { ...snapshot('Original'), layers: layers(['a', 'b']) })
+    const reordered = commitHistory(before, { ...snapshot('Move up'), layers: layers(['b', 'a']) })
+    expect(reordered.entries).toHaveLength(2)
+  })
+
+  it('detects a visibility toggle, which changes no bytes anywhere', () => {
+    const shown = layers(['a'])
+    const hidden = [{ ...shown[0], visible: false }]
+    const before = commitHistory(emptyHistory(), { ...snapshot('Original'), layers: shown })
+    expect(commitHistory(before, { ...snapshot('Hide'), layers: hidden }).entries).toHaveLength(2)
+  })
+
+  it('detects an active-layer change on its own', () => {
+    const before = commitHistory(emptyHistory(), { ...snapshot('Original'), layers: layers(['a', 'b']), activeLayerId: 'a' })
+    const after = commitHistory(before, { ...snapshot('Select layer'), layers: layers(['a', 'b']), activeLayerId: 'b' })
+    expect(after.entries).toHaveLength(2)
+  })
+
+  it('still collapses an identical layer state', () => {
+    const state = { ...snapshot('Original'), layers: layers(['a']) }
+    const before = commitHistory(emptyHistory(), state)
+    expect(commitHistory(before, state)).toBe(before)
+  })
+
+  it('copies layer payloads so undo cannot rewrite the redo state', () => {
+    const original = { ...snapshot('Original'), layers: layers(['a']) }
+    const history = commitHistory(emptyHistory(), original)
+    // Mutating the caller's object must not reach into stored history.
+    original.layers[0].adjustment.hue = 90
+    expect(currentSnapshot(history)?.layers?.[0].kind === 'adjustment'
+      ? (currentSnapshot(history)!.layers![0] as { adjustment: { hue: number } }).adjustment.hue
+      : null).toBe(0)
+  })
+
+  it('round-trips through undo and redo', () => {
+    const one = commitHistory(emptyHistory(), { ...snapshot('Original'), layers: layers(['a']) })
+    const two = commitHistory(one, { ...snapshot('Add b'), layers: layers(['a', 'b']) })
+    const back = undoHistory(two)
+    expect(currentSnapshot(back)?.layers).toHaveLength(1)
+    expect(currentSnapshot(redoHistory(back))?.layers).toHaveLength(2)
+  })
+})

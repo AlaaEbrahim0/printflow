@@ -17,11 +17,23 @@ import {
 } from './history'
 import { contractMask, featherMask, growMask, maskCoverage, thresholdMask } from './maskOps'
 import { assertSupportedSize } from './memoryBudget'
-import { buildDraftDocument, buildRenderDocument } from './documentBuild'
+import { buildBaseLayer, buildDraftDocument, buildRenderDocument } from './documentBuild'
+import {
+  addAdjustmentLayer,
+  addColorKeyLayer,
+  moveLayer,
+  removeLayer,
+  setActiveLayer,
+  setLayerBlend,
+  setLayerOpacity,
+  setLayerVisible,
+} from './layerStack'
+import { LayerPanel } from './LayerPanel'
 import { EMPTY_PATH, canFillPath, fillPath, undoPathPoint, type PathState } from './pathModel'
 import { dragWorkPath, pressWorkPath, workPathKeyAction } from './workPath'
 import { drawMaskOverlay, drawPathOverlay, drawSelectionOverlay } from './render'
 import { compositeDocument } from './composite'
+import type { BlendMode, EditorDocument, EditorLayer } from './document'
 import {
   clearEditorDraft,
   loadEditorDraft,
@@ -52,6 +64,16 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
   const [mode, setMode] = useState<SelectionMode>('replace')
   const [selection, setSelection] = useState<Uint8Array | null>(null)
   const [mask, setMask] = useState<Uint8Array | null>(null)
+  /**
+   * The full layer stack, bottom-first, including the base raster.
+   *
+   * The base layer is kept here rather than rebuilt on every render because the
+   * operator can hide it, fade it, or pick it as the active layer — three pieces
+   * of state that have to survive a render. Its *mask* is still rebuilt from the
+   * live byte mask each time, so coverage has exactly one owner.
+   */
+  const [stack, setStack] = useState<EditorLayer[]>([])
+  const [activeLayerId, setActiveLayerId] = useState('base')
   const [path, setPath] = useState<PathState>(EMPTY_PATH)
   const [drag, setDrag] = useState<Point | null>(null)
   /** Corner grabbed by a polygon press, or null when the press was not a grab. */
@@ -115,11 +137,26 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
       setDimensions({ width: img.naturalWidth, height: img.naturalHeight })
       setSelection(null)
       setMask(null)
+      // A fresh stack with just the artwork on it, so the layer panel has
+      // something to show and to select before the operator adds anything.
+      const initialStack = [buildBaseLayer({ width: img.naturalWidth, height: img.naturalHeight, mask: null, threshold: 128, sourceId: fileUrl })]
+      setStack(initialStack)
+      setActiveLayerId('base')
       setPath(EMPTY_PATH)
       setDrag(null)
       setHover(null)
       setAdjustments(DEFAULT_ADJUSTMENTS)
-      setHistory(emptyHistory({ selection: null, mask: null, adjustments: DEFAULT_ADJUSTMENTS, label: 'Original' }))
+      // The first history entry has to describe the same stack the editor just
+      // installed. Without it, the first Ctrl+Z restores a snapshot with no
+      // layers and the panel empties out.
+      setHistory(emptyHistory({
+        selection: null,
+        mask: null,
+        adjustments: DEFAULT_ADJUSTMENTS,
+        layers: initialStack,
+        activeLayerId: 'base',
+        label: 'Original',
+      }))
       setDirty(false)
       setSaveState('idle')
       setReady(true)
@@ -148,8 +185,18 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     if (!snapshot) return
     setSelection(snapshot.selection?.slice() ?? null)
     setMask(snapshot.mask?.slice() ?? null)
+    // An older draft has no stack; keep the single-artwork one the load built.
+    if (snapshot.layers?.length) setStack(snapshot.layers)
+    if (snapshot.activeLayerId) setActiveLayerId(snapshot.activeLayerId)
     setAdjustments(snapshot.adjustments)
-    setHistory(emptyHistory({ selection: snapshot.selection?.slice() ?? null, mask: snapshot.mask?.slice() ?? null, adjustments: snapshot.adjustments, label: snapshot.label }))
+    setHistory(emptyHistory({
+      selection: snapshot.selection?.slice() ?? null,
+      mask: snapshot.mask?.slice() ?? null,
+      adjustments: snapshot.adjustments,
+      layers: snapshot.layers,
+      activeLayerId: snapshot.activeLayerId,
+      label: snapshot.label,
+    }))
   }
 
   function declineRestore() {
@@ -164,7 +211,16 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     saveEditorDraft({
       batchId: batchId!, designId: designId!,
       document: buildDraftDocument(src.width, src.height, mask, threshold, fileUrl),
-      snapshot: { selection, mask, adjustments, label: currentSnapshot(history)?.label ?? 'Original' },
+      snapshot: {
+        selection,
+        mask,
+        adjustments,
+        // Layers persist with the snapshot: a reload has to bring back the
+        // stack the operator built, not just the artwork underneath it.
+        layers: stack,
+        activeLayerId,
+        label: currentSnapshot(history)?.label ?? 'Original',
+      },
     }).catch(() => {
       // In-memory editing state is untouched; only persistence failed.
       setDraftNotice('Draft save failed — edits are kept, but reload will lose them. Save manually.')
@@ -177,7 +233,7 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     const timer = window.setTimeout(() => { pendingDraft.current = false; writeDraft() }, 1200)
     return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, mask, adjustments, dirty, draftReady])
+  }, [selection, mask, adjustments, stack, activeLayerId, dirty, draftReady])
 
   useEffect(() => {
     if (!draftReady) return
@@ -215,6 +271,8 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
         threshold,
         sourceId: fileUrl,
         adjustments,
+        stack,
+        activeLayerId,
       })
       const rendered = compositeDocument(document, { resolve: () => pixels })
       canvas.width = rendered.width; canvas.height = rendered.height
@@ -247,7 +305,7 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
       return
     }
     drawSelectionOverlay(ants, selection, width, height)
-  }, [ready, selection, mask, adjustments, path, drag, hover, tool, showMask])
+  }, [ready, selection, mask, adjustments, path, drag, hover, tool, showMask, stack, activeLayerId, threshold, featherRadius])
 
   function point(event: React.PointerEvent): Point {
     const canvas = base.current!
@@ -262,14 +320,116 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     )
   }
 
-  function commit(label: string, next: { selection?: Uint8Array | null; mask?: Uint8Array | null }) {
+  function commit(
+    label: string,
+    next: { selection?: Uint8Array | null; mask?: Uint8Array | null; stack?: EditorLayer[]; activeLayerId?: string },
+  ) {
     const nextSelection = next.selection === undefined ? selection : next.selection
     const nextMask = next.mask === undefined ? mask : next.mask
+    const nextStack = next.stack === undefined ? stack : next.stack
+    const nextActive = next.activeLayerId === undefined ? activeLayerId : next.activeLayerId
     setDirty(true)
     setSaveState('idle')
     setSelection(nextSelection)
     setMask(nextMask)
-    setHistory(state => commitHistory(state, { selection: nextSelection, mask: nextMask, adjustments, label }))
+    setStack(nextStack)
+    setActiveLayerId(nextActive)
+    setHistory(state =>
+      commitHistory(state, {
+        selection: nextSelection,
+        mask: nextMask,
+        adjustments,
+        layers: nextStack,
+        activeLayerId: nextActive,
+        label,
+      }),
+    )
+  }
+
+  /**
+   * Apply a layer-stack operation and record it as one undoable step.
+   *
+   * `layerStack` validates every mutation through `applyCommand`, so this helper
+   * only has to assemble the current document, let the operation run, and store
+   * the resulting stack. Coverage comes back out of the base layer unchanged —
+   * no layer operation edits the mask — so the live `mask` is left alone.
+   */
+  function applyLayers(label: string, change: (document: EditorDocument) => EditorDocument) {
+    const src = source.current
+    if (!src) return
+    // Built *without* the global Levels layer on purpose. That layer is derived
+    // from the sliders and always sits on top; if it were present here, "move up"
+    // on the topmost real layer would appear to do nothing while the panel order
+    // and the composite order drifted apart.
+    const current = buildRenderDocument({
+      width: src.width,
+      height: src.height,
+      mask,
+      feather: featherRadius,
+      threshold,
+      sourceId: fileUrl,
+      stack,
+      activeLayerId,
+    })
+    const next = change(current)
+    if (next === current) return
+    commit(label, { stack: next.layers, activeLayerId: next.activeLayerId })
+  }
+
+  /*
+   * Layer handlers.
+   *
+   * Each one is a label plus a pure `layerStack` call, so the validation and the
+   * undo entry both come from the same place as every other edit. Selecting a
+   * layer is deliberately *not* committed to history on its own: it is a view
+   * state, not an edit, and folding it in would make Ctrl+Z spend a step on
+   * nothing but the highlight moving.
+   */
+  const layerHandlers = {
+    onAddAdjustment: () => applyLayers('Add levels layer', doc => addAdjustmentLayer(doc, adjustments)),
+    onAddColorKey: () =>
+      applyLayers('Add colour key layer', doc =>
+        addColorKeyLayer(doc, {
+          type: 'color-key',
+          // Seed from the current mask's colour pick when there is one, so the
+          // new layer starts as the same key the operator just sampled.
+          color: { r: 255, g: 255, b: 255 },
+          tolerance: 24,
+          feather: 0,
+          contiguous: false,
+          useAlpha: false,
+          seeds: [],
+        }),
+      ),
+    onToggleVisible: (layerId: string) =>
+      applyLayers('Toggle layer visibility', doc =>
+        setLayerVisible(doc, layerId, !doc.layers.find(layer => layer.id === layerId)?.visible),
+      ),
+    onMove: (layerId: string, direction: -1 | 1) => applyLayers('Reorder layer', doc => moveLayer(doc, layerId, direction)),
+    onRemove: (layerId: string) => applyLayers('Delete layer', doc => removeLayer(doc, layerId)),
+    onOpacity: (layerId: string, opacity: number) =>
+      applyLayers('Layer opacity', doc => setLayerOpacity(doc, layerId, opacity)),
+    onBlend: (layerId: string, blendMode: BlendMode) =>
+      applyLayers('Layer blend mode', doc => setLayerBlend(doc, layerId, blendMode)),
+    onSelect: (layerId: string) => {
+      // Selection is a view state, not an edit, so it is not recorded in
+      // history — but it still goes through `setActiveLayer` so a layer id that
+      // is not in the stack is ignored rather than stored as a dangling pointer.
+      const src = source.current
+      if (!src) return
+      const current = buildRenderDocument({
+        width: src.width,
+        height: src.height,
+        mask,
+        feather: featherRadius,
+        threshold,
+        sourceId: fileUrl,
+        adjustments,
+        stack,
+        activeLayerId,
+      })
+      setActiveLayerId(setActiveLayer(current, layerId).activeLayerId)
+    },
   }
 
   function restore(next: HistoryState) {
@@ -277,6 +437,8 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
     const snapshot = currentSnapshot(next)
     setSelection(snapshot?.selection ?? null)
     setMask(snapshot?.mask ?? null)
+    setStack(snapshot?.layers ?? [])
+    setActiveLayerId(snapshot?.activeLayerId ?? 'base')
     setAdjustments(snapshot?.adjustments ?? DEFAULT_ADJUSTMENTS)
     setDirty(true)
     setSaveState('idle')
@@ -570,6 +732,12 @@ export function ManualEditor({ title, fileUrl, batchId, designId, onSave, onBack
           </div>
         </section>
         <aside className="manual-panel">
+          <LayerPanel
+            layers={stack}
+            activeLayerId={activeLayerId}
+            ready={ready}
+            {...layerHandlers}
+          />
           <label>
             Zoom <input type="range" min="0.25" max="2" step=".05" value={zoom} onChange={e => setZoom(+e.target.value)} />
           </label>

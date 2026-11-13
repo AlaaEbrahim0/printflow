@@ -802,8 +802,51 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
    Every module under `web/src/components/manual-editor/` is now imported and
    tested. Web suite 473 tests / 45 files green; full `make phase-gates` green.
    Next: Phase 3 complex editor shell.
-5. Keep worker loop sequential with concurrency 1 for every job type.
-6. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
+5. Phase 3 complex editor shell, first slice done. `document.ts` and
+   `compositeDocument` already described a full stack (base raster, adjustment
+   layers, colour-key layers, each with visibility/opacity/blend/mask) but the
+   editor only ever built one base layer and never showed a list. Scoping that
+   exposed three defects that had to be fixed first, because a layer panel would
+   have sat on all three:
+   - The Levels / Hue / Saturation panel never reached a pixel. Every slider set
+     `dirty` and nothing else; the document handed to `compositeDocument` carried
+     only the base layer. Adjustments now append an adjustment layer through
+     `documentBuild.ts`, which is also the single builder the draft uses, so the
+     preview and the saved draft can never describe different documents.
+   - Adjustment and colour-key layers were composited with source-over, which is
+     wrong twice: a 50%-alpha pixel came out at 75% (`sa + da(1 - sa)`), so soft
+     mask edges crept back towards opaque through every adjustment pass, and a
+     colour-key layer re-emitted the composite it had just keyed, so keying did
+     nothing at all. Both are transforms of the pixels below, so they now
+     interpolate between the composite and the transformed copy.
+   - `packMask` wrote one byte per pixel while `PackedMask` is `bitpack-v1` and
+     `validateDocument` requires `ceil(w*h/8)` bytes. Every draft save with a
+     non-empty mask was rejected as "mask dimensions mismatch", which the editor
+     surfaced as "Draft save failed" — Phase 1b persistence silently did not work
+     for exactly the edits worth persisting. The earlier draft tests only used a
+     null mask, which is why they passed.
+   The shell itself is `layerStack.ts` (pure add/remove/reorder/visibility/
+   opacity/blend/active-layer operations, every one routed through
+   `applyCommand` so `validateDocument` checks it on every keystroke),
+   `LayerPanel.tsx` (top-first list, eye toggle, select, add Levels, add colour
+   key, delete, move up/down, opacity, blend) and a `stack` state in
+   `ManualEditor` that includes the base layer so the artwork's own visibility,
+   opacity and blend mode are reachable — the one thing the single-layer editor
+   could not express. Layer changes are part of the history snapshot, so Ctrl+Z
+   walks them back like a mask stroke; layer *selection* deliberately is not,
+   because spending an undo step on the highlight moving is worse than nothing.
+   Drafts now persist the stack and the active layer id (optional fields, so a
+   draft written before layers existed still restores).
+   Two ordering defects found by the new tests: `applyCommand` validates the
+   document it produces, so deleting the active layer had to re-point
+   `activeLayerId` *before* the removal; and the global Levels layer is derived
+   from the sliders and must not be written back into the stack, or the next
+   render adds a second copy and the panel grows a phantom row.
+   Web suite 551 tests / 50 files green; full `make phase-gates` green.
+   Next: still Phase 3 — the stack renders but per-layer mask painting, layer
+   rename and a pixel-op layer the operator can configure are not wired.
+6. Keep worker loop sequential with concurrency 1 for every job type.
+7. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
    measured need appears.
 
 Historical runtime notes follow; native GPU and prior Phase 3 measurements remain

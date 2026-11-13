@@ -26,11 +26,25 @@ export interface DocumentBuildOptions {
   threshold: number
   /** Identifies the source artwork; also the draft's `designId`. */
   sourceId: string
-  /** Extra layers above the base, in bottom-to-top order. */
+  /**
+   * The full stack, bottom-first, when the editor is driving one.
+   *
+   * The base layer in it supplies visibility, opacity and blend mode — the
+   * operator can hide or fade the artwork — but its *mask* is always rebuilt
+   * from `mask` above. The live byte mask stays the one authority for coverage,
+   * so a mask stroke and a layer-panel change can never disagree.
+   */
+  stack?: EditorLayer[]
+  /** Extra layers above a freshly built base, bottom-to-top. */
   layers?: EditorLayer[]
+  /** Which layer edits apply to. Defaults to the base. */
+  activeLayerId?: string
   /** Global colour adjustments; appended as a layer when non-identity. */
   adjustments?: Adjustments
 }
+
+/** Id of the layer that carries the global Levels/HSL panel. */
+export const GLOBAL_ADJUSTMENT_LAYER_ID = 'adjustments'
 
 export function packMask(
   mask: Uint8Array | null,
@@ -81,9 +95,30 @@ export function buildAdjustmentLayer(adjustments: Adjustments, id = 'adjustments
 
 /** The document the compositor renders for the editor's current state. */
 export function buildRenderDocument(options: DocumentBuildOptions): EditorDocument {
-  const layers: EditorLayer[] = [buildBaseLayer(options), ...(options.layers ?? [])]
+  // A stack supplied by the caller already contains its base layer, and that
+  // base carries the artwork's visibility/opacity/blend. Rebuilding it here
+  // would silently reset those three to their defaults on every render.
+  const suppliedBase = options.stack?.find(layer => layer.kind === 'base-raster')
+  const base: EditorLayer = suppliedBase
+    ? {
+        ...suppliedBase,
+        kind: 'base-raster',
+        sourceId: 'source',
+        // Coverage stays owned by the live mask, never by the packed copy.
+        mask: packMask(options.mask, options.width, options.height, options.threshold, options.feather ?? 0),
+      }
+    : buildBaseLayer(options)
+
+  const layers: EditorLayer[] = [
+    base,
+    ...(options.stack
+      ? options.stack.filter(layer => layer.kind !== 'base-raster')
+      : (options.layers ?? [])),
+  ]
   const adjustments = options.adjustments
-  if (adjustments && !isIdentityAdjustments(adjustments)) layers.push(buildAdjustmentLayer(adjustments))
+  if (adjustments && !isIdentityAdjustments(adjustments)) {
+    layers.push(buildAdjustmentLayer(adjustments, GLOBAL_ADJUSTMENT_LAYER_ID))
+  }
   return {
     schemaVersion: 1,
     id: 'manual-editor',
@@ -92,7 +127,12 @@ export function buildRenderDocument(options: DocumentBuildOptions): EditorDocume
     width: options.width,
     height: options.height,
     layers,
-    activeLayerId: 'base',
+    // The active layer has to exist in the stack the compositor is handed, or
+    // validateDocument throws. A stack that lost its active layer (an undo
+    // across a delete, say) falls back to the base rather than failing a render.
+    activeLayerId: layers.some(layer => layer.id === options.activeLayerId)
+      ? options.activeLayerId!
+      : 'base',
     selection: null,
   }
 }

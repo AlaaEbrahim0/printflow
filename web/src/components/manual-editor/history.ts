@@ -21,6 +21,7 @@
  */
 
 import { DEFAULT_ADJUSTMENTS, type Adjustments } from './adjustments'
+import type { EditorDocument } from './document'
 
 export interface EditorSnapshot {
   /** Row-major selection mask, one byte per pixel, or `null` for none. */
@@ -29,6 +30,18 @@ export interface EditorSnapshot {
   mask: Uint8Array | null
   /** Colour adjustments active in editor. */
   adjustments: Adjustments
+  /**
+   * The layer stack, when the editor is driving one.
+   *
+   * Layer changes (add, remove, reorder, visibility, opacity, blend) are things
+   * a person expects Ctrl+Z to walk back exactly like a mask stroke, so they
+   * belong in the same snapshot. It is stored as the document minus its mask
+   * buffers, which are already carried by `mask` above — duplicating them here
+   * would double the memory of every history entry for no benefit.
+   */
+  layers?: EditorDocument['layers']
+  /** Which layer edits apply to. */
+  activeLayerId?: string
   /** Human label for the entry, e.g. "Lasso" or "Feather mask". */
   label: string
 }
@@ -71,6 +84,20 @@ export function cloneSnapshot(snapshot: EditorSnapshot): EditorSnapshot {
       saturation: (snapshot.adjustments ?? DEFAULT_ADJUSTMENTS).saturation,
       lightness: (snapshot.adjustments ?? DEFAULT_ADJUSTMENTS).lightness,
     },
+    // Layers are cloned shallowly per layer but their nested payloads are
+    // copied, because a slider edits `adjustment` in place in some call paths
+    // and two entries aliasing one object means undo rewrites the redo state.
+    layers: snapshot.layers?.map(layer => ({
+      ...layer,
+      mask: layer.mask ? { ...layer.mask, bytes: layer.mask.bytes.slice() } : null,
+      ...(layer.kind === 'adjustment'
+        ? { adjustment: { ...layer.adjustment, levels: { ...layer.adjustment.levels } } }
+        : {}),
+      ...(layer.kind === 'pixel-op'
+        ? { operation: { ...layer.operation, color: { ...layer.operation.color }, seeds: layer.operation.seeds.map(s => ({ ...s })) } }
+        : {}),
+    })) as EditorDocument['layers'],
+    activeLayerId: snapshot.activeLayerId,
     label: snapshot.label,
   }
 }
@@ -82,7 +109,15 @@ export function cloneSnapshot(snapshot: EditorSnapshot): EditorSnapshot {
  */
 export function snapshotsEqual(a: EditorSnapshot, b: EditorSnapshot): boolean {
   return bytesEqual(a.selection, b.selection) && bytesEqual(a.mask, b.mask) &&
-    JSON.stringify(a.adjustments ?? DEFAULT_ADJUSTMENTS) === JSON.stringify(b.adjustments ?? DEFAULT_ADJUSTMENTS)
+    JSON.stringify(a.adjustments ?? DEFAULT_ADJUSTMENTS) === JSON.stringify(b.adjustments ?? DEFAULT_ADJUSTMENTS) &&
+    // Mask bytes are stripped before comparison: `mask` above already covers
+    // them, and comparing them twice is pure cost on a 36 MP document.
+    JSON.stringify(stripLayerMasks(a.layers)) === JSON.stringify(stripLayerMasks(b.layers)) &&
+    (a.activeLayerId ?? null) === (b.activeLayerId ?? null)
+}
+
+function stripLayerMasks(layers: EditorDocument['layers'] | undefined): unknown {
+  return layers?.map(layer => ({ ...layer, mask: layer.mask ? { ...layer.mask, bytes: null } : null }))
 }
 
 function bytesEqual(a: Uint8Array | null, b: Uint8Array | null): boolean {

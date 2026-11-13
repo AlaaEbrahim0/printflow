@@ -1,4 +1,4 @@
-import { validateDocument, type EditorDocument } from '../components/manual-editor/document'
+import { validateDocument, type EditorDocument, type EditorLayer } from '../components/manual-editor/document'
 import { buildDraftDocument } from '../components/manual-editor/documentBuild'
 import type { Adjustments } from '../components/manual-editor/adjustments'
 
@@ -8,6 +8,17 @@ export interface DraftSnapshot {
   /** Row-major layer mask, one byte per pixel, or null. */
   mask: Uint8Array | null
   adjustments: Adjustments
+  /**
+   * The layer stack as it stood, bottom-first, including the base raster.
+   *
+   * Optional so a draft written before layers existed still restores: it simply
+   * comes back as a single-artwork document. Without this, every added layer
+   * would vanish on reload while the mask and sliders survived, which is a
+   * worse surprise than losing all of it.
+   */
+  layers?: EditorLayer[]
+  /** Which layer was selected when the draft was written. */
+  activeLayerId?: string
   label: string
 }
 
