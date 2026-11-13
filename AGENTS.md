@@ -237,9 +237,11 @@ version or docs first.
 - EF Core persistence supports PostgreSQL in Compose and SQLite in Development;
   `/healthz` checks the configured database and `/api/v1/info` returns contract
   version `2.0.0`.
-- Supported new steps are classify, trim/manual crop, upscale and resize.
-  Background-removal and vectorize versions remain readable but cannot be
-  proposed; their stored mask/SVG endpoints still serve history.
+- Supported new steps are classify, trim/manual crop, upscale, resize,
+  background-removal and manual-edit. Background removal is live: `ai` (the
+  withoutBG matte) or `color-to-alpha`, plus mask shaping. `vectorize` is retired
+  and its stored SVG endpoints only serve history. Withdrawn as 2026-11-10
+  staleness: background removal is proposable again and produces a mask artifact.
 - Processing steps create immutable proposed versions. The current pointer
   changes only on approval; files are stored under the shared storage root.
 - `PrintUnits` implements cm↔px and effective DPI; domain tests cover it.
@@ -260,10 +262,21 @@ dotnet test PrintSheet.slnx
 - FastAPI processing service with health and worker/job endpoints.
 - `PRINTSHEET_*` settings via `pydantic-settings`.
 - `PRINTSHEET_MAX_GPU_JOBS` is constrained to 1 (GTX 1650 Ti, 4 GB VRAM).
-- Image processing covers trim/crop, upscale, resize and classify. GPU jobs are
-  constrained to one at a time. The retired background-removal/vectorize job
-  types fail with a structured `retired` reason; the schema still accepts old
-  documents so historical records remain readable.
+- Image processing covers trim/crop, upscale, resize, classify and
+  background-removal (`ai` matte or colour key + mask shaping). GPU jobs are
+  constrained to one at a time. `vectorize` fails with a structured `retired`
+  reason; the schema still accepts old documents so historical records remain
+  readable.
+- The AI matte is `worker/app/engines/withoutbg.py` (`mode: ai`,
+  `aiModel: withoutbg-open`). The package is imported lazily so every non-AI job
+  still starts when the ~1.5 GB weights are absent; weights land in `HF_HOME`
+  (`models/hf` natively, `/data/models/hf` in Compose) on first AI use, unless
+  `PRINTSHEET_CUTOUT_MODEL_PATH` pins an offline bundle.
+- The matte runs on CPU, one inference at a time, and caps the working size at
+  the bundle's `max_inference_size` before upsampling. Budget tens of seconds to
+  ~6 minutes per design at 3500 × 4834. An upload that already carries a
+  transparent background keeps its own alpha (`source-alpha-used`) instead of
+  paying for an inference that can only shave visible pixels.
 - Job polling starts only when `PRINTSHEET_RUN_JOBS=true`; Compose and
   `scripts/run-worker.sh` enable it. Health-only app/test runs keep the default
   false.
@@ -378,9 +391,9 @@ must not accidentally reverse them:
 - Design statuses: `received`, `in-progress`, `ready`, `needs-better-source`,
   `excluded`.
 - Version statuses: `proposed`, `approved`, `rejected`.
-- Step types: `original`, `trim`, `crop`, `upscale`, `resize`. Historical
-  `vectorize` and `background-removal` values remain readable but are retired
-  for new proposals.
+- Step types: `original`, `trim`, `crop`, `upscale`, `resize`,
+  `background-removal`, `manual-edit`. Historical `vectorize` values remain
+  readable but are retired for new proposals.
 - Only one `proposed` version per design. A stale proposal (parent no longer
   current) must be rejected, not quietly rebased.
 - A design becomes `ready` only when the current approved version is a `resize`
@@ -398,9 +411,13 @@ must not accidentally reverse them:
   configurable settings, not scattered magic numbers.
 - Full-bleed inputs (all four edges non-uniform) must not get an auto-trim
   proposal.
-- Historical background-removal masks and vector SVGs stay readable and
-  downloadable; they are never edited. The brush editor and new mask proposals
-  are gone.
+- Background-removal proposals are live again: `ai` (withoutBG open weights,
+  `aiModel: withoutbg-open`) or `color-to-alpha`, both feeding one mask pipeline
+  (brush ops, `maskMinAreaPx` speck/hole refinement, grow/contract, feather, mask
+  levels). Archived BiRefNet model ids are refused, never silently substituted.
+  Every mask and vector SVG stays readable and downloadable; historical files are
+  never edited. The manual editor is frozen: its route and tests stay, but the
+  review page does not link to it.
 - `all-designs-placed` is the fifth blocking check. Subset packs report omitted
   designs with reason `not-selected`; any unplaced design makes
   `IntegrityReport.passed` false and blocks export.
@@ -553,6 +570,24 @@ flow complements, but does not replace, packer property/adversarial tests.
   report is not passed.
 - PSD classic limit is 30,000 px per side (~254 cm at 300 DPI). Real sheets can
   reach ~59,000 px tall, requiring PSB or the rebuild bundle.
+- Never hand the AI matte an RGBA image through `convert("RGB")`: that drops the
+  alpha without compositing, and the RGB under a transparent pixel is undefined
+  (a real shop PNG held flat grey there), so the model reads garbage as artwork.
+  `WithoutBgCutout` composites on white first.
+- Never re-mate an upload that already carries a cut-out alpha. Measured on
+  `Meter.png` 3500 × 4834: 356 s and IoU 0.987 while shaving 1.3% of the subject,
+  versus reading the stored alpha. The processor now reports
+  `source-alpha-used` and skips the engine.
+- A white interior that only exists because the source alpha hid it cannot be
+  recovered from a flattened image by any matte. Measured +110…185% extra opaque
+  area on `Meter` and `Untitled-1`. Those designs go through ready-to-pack or a
+  manual cut-out; do not "fix" it by loosening a threshold.
+- The AI matte is CPU ONNX and the timer is real: tens of seconds for a 1 MP
+  design, ~6 minutes for 3500 × 4834 when the BiRefNet branch runs. Keep worker
+  concurrency 1 and do not add a timeout that turns a slow-but-correct matte into
+  a failure.
+- WithoutBG weights are ~1.5 GB. They belong in `HF_HOME` (git-ignored
+  `models/hf`), never in the repo or in the shared storage root.
 
 ---
 
@@ -584,9 +619,36 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 ## 15. Live status
 
-**Last updated:** 2026-11-11 (review page rebuilt as a canvas + layer-stack editor; teal accent, light theme)
+**Last updated:** 2026-11-13 (AI cutout adopted: withoutBG matte, shared mask pipeline, DTF speck pass, live levels preview; manual editor frozen)
 
 **Done and verified:**
+
+- **AI background removal is live (2026-11-13).** `mode: ai` runs the withoutBG
+  open-weights bundle (`aiModel: withoutbg-open`; Apache-2.0 + Meta DINOv3
+  attribution), measured against the shop's own hand-cut alpha: already-cut
+  `Meter.png` 3500 × 4834 kept its own alpha at IoU 0.9912 / MAE 0.53 of 255;
+  opaque-background uploads scored IoU 0.9988 (`6+5+`), 0.9992 (`+6`), 0.9974
+  (`weewc`), 0.9846 (`3`); `2` lost 13.3% of the subject and is the known worst
+  case. The matte enters the *same* mask pipeline as the colour key, so
+  `brushOps`, `maskMinAreaPx`, `maskGrowPx`, `maskLevels` and `imageLevels` all
+  apply. Two defects were found and fixed while measuring: alpha was dropped
+  without compositing before inference (real files hold flat grey under
+  transparency, which the model read as artwork), and re-mating an upload that
+  was already cut out cost 356 s to reproduce its own alpha. Already-cut uploads
+  now report `source-alpha-used` and skip the engine. Details and the full
+  scoring tables: `docs/image-engine-validation.md`.
+- **DTF speck pass (2026-11-13).** New `maskMinAreaPx` (schema, API, worker, UI
+  default 24 px²) drops opaque islands and fills background pinholes before
+  grow/feather, because a DTF printer renders every opaque pixel. `mask_ops
+  .refine_mask_regions` is label-LUT based and costs 0.06 s on a 17 MP mask.
+- **Live levels preview (2026-11-13).** `web/src/components/cutout/LevelsPreview
+  .tsx` draws the same colour and alpha curves the worker applies over a
+  downscaled copy while the sliders move; submitting still creates an immutable
+  proposal. Levels are open by default in the cutout step.
+- **Manual editor frozen (2026-11-13).** The review page's "Manual cleanup" link
+  is gone; the route, modules and tests are untouched.
+- Worker suite 228 tests green; web suite 566 tests / 51 files green; `tsc -b`
+  clean; API build 0 warnings/0 errors.
 
 - Git repo initialized (`main`); skeleton commit `d0d44b9`; Phase 0 deliverable
   commit `9f52d0b`.
@@ -757,17 +819,26 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 **In progress / immediate next:**
 
-1. Phase 1b complete and committed (`f5441f8`): draft store + editor lifecycle
+1. **AI cutout phase shipped, awaiting manual acceptance (2026-11-13).** The
+   manual editor is frozen; the product priority is design quality — a clean mask
+   and DTF-ready printing. Shipped: withoutBG `ai` mode, `maskMinAreaPx` speck and
+   pinhole pass, live levels preview, AI-by-default cutout step, and the
+   already-cut fast path. Measured quality tables and the two failure modes live
+   in `docs/image-engine-validation.md`; BRIA RMBG stays out because its weights
+   are CC BY-NC 4.0. Next in this track: judge the matte visually on real shop
+   photos and colour art, then decide whether `2.png`-style 13% subject loss
+   needs a second pass or just review guidance.
+2. Phase 1b complete and committed (`f5441f8`): draft store + editor lifecycle
    (restore prompt, debounced autosave, visibility flush, clear after confirmed
    API save).
-2. Phase 4 complete and committed (`f869dc1`): `web/src/lib/quickLevels.ts`
+3. Phase 4 complete and committed (`f869dc1`): `web/src/lib/quickLevels.ts`
    (histogram + percentile auto levels, pure functions, BT.601 luminance),
    `QuickLevels` + `BackgroundReadout` components in the design-review cutout
    step, and a one-click Clean button that keys the classifier's
    `sampledBackground` hex and resets levels/grow to identity before submitting
    color-to-alpha. No contract change (`sampledBackground`, `imageLevels`
    already in schema).
-3. Phase 4 fixture validation done (`scripts/check_clean_preset.py`,
+4. Phase 4 fixture validation done (`scripts/check_clean_preset.py`,
    `make clean-preset`). It runs the worker's own `sample_background` +
    `background_matches` over the ten generated fixtures and scores against a
    ground truth independent of the sampled colour (border pixels are background
@@ -786,7 +857,7 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
    23–230); the narrow-range refusal is unit-tested, not fixture-triggered.
    Web suite 428 tests / 41 files green; full `make phase-gates` green.
    Next: Phase 2 selection tools.
-4. Phase 2 selection tools done. The six tools (marquee, ellipse, lasso,
+5. Phase 2 selection tools done. The six tools (marquee, ellipse, lasso,
    polygon, wand, color-range) and four combine modes were already implemented
    and wired; this pass found and closed the gaps around them:
    - `colorRange.ts` was the only selection module with no test file. Writing
@@ -807,7 +878,7 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
    Every module under `web/src/components/manual-editor/` is now imported and
    tested. Web suite 473 tests / 45 files green; full `make phase-gates` green.
    Next: Phase 3 complex editor shell.
-5. Phase 3 complex editor shell, first slice done. `document.ts` and
+6. Phase 3 complex editor shell, first slice done. `document.ts` and
    `compositeDocument` already described a full stack (base raster, adjustment
    layers, colour-key layers, each with visibility/opacity/blend/mask) but the
    editor only ever built one base layer and never showed a list. Scoping that
@@ -850,7 +921,7 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
    Web suite 551 tests / 50 files green; full `make phase-gates` green.
    Next: still Phase 3 — the stack renders but per-layer mask painting, layer
    rename and a pixel-op layer the operator can configure are not wired.
-5b. Phase 3, per-layer masks. A mask used to belong to "the document", so the
+6b. Phase 3, per-layer masks. A mask used to belong to "the document", so the
    only thing it could limit was the artwork itself. That is the wrong shape for
    complex designs: the reason to add a Levels layer is usually to fix one
    region, and without a per-layer mask the adjustment applies everywhere or not
@@ -890,9 +961,11 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
    Next: still Phase 3 — layer rename, a pixel-op layer the operator can
    configure (colour key is added at a fixed white seed), and per-layer mask
    feather are not wired.
-6. Keep worker loop sequential with concurrency 1 for every job type.
-7. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
-   measured need appears.
+7. Keep worker loop sequential with concurrency 1 for every job type. The AI
+   matte is CPU-bound and serialized; that is deliberate, not a backlog item.
+8. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
+   measured need appears. Manual editor feature work stays frozen even though its
+   route and modules remain green.
 
 Historical runtime notes follow; native GPU and prior Phase 3 measurements remain
 reference data, not immediate work.
@@ -960,6 +1033,53 @@ reference data, not immediate work.
 ## 15. Handoff log
 
 Append newest entries at the top. Keep them short and factual.
+
+### 2026-11-13 — AI background removal adopted (withoutBG); DTF speck pass; levels preview
+
+- Product priority changed: manual editor frozen, background-removal quality and
+  on-the-fly levels come first, and a long matte is acceptable if the result is
+  clean. BRIA RMBG is **not** used (weights are CC BY-NC 4.0; a for-profit shop is
+  commercial use). withoutBG open weights (Apache-2.0 + Meta DINOv3 attribution)
+  are the engine, `aiModel: withoutbg-open`, CPU ONNX.
+- Worker: `worker/app/engines/withoutbg.py` adapts the bundle (lazy import/load,
+  composited inference, matte at source size); `background.py` accepts
+  `mode: ai`, feeds the matte into the *same* mask pipeline as the colour key and
+  emits `ai-cutout-applied`. New `maskMinAreaPx` runs `refine_mask_regions`
+  (opaque islands out, background pinholes in) before grow/feather and emits
+  `mask-regions-refined`. Settings: `PRINTSHEET_CUTOUT_MODEL_PATH`; weights cache
+  in `HF_HOME` (`models/hf` natively, `/data/models/hf` in Compose).
+- Two measured defects fixed. (1) `convert("RGB")` on an RGBA upload drops alpha
+  without compositing and a real shop PNG held flat grey under its transparency,
+  which the model read as artwork; the adapter now composites on white.
+  (2) Re-mating an upload that is already cut out took 356 s on a 3500 × 4834
+  design to reproduce its own alpha at IoU 0.987 while shaving 1.3% of the
+  subject, so those uploads keep their alpha and report `source-alpha-used`.
+- Quality against the shop's own hand-cut alpha (alpha > 127): already-cut
+  `Meter` IoU 0.9912 / MAE 0.53 of 255; opaque-background re-mates `6+5+` 0.9988,
+  `+6` 0.9992, `weewc` 0.9974, `3` 0.9846, `2` 0.8673 (loses 13.3% of the
+  subject — known worst case, review guidance not a threshold change). Designs
+  whose white interiors only exist as hidden alpha are unsolvable after
+  flattening (+110…185% extra area on `Meter`/`Untitled-1`); those go through
+  ready-to-pack. Full tables in `docs/image-engine-validation.md`, decision in
+  `docs/decision-log.md`.
+- API: `BackgroundRemovalStepCommand`/`BackgroundRemovalStepRequest` gained
+  `MaskMinAreaPx`; `StepService` validates 0–100000, rejects any AI model other
+  than `withoutbg-open`, and only accepts `aiModel` with `mode: ai`.
+- Contracts (additive, still 2.0.0): `maskMinAreaPx` in the worker-job schema and
+  OpenAPI, `aiModel` re-documented as `[withoutbg-open]`, vendored schema synced,
+  `web/src/api/schema.d.ts` regenerated, `contracts/CHANGELOG.md` updated.
+- Web: cutout step defaults to AI with an explicit AI/colour-key segmented
+  control, "Drop specks under" (24 px²), a live `LevelsPreview` canvas that draws
+  the same colour and alpha curves at preview resolution, and levels open by
+  default. The "Manual cleanup" link is gone; the manual-editor route, modules and
+  tests are untouched.
+- Gates: worker 228 passed (`ruff` clean apart from two pre-existing long lines);
+  web 566 passed / 51 files, `tsc -b` clean; API `dotnet build` 0 warnings /
+  0 errors. Live E2E through the API verified both paths (already-cut and opaque).
+- Not verified: Compose runtime for the AI path (only native), and the visual
+  judgement of matte quality on real shop photos and colour art. The 5.0+ GiB
+  peak RSS from the spike still applies to the BiRefNet branch, so worker
+  concurrency stays 1.
 
 ### 2026-11-13 — Native storage root split fixed ("input file is missing")
 
@@ -1443,6 +1563,26 @@ breaking 2.0.0 change on 2026-11-08 after two additive clarifications on
 When a contract changes, add a dated entry here naming the schema/operation,
 the version bump, and which tracks must adapt (API A, worker B, packer C,
 web D). Also update `contracts/CHANGELOG.md` and the examples.
+
+### 2026-11-13 — Additive: AI matte (`withoutbg-open`) and `maskMinAreaPx`
+
+No version bump: the contract stays `2.0.0`. Both additions are optional and no
+existing client changes shape.
+
+- **Worker job schema (track B):** `background-removal` gains optional
+  `maskMinAreaPx` (0..100000). `aiModel` describes `withoutbg-open` as the only
+  available matte and keeps the archived BiRefNet ids out. New warning codes
+  `ai-cutout-applied`, `source-alpha-used`, `mask-regions-refined`. The vendored
+  `worker/app/_contracts/worker-job.schema.json` is byte-identical.
+- **API (track A):** `mode: ai` is accepted again; `aiModel` must be
+  `withoutbg-open` (or absent) and is only valid with `ai`. `maskMinAreaPx`
+  validated 0..100000 and forwarded. `BackgroundRemovalStepRequest` gained
+  `maskMinAreaPx`.
+- **Web (track D):** cutout step defaults to `ai`, sends `aiModel:
+  withoutbg-open` and `maskMinAreaPx: 24`, and offers a colour-key mode for flat
+  art. `web/src/api/schema.d.ts` regenerated.
+- **Packer (track C):** no change; a background-removal proposal is still just an
+  immutable version with a mask artifact.
 
 ### 2026-11-09 — Additive: `maxPx` thumbnails, global jobs list, honest 404s
 

@@ -169,10 +169,16 @@ Job types:
 - image processing: `classify`, `trim`, `upscale`, `resize`, `background-removal`;
 - orchestration: `pack-sheet`, `integrity-check`, `export`.
 
-`background-removal` runs `color-to-alpha` or `none`; its `ai` (BiRefNet) mode is
-archived and is rejected with `unsupported-parameters` (`invalid-request` at the
-API). Historical `vectorize` documents remain schema-valid but the worker rejects
-new runs with a structured `retired` reason.
+`background-removal` runs `color-to-alpha`, `ai` or `none`. `ai` is the withoutBG
+open-weights matte (`aiModel: withoutbg-open`); archived BiRefNet ids are refused
+with `unsupported-parameters` (`invalid-request` at the API) so a stale job
+cannot run a different model on artwork. All three modes produce the same 8-bit
+mask artifact and share the shaping pass: speck/hole refinement
+(`maskMinAreaPx`), grow/contract, feather, then mask levels. An upload that
+already carries a transparent background keeps its own alpha and reports
+`source-alpha-used` instead of spending an inference. Historical `vectorize`
+documents remain schema-valid but the worker rejects new runs with a structured
+`retired` reason.
 
 ---
 

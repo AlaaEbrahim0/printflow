@@ -116,7 +116,7 @@ Intentionally mocked, and what the real services will do instead:
 | --- | --- | --- |
 | Job execution | `setTimeout` (~0.9 s in `dev:mock`, synchronous in tests) | worker claims jobs over the internal queue |
 | Trim/upscale/vectorize output | geometry metadata changes; pixels are representative | worker image pipeline (Real-ESRGAN, potrace…) |
-| Background removal | mode/brush ops recorded on the version, mask artifact served | rembg/BiRefNet + colour-to-alpha + mask reuse |
+| Background removal | mode/brush ops recorded on the version, mask artifact served | withoutBG ai matte + colour-to-alpha + mask reuse |
 | Packing | deterministic shelf packing, never rotates, honours margin and edge margin | packer mask nesting with randomized orderings |
 | Integrity `pixel-equality` | always passes with an explanatory message | packer renders strips and compares bytes |
 | Layered PSB | always refused (422), matching ADR 0003 | refused until a strip writer is validated |

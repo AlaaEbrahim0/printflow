@@ -147,3 +147,60 @@ Measured unbuffered, local-weight runs used `nproc=8`, `cpu.max=max 100000` (no 
 The spike script is `worker/experiments/withoutbg_spike.py`. It uses one `remove_background()` call per image, records input/output dimensions and mode, checks alpha statistics, and uses no cloud API. Bundle path is spike-only; adoption would require a dedicated models mount outside shared artwork storage.
 
 Smart-brush inspection was not reached because adoption is deferred; do not wire AI removal or `model.edit` into production.
+
+## withoutbg adopted as the AI cutout — quality gate (2026-11-13)
+
+Adoption reverses the 2026-11-12 deferral: the product owner accepted the runtime
+and memory cost in exchange for matte quality, and the worker already runs one
+job at a time. Engine: `withoutbg` 1.5.0, `OpenWeightsModel` with the routed
+bundle (router → matting graph or BiRefNet, alpha upsampled to source size), CPU
+ONNX, capped by the bundle's `max_inference_size`.
+
+Scoring: the shop's own hand-cut alpha is the truth (alpha > 127), the proposal's
+alpha is the result. `kept` is the fraction of truth-opaque pixels retained,
+`extra` is how much opaque area the matte added.
+
+Already-cut uploads (own alpha is the truth, so the matte is not run at all):
+
+| Input | Size | IoU | kept | extra | alpha MAE |
+| --- | --- | --- | --- | --- | --- |
+| `Meter.png` | 3500 × 4834 | 0.9912 | 0.9912 | −0.9% | 0.53/255 |
+
+Opaque-background uploads (design flattened onto white, then re-mated — the
+screenshot case the AI path exists for):
+
+| Input | Size | IoU | kept | extra |
+| --- | --- | --- | --- | --- |
+| `6+5+.png` | 1173 × 1235 | 0.9988 | 0.9999 | +0.1% |
+| `+6.png` | 855 × 1181 | 0.9992 | 0.9998 | +0.0% |
+| `weewc.png` | 1181 × 862 | 0.9974 | 0.9995 | +0.2% |
+| `3.png` | 3148 × 2394 | 0.9846 | 0.9993 | +1.4% |
+| `2.png` | 560 × 1181 | 0.8673 | 0.8673 | −13.3% |
+
+Negative-space designs, flattened first (unsolvable by any matte, because the
+white interior is pixel-identical to the background):
+
+| Input | Size | IoU | kept | extra |
+| --- | --- | --- | --- | --- |
+| `Meter.png` | 3500 × 4834 | 0.4340 | 0.9953 | +128.9% |
+| `Untitled-1.png` | 2550 × 3543 | 0.4448 | 0.9556 | +110.4% |
+
+Defects found and fixed while measuring:
+
+1. `image.convert("RGB")` on an RGBA upload drops alpha without compositing; the
+   RGB under a transparent pixel is undefined and a real shop file held flat grey
+   there, which the matte read as artwork. The adapter now composites on white,
+   and only for inputs without an existing cut-out.
+2. Running the matte on an upload that is already cut out costs 356 s on a
+   3500 × 4834 design and reproduces the stored alpha at IoU 0.987 while shaving
+   1.3% of the subject. Those uploads now keep their own alpha and report
+   `source-alpha-used`; a design in that state finishes in ~25 s (decode, mask
+   refinement, encode).
+
+Timing on this host (CPU, concurrency 1, weights cached): `6+5+` 1173 × 1235 in
+~36 s end to end; `pale-mist-white` 1400 × 1000 in 20.3 s; first ever AI job
+331 s including the ~1.5 GB one-time weight download.
+
+Not covered: the 5.0+ GiB peak RSS measured in the spike still applies to the
+BiRefNet branch, so worker concurrency stays 1 and `PRINTSHEET_MAX_GPU_JOBS`
+stays 1. No GPU path exists for this bundle on a 4 GB card.

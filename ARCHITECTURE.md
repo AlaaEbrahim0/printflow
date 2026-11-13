@@ -266,11 +266,23 @@ directions are symmetric. Levels is a 256-entry LUT
 (`outBlack + ((x − black)/(white − black))^(1/gamma) × (outWhite − outBlack)`)
 with gamma > 1 brightening midtones, matching Photoshop.
 
-The `ai` (BiRefNet) cutout is archived in `archive/birefnet/`. It stays a legal
-schema value so historical jobs render, but `StepService` rejects it with
-`invalid-request` and the worker raises `unsupported-parameters`. Use
-`color-to-alpha` for flat artwork, or cut busy images in Photoshop/Photopea and
-import the result as ready-to-pack.
+`mode: ai` runs the withoutBG open-weights matte (`aiModel: withoutbg-open`;
+Apache-2.0 plus Meta DINOv3 attribution). The bundled router sends each image to
+its matting graph (fine strands, soft edges) or to BiRefNet (hard opaque
+objects), and either way the alpha becomes the same 8-bit mask the colour key
+produces, so `brushOps`, `maskMinAreaPx`, `maskGrowPx`, `maskLevels` and
+`imageLevels` apply to both. It runs on CPU ONNX, one inference at a time, and
+caps the working size at the bundle's `max_inference_size` before upsampling the
+matte. Weights (~1.5 GB) are cached under `HF_HOME`; the first AI job pays for
+the download. The older hand-rolled BiRefNet engine stays in `archive/birefnet/`
+and its model ids are refused rather than silently substituted.
+
+Two measured limits are deliberate. The matte cannot recover interiors that are
+the same colour as the flattened background (white negative space in a design
+whose alpha was thrown away), and re-mating a file that already carries a
+cut-out alpha is both slower and slightly destructive, so such uploads keep
+their own alpha and report `source-alpha-used`. Busy artwork with negative space
+is still cut in Photoshop/Photopea and imported through ready-to-pack.
 
 Vectorization was retired in contract v2.0.0. Its historical versions and SVGs
 remain readable and downloadable, but the API no longer queues new proposals and
