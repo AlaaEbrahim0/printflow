@@ -85,6 +85,14 @@ The native API uses `api/src/PrintSheet.Api/appsettings.Development.json`
 PostgreSQL and `/data/storage`. They are intentionally different; do not point
 native development at the Compose database unless you mean to.
 
+`scripts/run-api.sh` pins `Storage__Root` to the repo-root `storage/`, the same
+directory `scripts/run-worker.sh` and the packer read. This is not optional:
+`Storage:Root` in the settings file is a *relative* path, and `dotnet run` puts
+the process working directory at `api/src/PrintSheet.Api`, so without the pin the
+API writes uploads into `api/src/PrintSheet.Api/storage` while the worker looks
+in `storage/`. Every job then fails with `input file is missing` even though the
+file was written successfully.
+
 GPU note: the Compose worker cannot use the host GPU. Run
 `make worker-gpu-setup` once to install the pinned Real-ESRGAN binary/models,
 then use `make worker-gpu` for GPU work. On the target workstation this selects

@@ -519,6 +519,11 @@ flow complements, but does not replace, packer property/adversarial tests.
 - API health depends on the database. In native Development mode use SQLite;
   in Compose use PostgreSQL. Startup creates the schema for either provider;
   health checks also verify database connectivity.
+- Native storage: `Storage:Root` is relative, so `scripts/run-api.sh` pins
+  `Storage__Root=$ROOT/storage`. Launch the API through that script; running
+  `dotnet run` by hand puts the working directory at `api/src/PrintSheet.Api`
+  and the worker then cannot find uploaded files
+  (`input file is missing`). `make test-storage-roots` catches a split.
 - Vite dev server proxies `/healthz` and `/api`. Do not hardcode
   `http://localhost:8080` in browser code.
 - The worker Docker image is CPU-only. GPU work must run natively through the
@@ -955,6 +960,35 @@ reference data, not immediate work.
 ## 15. Handoff log
 
 Append newest entries at the top. Keep them short and factual.
+
+### 2026-11-13 — Native storage root split fixed ("input file is missing")
+
+- Symptom: trim/upscale/background-removal all failed with
+  `input file is missing: {batch}/{design}/versions/{version}.png` even though
+  the upload had succeeded.
+- Root cause: `Storage:Root` in `appsettings.Development.json` is the *relative*
+  path `"storage"`, and `dotnet run` sets the process working directory to
+  `api/src/PrintSheet.Api`. The API therefore wrote uploads into
+  `api/src/PrintSheet.Api/storage` while `scripts/run-worker.sh` read
+  `$ROOT/storage` (repo root) and the packer is always handed the repo root.
+  Nothing was lost; the file existed in the API-only directory.
+- Fix: `scripts/run-api.sh` now exports
+  `Storage__Root="${Storage__Root:-$ROOT/storage}"` before launching, matching
+  the worker's `PRINTSHEET_STORAGE_ROOT` default. The API, worker and packer
+  now resolve one shared root in native development.
+- Data: the two orphaned batch folders (`0cb36c6f-…`, `4878d046-…`) were copied
+  into the repo `storage/`, verified byte-identical with `diff -r`, then the
+  `api/src/PrintSheet.Api/storage` duplicate was backed up to
+  `/tmp/api-storage-backup-*.tar.gz` and removed.
+- Guard: `scripts/check_storage_roots.py` parses both launch scripts and fails
+  if their `$ROOT`-anchored storage defaults differ; wired into `make` as
+  `test-storage-roots` and into `phase-gates`. Verified it fails on a split.
+- Verified live: the previously failing version now serves `http=200
+  bytes=129334`; trim, background-removal (color-to-alpha) and a fresh upload
+  each completed `succeeded` with output written under the repo `storage/`.
+  Upscale staying `queued` is correct, not a defect: `StepService` assigns
+  `JobCapability.Gpu` and a `gpu_enabled=false` worker drops `gpu` from
+  `capability_list`, so only `make worker-gpu` can claim it.
 
 ### 2026-11-11 — Manual cleanup contract and stabilization pass
 

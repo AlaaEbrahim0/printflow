@@ -98,7 +98,10 @@ test-web: web-setup ## Web type-check, build and lint
 test-web-full: web-setup ## Full web test suite
 	cd web && npm test -- --run
 
-phase-gates: test-contracts test-api test-worker test-packer test-web-full ## Run complete phase validation gates
+phase-gates: test-storage-roots test-contracts test-api test-worker test-packer test-web-full ## Run complete phase validation gates
+
+test-storage-roots: ## Assert the native API and worker share one storage root
+	python3 scripts/check_storage_roots.py
 
 test-contracts: contracts-setup ## Validate JSON Schemas, examples and OpenAPI
 	.venv-contracts/bin/python scripts/validate_contracts.py
