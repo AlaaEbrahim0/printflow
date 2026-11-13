@@ -4,11 +4,12 @@ These files define the interface between API, worker, packer and web.
 Contract changes are not free: update the schema, its examples, the changelog,
 and notify every track in the handoff summary.
 
-The API contract is v2.0.0. Background removal is live again as a `color-to-alpha`
-colour key plus optional mask shaping (`maskGrowPx`, `edgeSoftness`,
-`maskLevels`, `imageLevels`). Its `ai` (BiRefNet) mode and the historical
-`vectorize` type remain in the schemas and persisted models so existing records
-stay readable, but neither accepts new work.
+The API contract is v2.0.0. Background removal runs as a `color-to-alpha` colour
+key or an `ai` matte (`aiModel: withoutbg-open`, the withoutBG open-weights
+bundle), plus optional mask shaping (`maskGrowPx`, `edgeSoftness`,
+`maskMinAreaPx`, `maskLevels`, `imageLevels`). Archived BiRefNet model ids and
+the historical `vectorize` type remain in the schemas and persisted models so
+existing records stay readable, but neither accepts new work.
 
 ## Files
 

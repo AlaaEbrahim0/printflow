@@ -1537,10 +1537,13 @@ components:
           type: string
           enum: [ai, color-to-alpha, none]
           description: |
-            `color-to-alpha` keys out a flat background colour. `none` re-applies
-            brush strokes and mask shaping to `maskFromVersionId`. `ai` (BiRefNet)
-            is archived: it is still a legal value so historical jobs stay
-            readable, but the worker rejects it with `unsupported-parameters`.
+            `color-to-alpha` keys out a flat background colour, which is the right
+            tool for flat logo, text and line artwork. `ai` runs the withoutBG
+            open-weights matte (Apache-2.0, routed matting + BiRefNet) for photos,
+            busy backgrounds and soft edges. `none` re-applies brush strokes and
+            mask shaping to `maskFromVersionId`. Both matte modes feed the same
+            mask, so brush edits, speck/hole refinement, grow, feather and levels
+            apply to either.
         keyColor:
           type: string
           nullable: true
@@ -1566,6 +1569,17 @@ components:
             so a diagonal edge moves the same distance as a straight one, and a
             grown pixel inherits the nearest selected alpha instead of being
             stamped opaque.
+        maskMinAreaPx:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 100000
+          description: |
+            Drop opaque islands and fill background pinholes smaller than this
+            area, in source pixels. 0 disables the pass. It runs on the mode mask
+            before grow and feather, so a stray pixel is not inflated and a
+            pinhole does not survive the blur. DTF prints every opaque pixel, so
+            this pass exists to keep specks off the garment.
         maskLevels:
           nullable: true
           allOf:
@@ -1577,8 +1591,11 @@ components:
         aiModel:
           type: string
           nullable: true
-          enum: [birefnet-massive, birefnet-general, birefnet-general-lite]
-          deprecated: true
+          enum: [withoutbg-open]
+          description: |
+            AI matte engine for `mode: ai`. `withoutbg-open` is the withoutBG
+            open-weights bundle. The archived BiRefNet checkpoints are refused so
+            a stale client cannot silently run a different model on artwork.
         brushOps:
           type: array
           nullable: true

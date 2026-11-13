@@ -1,5 +1,25 @@
 # Contract Changelog
 
+## Additive changes — 2026-11-13
+
+No breaking change; the OpenAPI version stays `2.0.0`.
+
+- `mode: "ai"` is live again with the withoutBG open-weights matte. `aiModel`
+  now documents `withoutbg-open` as the only supported value; the archived
+  BiRefNet ids are refused by the API (`invalid-request`) and the worker
+  (`unsupported-parameters`) instead of being silently substituted.
+- New optional `maskMinAreaPx` (0..100000) on the background-removal step and
+  the worker job. Opaque islands and background pinholes smaller than that area
+  are dropped before grow/feather, and the worker reports `mask-regions-refined`.
+  DTF prints every opaque pixel, so this is the pass that keeps specks off the
+  garment.
+- The worker reports `ai-cutout-applied` when the matte ran and
+  `source-alpha-used` when the upload already carried a transparent background
+  (its own alpha is then the selection and no inference is spent).
+- No other schema changed: the AI matte feeds the same mask as the colour key, so
+  `brushOps`, `maskGrowPx`, `maskLevels`, `imageLevels` and
+  `maskFromVersionId` keep their existing meaning.
+
 ## Additive changes — 2026-11-11
 
 No breaking change; the OpenAPI version stays `2.0.0`.
