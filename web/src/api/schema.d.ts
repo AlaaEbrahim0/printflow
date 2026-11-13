@@ -1099,10 +1099,13 @@ export interface components {
         };
         BackgroundRemovalStepRequest: {
             /**
-             * @description `color-to-alpha` keys out a flat background colour. `none` re-applies
-             *     brush strokes and mask shaping to `maskFromVersionId`. `ai` (BiRefNet)
-             *     is archived: it is still a legal value so historical jobs stay
-             *     readable, but the worker rejects it with `unsupported-parameters`.
+             * @description `color-to-alpha` keys out a flat background colour, which is the right
+             *     tool for flat logo, text and line artwork. `ai` runs the withoutBG
+             *     open-weights matte (Apache-2.0, routed matting + BiRefNet) for photos,
+             *     busy backgrounds and soft edges. `none` re-applies brush strokes and
+             *     mask shaping to `maskFromVersionId`. Both matte modes feed the same
+             *     mask, so brush edits, speck/hole refinement, grow, feather and levels
+             *     apply to either.
              * @enum {string}
              */
             mode: "ai" | "color-to-alpha" | "none";
@@ -1117,13 +1120,23 @@ export interface components {
              *     stamped opaque.
              */
             maskGrowPx?: number | null;
+            /**
+             * @description Drop opaque islands and fill background pinholes smaller than this
+             *     area, in source pixels. 0 disables the pass. It runs on the mode mask
+             *     before grow and feather, so a stray pixel is not inflated and a
+             *     pinhole does not survive the blur. DTF prints every opaque pixel, so
+             *     this pass exists to keep specks off the garment.
+             */
+            maskMinAreaPx?: number | null;
             maskLevels?: components["schemas"]["LevelsAdjustment"] | null;
             imageLevels?: components["schemas"]["LevelsAdjustment"] | null;
             /**
-             * @deprecated
+             * @description AI matte engine for `mode: ai`. `withoutbg-open` is the withoutBG
+             *     open-weights bundle. The archived BiRefNet checkpoints are refused so
+             *     a stale client cannot silently run a different model on artwork.
              * @enum {string|null}
              */
-            aiModel?: "birefnet-massive" | "birefnet-general" | "birefnet-general-lite" | null;
+            aiModel?: "withoutbg-open" | null;
             brushOps?: components["schemas"]["BrushOp"][] | null;
         };
         /**

@@ -19,6 +19,7 @@ import { ImageComparisonSlider } from '../components/compare'
 import CropTool from '../components/crop/CropTool'
 import { LevelsControl, MaskGrowControl } from '../components/cutout/MaskControls'
 import { BackgroundReadout, QuickLevels } from '../components/cutout/QuickLevels'
+import { LevelsPreview } from '../components/cutout/LevelsPreview'
 import { useAsync, useJobPoller } from '../hooks/useAsync'
 import { formatPixels, shortId, statusLabel, stepLabel } from '../lib/format'
 import { reviewReadiness } from '../components/batch/reviewReadiness'
@@ -239,6 +240,10 @@ export default function DesignReviewPage() {
   const [cutoutKeyColor, setCutoutKeyColor] = useState('#ffffff')
   const [cutoutTolerance, setCutoutTolerance] = useState(12)
   const [cutoutEdgeSoftness, setCutoutEdgeSoftness] = useState(0)
+  const [cutoutMode, setCutoutMode] = useState<'ai' | 'color-to-alpha'>('ai')
+  // DTF prints every opaque pixel, so specks and pinholes are cleaned by default.
+  // The operator can turn it off by setting the area to 0.
+  const [maskMinAreaPx, setMaskMinAreaPx] = useState(24)
   const [maskGrowPx, setMaskGrowPx] = useState(0)
   const [maskLevels, setMaskLevels] = useState<LevelsAdjustment>({ ...LEVELS_DEFAULTS })
   const [imageLevels, setImageLevels] = useState<LevelsAdjustment>({ ...LEVELS_DEFAULTS })
@@ -801,13 +806,6 @@ export default function DesignReviewPage() {
                 </a>
                 <Link
                   className="btn"
-                  to={`/batches/${batchId}/designs/${designId}/manual-editor?versionId=${proposal.id}`}
-                  title="Clean proposal in Printflow manual editor"
-                >
-                  Manual cleanup
-                </Link>
-                <Link
-                  className="btn"
                   to={photopeaEditorPath(batchId, designId, proposal.id)}
                   title="Edit this exact proposal in Photopea, then save a new ready-to-pack design"
                   data-testid="open-photopea-proposal"
@@ -1153,21 +1151,52 @@ export default function DesignReviewPage() {
                       confidence={suggestions.features.sampledBackground.confidence ?? null}
                     />
                   ) : null}
+                  <div className="segmented" role="group" aria-label="Cutout method">
+                    <button
+                      type="button"
+                      className={`segment${cutoutMode === 'ai' ? ' is-active' : ''}`}
+                      disabled={!canPropose}
+                      onClick={() => setCutoutMode('ai')}
+                      data-testid="cutout-mode-ai"
+                    >
+                      AI matte
+                    </button>
+                    <button
+                      type="button"
+                      className={`segment${cutoutMode === 'color-to-alpha' ? ' is-active' : ''}`}
+                      disabled={!canPropose}
+                      onClick={() => setCutoutMode('color-to-alpha')}
+                      data-testid="cutout-mode-key"
+                    >
+                      Colour key
+                    </button>
+                  </div>
+                  {cutoutMode === 'ai' ? (
+                    <p className="hint" data-testid="cutout-ai-hint">
+                      withoutBG open weights: the matting branch handles hair and soft
+                      edges, BiRefNet handles hard, flat objects. Long jobs are fine;
+                      quality is the point. Check thin type and hairlines at full
+                      resolution before approving.
+                    </p>
+                  ) : (
+                    <div className="row">
+                      <ColorField
+                        label="Key color"
+                        value={cutoutKeyColor}
+                        onChange={(event) => setCutoutKeyColor(event.target.value)}
+                      />
+                      <NumberField
+                        label="Tolerance"
+                        value={cutoutTolerance}
+                        min={0}
+                        max={255}
+                        step={1}
+                        onValueChange={(val) => setCutoutTolerance(val ?? 12)}
+                        hint="How far from the key colour still counts as background."
+                      />
+                    </div>
+                  )}
                   <div className="row">
-                    <ColorField
-                      label="Key color"
-                      value={cutoutKeyColor}
-                      onChange={(event) => setCutoutKeyColor(event.target.value)}
-                    />
-                    <NumberField
-                      label="Tolerance"
-                      value={cutoutTolerance}
-                      min={0}
-                      max={255}
-                      step={1}
-                      onValueChange={(val) => setCutoutTolerance(val ?? 12)}
-                      hint="How far from the key colour still counts as background."
-                    />
                     <NumberField
                       label="Edge softness"
                       suffix="px"
@@ -1176,6 +1205,17 @@ export default function DesignReviewPage() {
                       max={10}
                       step={0.5}
                       onValueChange={(val) => setCutoutEdgeSoftness(val ?? 0)}
+                      hint="Blurs the alpha ramp after the key or matte."
+                    />
+                    <NumberField
+                      label="Drop specks under"
+                      suffix="px²"
+                      value={maskMinAreaPx}
+                      min={0}
+                      max={5000}
+                      step={1}
+                      onValueChange={(val) => setMaskMinAreaPx(val ?? 24)}
+                      hint="Opaque islands and pinholes smaller than this are removed. DTF prints every opaque pixel."
                     />
                   </div>
                   <QuickLevels
@@ -1191,10 +1231,12 @@ export default function DesignReviewPage() {
                     onClick={() =>
                       void submitJob(() =>
                         api.steps.backgroundRemoval(designId, {
-                          mode: 'color-to-alpha',
-                          keyColor: cutoutKeyColor,
-                          tolerance: cutoutTolerance,
+                          mode: cutoutMode,
+                          ...(cutoutMode === 'color-to-alpha'
+                            ? { keyColor: cutoutKeyColor, tolerance: cutoutTolerance }
+                            : { aiModel: 'withoutbg-open' }),
                           edgeSoftness: cutoutEdgeSoftness > 0 ? cutoutEdgeSoftness : undefined,
+                          maskMinAreaPx: maskMinAreaPx > 0 ? maskMinAreaPx : undefined,
                           maskGrowPx: maskGrowPx !== 0 ? maskGrowPx : undefined,
                           maskLevels: isIdentityLevels(maskLevels) ? undefined : maskLevels,
                           imageLevels: isIdentityLevels(imageLevels) ? undefined : imageLevels,
@@ -1239,9 +1281,27 @@ export default function DesignReviewPage() {
                       : 'The border is not a uniform colour, so there is no background to key. Cut this one in the manual editor, or pick the key colour by hand.'}
                   </p>
                   <MaskGrowControl value={maskGrowPx} onChange={setMaskGrowPx} disabled={!canPropose} />
-                  <details className="compact-details advanced">
+                  <details className="compact-details advanced" open>
                     <summary>Levels adjustments</summary>
                     <div className="stack-sm">
+                      <LevelsPreview
+                        imageUrl={activeLayer.fileUrl}
+                        maskUrl={
+                          proposalDetails?.artifacts?.maskUrl
+                          ?? currentDetails?.artifacts?.maskUrl
+                          ?? null
+                        }
+                        imageLevels={imageLevels}
+                        maskLevels={maskLevels}
+                        background={
+                          background.kind === 'checkerboard' ? undefined : background.hex
+                        }
+                      />
+                      <p className="hint">
+                        Live preview at preview resolution: the same colour and alpha
+                        curves the worker applies to the full file. The proposal is
+                        still the thing you approve.
+                      </p>
                       <LevelsControl
                         label="Mask levels"
                         curveCaption="alpha"

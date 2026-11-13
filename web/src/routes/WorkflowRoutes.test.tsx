@@ -84,6 +84,7 @@ describe('core workbench routes', () => {
     renderAt(`/batches/${batch.id}/designs/${design.id}`)
 
     await screen.findByTestId('current-design-preview')
+    await user.click(screen.getByTestId('cutout-mode-key'))
     await user.click(screen.getByRole('button', { name: 'Remove background' }))
 
     await waitFor(() => {
@@ -100,6 +101,43 @@ describe('core workbench routes', () => {
       expect(job?.parameters).not.toHaveProperty('maskLevels')
       expect(job?.parameters).not.toHaveProperty('imageLevels')
       expect(job?.parameters).not.toHaveProperty('aiModel')
+      // Specks and pinholes are cleaned by default so none reach the garment.
+      expect(job?.parameters).toMatchObject({ maskMinAreaPx: 24 })
+    })
+  })
+
+  it('proposes the AI matte by default and asks for the withoutBG model', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'AI cutout batch',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Busy background sample',
+        chain: [],
+      }],
+    }])
+    const batch = [...mock.batches.values()][0]!
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+    expect(screen.getByTestId('cutout-mode-ai')).toHaveClass('is-active')
+    // The manual editor is frozen: the review page must not offer a way in.
+    expect(screen.queryByText('Manual cleanup')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Remove background' }))
+
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'background-removal',
+      )
+      expect(job?.parameters).toMatchObject({
+        mode: 'ai',
+        aiModel: 'withoutbg-open',
+        maskMinAreaPx: 24,
+      })
+      // The colour key fields must not leak into an AI job.
+      expect(job?.parameters).not.toHaveProperty('keyColor')
+      expect(job?.parameters).not.toHaveProperty('tolerance')
     })
   })
 
@@ -125,6 +163,7 @@ describe('core workbench routes', () => {
     const [maskBlack] = screen.getAllByLabelText('Input black')
     fireEvent.change(maskBlack!, { target: { value: '12' } })
 
+    await user.click(screen.getByTestId('cutout-mode-key'))
     await user.click(screen.getByRole('button', { name: 'Remove background' }))
 
     await waitFor(() => {
@@ -230,6 +269,7 @@ describe('core workbench routes', () => {
     const imageLevelsInputs = screen.getAllByLabelText('Input black')
     expect(imageLevelsInputs.length).toBeGreaterThan(0)
 
+    await user.click(screen.getByTestId('cutout-mode-key'))
     await user.click(screen.getByRole('button', { name: 'Remove background' }))
     await waitFor(() => {
       const job = [...mock.jobs.values()].find(
