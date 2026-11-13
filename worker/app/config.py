@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     # The GTX 1650 Ti has 4 GB of VRAM. GPU work is deliberately serialized.
     max_gpu_jobs: int = Field(default=1, ge=1, le=1)
 
+    # --- cutout --------------------------------------------------------------
+    # Offline withoutBG bundle directory or ONNX file. Empty means: use the
+    # library's WITHOUTBG_MODEL_PATH, else download the weights once from the Hub.
+    cutout_model_path: Path | None = None
+
     # --- contracts -----------------------------------------------------------
     # Explicit directory holding ``jsonschema/*.schema.json``. When unset the
     # worker searches upward from its own package for ``contracts/jsonschema``

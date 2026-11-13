@@ -16,9 +16,11 @@ dependencies = [
   "opencv-python-headless>=4.10,<5",
   "httpx>=0.28,<1",
   "jsonschema>=4.23,<5",
-  # Background removal is a colour key plus mask shaping (grow/contract, feather,
-  # levels) on OpenCV arrays -- no model runtime. The BiRefNet ONNX engine is
-  # archived under archive/birefnet/ and is not a dependency of the worker.
+  # Background removal: the colour key runs on OpenCV arrays, the AI matte on the
+  # withoutBG open-weights bundle (Apache-2.0 + DINOv3 attribution, ONNX Runtime).
+  # Weights download once on first AI job unless PRINTSHEET_CUTOUT_MODEL_PATH
+  # points at an offline bundle. The archived BiRefNet engine is not a dependency.
+  "withoutbg>=1.5,<2",
 ]
 
 [project.optional-dependencies]

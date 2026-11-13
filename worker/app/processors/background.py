@@ -30,10 +30,13 @@ Modes
     No automatic mask. Used to re-apply brush strokes and mask shaping to an
     earlier mask (``maskFromVersionId``) without re-running a key.
 
-``ai`` (BiRefNet) is **archived**. It is still a legal schema value so historical
-job records stay readable, but this worker refuses it with a stable
-``unsupported-parameters`` failure instead of loading a model. See
-``archive/birefnet/README.md``.
+``ai`` (withoutBG open weights)
+    A learned matte (Apache-2.0, routed: matting graph for soft/stranded edges,
+    BiRefNet for hard objects). Only the alpha is used, so the result enters the
+    same mask pipeline as the colour key: brush edits, speck/hole refinement,
+    grow, feather and mask levels all still apply. Needs ``pip install -e
+    '.[cutout]'`` plus a one-time weight download; without them the job fails
+    with ``engine-unavailable`` rather than silently falling back to the key.
 
 Order of operations
 -------------------
@@ -60,22 +63,31 @@ from PIL import Image, ImageDraw
 
 from app.analysis import to_arrays
 from app.context import JobScope
+from app.engines.withoutbg import alpha_to_array
 from app.errors import (
     MaskMismatchError,
     UnsupportedParameterError,
 )
 from app.imaging import build_metadata, image_has_alpha, make_warning, to_rgba
 from app.job_models import WorkerJob
-from app.mask_ops import apply_levels, feather_mask, grow_mask, levels_is_identity
+from app.mask_ops import (
+    apply_levels,
+    feather_mask,
+    grow_mask,
+    levels_is_identity,
+    refine_mask_regions,
+)
 
-MODES = ("color-to-alpha", "none")
+MODES = ("ai", "color-to-alpha", "none")
 
-# Retained so a historical ``ai`` job fails with a precise, actionable message
-# rather than a generic enum error.
-_ARCHIVED_MODES = ("ai",)
+# Supported AI mattes. One entry today; the list exists so a stale job that asks
+# for an archived model fails with an actionable message instead of silently
+# running a different model on customer artwork.
+AI_MODELS = ("withoutbg-open",)
 
 # Which engine/model a mode reports in result metadata.
 ENGINE_BY_MODE = {
+    "ai": ("withoutbg", "withoutbg-open"),
     "color-to-alpha": ("color-to-alpha", "unmultiplied"),
     "none": ("none", None),
 }
@@ -200,20 +212,18 @@ def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
 
     settings = scope.settings
     mode = job.param("mode")
-    if mode in _ARCHIVED_MODES:
-        raise UnsupportedParameterError(
-            "the BiRefNet AI cutout is archived and cannot run; use color-to-alpha, "
-            "or cut the artwork out in Photoshop and import the PNG as ready-to-pack",
-            details={
-                "mode": mode,
-                "supported": list(MODES),
-                "archived": list(_ARCHIVED_MODES),
-            },
-        )
     if mode not in MODES:
         raise UnsupportedParameterError(
             f"unknown background-removal mode {mode!r}",
-            details={"supported": sorted(MODES), "archived": list(_ARCHIVED_MODES)},
+            details={"supported": sorted(MODES)},
+        )
+
+    ai_model = job.param("aiModel")
+    if mode == "ai" and ai_model is not None and ai_model not in AI_MODELS:
+        raise UnsupportedParameterError(
+            f"AI model {ai_model!r} is not available; the worker runs the "
+            "withoutBG open-weights matte",
+            details={"aiModel": ai_model, "supported": list(AI_MODELS)},
         )
 
     source = scope.open_input()
@@ -231,6 +241,45 @@ def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
     if mode == "color-to-alpha":
         key = parse_hex(str(job.param("keyColor") or ""))
         mode_mask, body = unmultiplied_color_to_alpha(arrays.rgb, key, tolerance)
+    elif mode == "ai":
+        # A file that already carries a cut-out alpha has an authoritative answer for
+        # what is visible. Running the matte then can only shave visible pixels and
+        # never recover hidden ones, so it is skipped: measured on a real 3500x4834
+        # shop design the model reproduced the stored alpha at IoU 0.987 after 356 s
+        # on CPU versus reading it instantly, and on two designs whose negative space
+        # is the garment it invented +110..185% of extra opaque area.
+        transparent = float(np.mean(arrays.alpha < 250))
+        if image_has_alpha(source.image) and transparent >= 0.01:
+            mode_mask = arrays.alpha.copy()
+            warnings.append(
+                make_warning(
+                    "source-alpha-used",
+                    "info",
+                    "The upload already had a transparent background, so its own "
+                    "alpha is the selection and no AI matte was run. Use the mask "
+                    "controls or a brush edit to change it.",
+                    details={
+                        "transparentFraction": round(transparent, 4),
+                        "aiModel": ai_model or AI_MODELS[0],
+                    },
+                )
+            )
+        else:
+            matte = scope.engines.cutout.estimate_alpha(image)
+            mode_mask = alpha_to_array(matte, (arrays.width, arrays.height))
+            warnings.append(
+                make_warning(
+                    "ai-cutout-applied",
+                    "info",
+                    "The selection came from the withoutBG open-weights matte. Judge "
+                    "fine edges and thin type at full resolution before approving.",
+                    details={
+                        "aiModel": ai_model or AI_MODELS[0],
+                        "sourceWidthPx": arrays.width,
+                        "sourceHeightPx": arrays.height,
+                    },
+                )
+            )
     else:  # none
         mode_mask = np.full(arrays.alpha.shape, 255, dtype=np.uint8)
 
@@ -258,8 +307,27 @@ def process(job: WorkerJob, scope: JobScope) -> dict[str, Any]:
     warnings.extend(apply_brush_ops(mask_image, list(job.parameters.get("brushOps") or [])))
 
     # --- selection shaping ---------------------------------------------------
-    # Grow/contract runs on the painted mask so a brush correction is included in
-    # the offset, then the edge is feathered and finally the ramp is remapped.
+    # Speck/hole refinement runs first so a one-pixel island cannot be inflated by
+    # grow and a pinhole cannot survive the feather. Then the offset, the feather
+    # and finally the ramp remap.
+    min_area_px = job.param_float("maskMinAreaPx", 0.0)
+    if min_area_px > 0:
+        mask_array, refined = refine_mask_regions(
+            np.asarray(mask_image, dtype=np.uint8), min_area_px
+        )
+        mask_image = Image.fromarray(mask_array, "L")
+        if refined["removedPx"] or refined["filledPx"]:
+            warnings.append(
+                make_warning(
+                    "mask-regions-refined",
+                    "info",
+                    f"Removed {refined['removedPx']} stray pixel(s) and filled "
+                    f"{refined['filledPx']} pinhole pixel(s) smaller than "
+                    f"{min_area_px:g}px area.",
+                    details={"maskMinAreaPx": min_area_px, **refined},
+                )
+            )
+
     if abs(grow_px) >= 0.05:
         mask_array = grow_mask(np.asarray(mask_image, dtype=np.uint8), grow_px)
         mask_image = Image.fromarray(mask_array, "L")

@@ -222,12 +222,44 @@ def write_scaled_png(factor: int) -> Callable[[list[str]], None]:
     return handler
 
 
+class FakeCutout:
+    """Returns a caller-supplied matte instead of loading the withoutBG weights.
+
+    ``alpha`` may be a single-channel array, a PIL image or a callable taking the
+    source image and returning either. The real engine returns an ``L`` image at
+    the source size; the fake mimics that contract so the processor's own
+    resizing and shaping path stays exercised.
+    """
+
+    def __init__(self, alpha: Any = None) -> None:
+        self.alpha = alpha
+        self.sizes: list[tuple[int, int]] = []
+        self.modes: list[str] = []
+
+    def available(self) -> bool:
+        return True
+
+    def estimate_alpha(self, image):  # noqa: ANN001, ANN201
+        self.sizes.append(image.size)
+        self.modes.append(image.mode)
+        alpha = self.alpha(image) if callable(self.alpha) else self.alpha
+        if alpha is None:
+            alpha = np.full((image.size[1], image.size[0]), 255, dtype=np.uint8)
+        if isinstance(alpha, np.ndarray):
+            return Image.fromarray(alpha.astype(np.uint8), "L")
+        return alpha.convert("L")
+
+
 def make_engines(
     settings: Settings,
     runner: CommandRunner | None = None,
+    cutout: Any = None,
 ) -> Engines:
     resolved = runner or FakeCommandRunner()
-    return Engines(realesrgan=RealesrganEngine(settings, resolved))
+    return Engines(
+        realesrgan=RealesrganEngine(settings, resolved),
+        cutout=cutout or FakeCutout(),
+    )
 
 
 @pytest.fixture

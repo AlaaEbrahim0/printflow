@@ -19,6 +19,7 @@ from app.processors.background import apply_brush_ops, unmultiplied_color_to_alp
 from app.storage import StorageRoot
 from tests.conftest import (
     CONTRACTS_DIR,
+    FakeCutout,
     job_document,
     make_engines,
     put_image_file,
@@ -37,7 +38,9 @@ def white_artwork(size: tuple[int, int] = (240, 160)) -> Image.Image:
     return image
 
 
-def run_background(storage, settings, image, *, parameters, name="cutout", **kwargs):
+def run_background(
+    storage, settings, image, *, parameters, name="cutout", cutout=None, **kwargs
+):
     source = put_image_file(storage, version_path("source"), image)
     document = job_document(
         "background-removal",
@@ -52,7 +55,7 @@ def run_background(storage, settings, image, *, parameters, name="cutout", **kwa
         document,
         settings,
         storage,
-        engines=make_engines(settings),
+        engines=make_engines(settings, cutout=cutout),
     )
     assert describe_document(WORKER_RESULT_SCHEMA, result, CONTRACTS_DIR) == []
     return source, result
@@ -117,12 +120,42 @@ def test_invalid_hex_is_rejected(storage: StorageRoot, settings) -> None:
     assert getattr(caught.value, "code", None) == CODE_INVALID_JOB
 
 
-# --- archived AI mode --------------------------------------------------------
+# --- AI matte ----------------------------------------------------------------
 
-def test_archived_ai_mode_fails_with_an_actionable_error(
+def test_ai_mode_uses_the_engine_matte_and_keeps_source_pixels(
     storage: StorageRoot, settings
 ) -> None:
-    """BiRefNet is archived, so an old `ai` job must fail, not load a model."""
+    """The matte becomes the mask; the cut-out keeps the source colours."""
+
+    matte = np.zeros((160, 240), dtype=np.uint8)
+    matte[40:100, 60:140] = 255
+    cutout = FakeCutout(matte)
+
+    source, result = run_background(
+        storage,
+        settings,
+        white_artwork(),
+        parameters={"mode": "ai", "aiModel": "withoutbg-open"},
+        cutout=cutout,
+    )
+
+    assert cutout.sizes == [(240, 160)]
+    assert cutout.modes == ["RGBA"], "the engine converts to RGB itself"
+    assert result["metadata"]["engine"] == "withoutbg"
+    assert result["metadata"]["model"] == "withoutbg-open"
+    assert "ai-cutout-applied" in warning_codes(result)
+
+    mask = np.asarray(Image.open(storage.resolve(result["outputArtifacts"]["mask"])))
+    assert mask[70, 100] == 255
+    assert mask[5, 5] == 0
+
+    cut = np.asarray(Image.open(storage.resolve(result["outputPath"])).convert("RGB"))
+    assert cut[70, 100].max() < 60, "artwork keeps the source ink"
+    assert cut[5, 5].min() > 200, "colour is not decontaminated by an AI matte"
+
+
+def test_archived_ai_model_is_rejected(storage: StorageRoot, settings) -> None:
+    """A stale job asking for BiRefNet must fail, not run a different model."""
 
     with pytest.raises(UnsupportedParameterError) as caught:
         run_background(
@@ -133,8 +166,67 @@ def test_archived_ai_mode_fails_with_an_actionable_error(
         )
 
     assert caught.value.code == CODE_UNSUPPORTED_PARAMETERS
-    assert caught.value.details["archived"] == ["ai"]
-    assert "color-to-alpha" in caught.value.details["supported"]
+    assert caught.value.details["supported"] == ["withoutbg-open"]
+
+
+def test_ai_mode_uses_the_existing_cut_out_alpha_and_skips_the_model(
+    storage: StorageRoot, settings
+) -> None:
+    """An upload that is already cut out keeps its own alpha; the matte cannot help.
+
+    Measured on real shop art: re-mating a 3500x4834 cut-out took 356 s on CPU and
+    reproduced the stored alpha at IoU 0.987, and on designs whose negative space
+    is the garment the matte invented +110..185% of extra opaque area.
+    """
+
+    source = white_artwork().convert("RGBA")
+    alpha = np.zeros((160, 240), dtype=np.uint8)
+    alpha[40:100, 60:140] = 255
+    source.putalpha(Image.fromarray(alpha, "L"))
+
+    # A matte that claims the whole canvas must not be consulted at all.
+    cutout = FakeCutout(np.full((160, 240), 255, dtype=np.uint8))
+    _, result = run_background(
+        storage,
+        settings,
+        source,
+        parameters={"mode": "ai", "aiModel": "withoutbg-open"},
+        cutout=cutout,
+    )
+
+    assert cutout.sizes == [], "no inference when the upload is already cut out"
+    mask = np.asarray(Image.open(storage.resolve(result["outputArtifacts"]["mask"])))
+    assert mask[70, 100] == 255
+    assert mask[5, 5] == 0
+    assert "source-alpha-used" in warning_codes(result)
+    assert "ai-cutout-applied" not in warning_codes(result)
+
+
+def test_mask_min_area_drops_specks_and_fills_pinholes(
+    storage: StorageRoot, settings
+) -> None:
+    """DTF prints every opaque pixel, so stray dots and pinholes get cleaned."""
+
+    matte = np.zeros((160, 240), dtype=np.uint8)
+    matte[40:100, 60:140] = 255
+    matte[10, 10] = 255       # 1 px island
+    matte[60:62, 80:82] = 0   # 4 px pinhole inside the artwork
+    _, result = run_background(
+        storage,
+        settings,
+        white_artwork(),
+        parameters={
+            "mode": "ai",
+            "aiModel": "withoutbg-open",
+            "maskMinAreaPx": 20,
+        },
+        cutout=FakeCutout(matte),
+    )
+
+    mask = np.asarray(Image.open(storage.resolve(result["outputArtifacts"]["mask"])))
+    assert mask[10, 10] == 0, "the speck is gone"
+    assert mask[60, 80] == 255, "the pinhole is filled"
+    assert "mask-regions-refined" in warning_codes(result)
 
 
 # --- none + brush ------------------------------------------------------------

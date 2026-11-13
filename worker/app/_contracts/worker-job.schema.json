@@ -312,9 +312,15 @@
         "tolerance": { "type": "integer", "minimum": 0, "maximum": 255 },
         "edgeSoftness": { "type": "number", "minimum": 0, "maximum": 10 },
         "maskGrowPx": { "type": "number", "minimum": -100, "maximum": 100 },
+ "maskMinAreaPx": {
+  "type": "number",
+  "minimum": 0,
+  "maximum": 100000,
+  "description": "Drop opaque islands and fill background pinholes smaller than this area, in source pixels. 0 disables the pass. Applied to every mode before grow/feather so specks are not inflated and pinholes do not survive the blur."
+ },
         "maskLevels": { "$ref": "#/$defs/levelsAdjustment" },
         "imageLevels": { "$ref": "#/$defs/levelsAdjustment" },
-        "aiModel": { "type": "string", "minLength": 1 },
+        "aiModel": { "type": "string", "minLength": 1, "description": "AI matte engine. \"withoutbg-open\" is the withoutBG open-weights bundle (Apache-2.0, routed matting + BiRefNet). The archived BiRefNet checkpoints are not available." },
         "maskFromVersionId": { "type": ["string", "null"], "format": "uuid" },
         "brushOps": {
           "type": "array",

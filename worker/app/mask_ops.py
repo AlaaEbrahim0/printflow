@@ -220,3 +220,69 @@ def apply_levels(mask: np.ndarray, levels: dict[str, Any] | None) -> np.ndarray:
         int(payload.get("outputWhite") if payload.get("outputWhite") is not None else 255),
     )
     return lut[mask]
+
+
+def refine_mask_regions(
+    mask: np.ndarray,
+    min_area_px: float,
+    *,
+    threshold: int = EDGE_THRESHOLD,
+) -> tuple[np.ndarray, dict[str, int]]:
+    """Drop specks and fill pinholes smaller than ``min_area_px``.
+
+    DTF prints every opaque pixel: a stray island becomes an ink dot on the
+    garment and a pinhole inside the artwork prints an unprinted patch, so both
+    matter more here than they do on screen. Nothing is guessed -- the caller
+    passes the area, and the pass reports exactly what it changed so the proposal
+    can say so.
+
+    Islands are opaque regions under the limit; holes are background regions
+    under the limit that do not touch the border (a border-touching background is
+    the outside, not a hole). The soft ramp outside those regions is untouched.
+    """
+
+    _require_mask(mask)
+    if min_area_px <= 0:
+        return mask, {"removedPx": 0, "filledPx": 0}
+
+    limit = float(min_area_px)
+    height, width = mask.shape
+    binary = (mask >= threshold).astype(np.uint8)
+    cleaned = mask.copy()
+
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    small = [
+        label
+        for label in range(1, count)
+        if stats[label, cv2.CC_STAT_AREA] < limit
+    ]
+    removed = 0
+    if small:
+        # A lookup table beats np.isin here: the label image is one int32 per
+        # pixel and `isin` would sort a copy of that whole array.
+        drop = np.zeros(count, dtype=bool)
+        drop[small] = True
+        affected = drop[labels]
+        removed = int(np.count_nonzero(cleaned[affected]))
+        cleaned[affected] = 0
+
+    holes, hole_labels, hole_stats, _ = cv2.connectedComponentsWithStats(
+        1 - binary, connectivity=8
+    )
+    filled = 0
+    fill: list[int] = []
+    for label in range(1, holes):
+        x, y, w, h, area = hole_stats[label]
+        if area >= limit:
+            continue
+        if x <= 0 or y <= 0 or x + w >= width or y + h >= height:
+            continue
+        fill.append(label)
+    if fill:
+        fill_table = np.zeros(holes, dtype=bool)
+        fill_table[fill] = True
+        affected = fill_table[hole_labels]
+        filled = int(np.count_nonzero(cleaned[affected] != 255))
+        cleaned[affected] = 255
+
+    return cleaned, {"removedPx": removed, "filledPx": filled}
