@@ -63,10 +63,16 @@ services:
       PRINTSHEET_RUN_JOBS: "true"
       PRINTSHEET_LOG_LEVEL: INFO
       PRINTSHEET_LOG_JSON: "true"
+      # withoutBG weights (AI cutout) are ~1.5 GB. Keep the Hub cache on the
+      # bind mount so a container recreate does not download them again, and off
+      # /root because this service runs as uid 1000.
+      HF_HOME: /data/models/hf
+      # PRINTSHEET_CUTOUT_MODEL_PATH: /data/models/cutout/withoutbg-open-weights.onnx
     ports:
       - "${WORKER_PORT:-8000}:8000"
     volumes:
       - ./storage:/data/storage
+      - ./models:/data/models
     healthcheck:
       test:
         [
