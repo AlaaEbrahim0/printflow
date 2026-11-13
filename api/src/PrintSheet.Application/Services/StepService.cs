@@ -125,11 +125,11 @@ public sealed class StepService
             return Invalid("Background removal mode must be ai, color-to-alpha or none.");
         }
 
-        if (command.Mode == "ai")
+        if (command.Mode == "ai" && command.AiModel is not (null or "withoutbg-open"))
         {
             return Invalid(
-                "The BiRefNet AI cutout is archived. Use color-to-alpha, or cut the "
-                + "artwork out in Photoshop and import the PNG as ready-to-pack.");
+                "The only AI cutout model is 'withoutbg-open'. The archived BiRefNet "
+                + "checkpoints are not available.");
         }
 
         if (command.Mode == "color-to-alpha" && string.IsNullOrWhiteSpace(command.KeyColor))
@@ -152,9 +152,14 @@ public sealed class StepService
             return Invalid("Mask grow/contract must be between -100 and 100 pixels.");
         }
 
-        if (command.AiModel is not null)
+        if (command.AiModel is not null && command.Mode != "ai")
         {
-            return Invalid("aiModel only applied to the archived ai mode.");
+            return Invalid("aiModel only applies to the ai mode.");
+        }
+
+        if (command.MaskMinAreaPx is < 0 or > 100000)
+        {
+            return Invalid("Mask speck/hole area must be between 0 and 100000 pixels.");
         }
 
         if (ValidateLevels("maskLevels", command.MaskLevels) is { } maskLevelsError)
@@ -195,6 +200,7 @@ public sealed class StepService
             tolerance = command.Tolerance,
             edgeSoftness = command.EdgeSoftness,
             maskGrowPx = command.MaskGrowPx,
+            maskMinAreaPx = command.MaskMinAreaPx,
             maskLevels = LevelsPayload(command.MaskLevels),
             imageLevels = LevelsPayload(command.ImageLevels),
             aiModel = command.AiModel,

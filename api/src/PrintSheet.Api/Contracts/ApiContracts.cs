@@ -267,7 +267,8 @@ public sealed record BackgroundRemovalStepRequest(
     IReadOnlyList<BrushOpRequest>? BrushOps,
     decimal? MaskGrowPx,
     LevelsAdjustmentRequest? MaskLevels,
-    LevelsAdjustmentRequest? ImageLevels);
+    LevelsAdjustmentRequest? ImageLevels,
+    decimal? MaskMinAreaPx);
 
 /// <summary>Photoshop-style levels for the mask ramp or the cut-out colours.</summary>
 public sealed record LevelsAdjustmentRequest(

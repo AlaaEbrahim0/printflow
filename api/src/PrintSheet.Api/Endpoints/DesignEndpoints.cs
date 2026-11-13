@@ -409,7 +409,8 @@ public static class DesignEndpoints
                         request.ImageLevels.WhitePoint,
                         request.ImageLevels.Gamma,
                         request.ImageLevels.OutputBlack,
-                        request.ImageLevels.OutputWhite)),
+                        request.ImageLevels.OutputWhite),
+                request.MaskMinAreaPx),
             cancellationToken);
         return result.IsSuccess
             ? Accepted(result.Value!)

@@ -98,7 +98,8 @@ public sealed record BackgroundRemovalStepCommand(
     IReadOnlyList<BrushOpCommand>? BrushOps,
     decimal? MaskGrowPx = null,
     LevelsAdjustmentCommand? MaskLevels = null,
-    LevelsAdjustmentCommand? ImageLevels = null);
+    LevelsAdjustmentCommand? ImageLevels = null,
+    decimal? MaskMinAreaPx = null);
 
 /// <summary>
 /// Photoshop-style levels. The same object shapes the mask alpha ramp and the
