@@ -37,6 +37,7 @@ services:
       Cors__AllowedOrigins__0: http://localhost:${WEB_PORT:-5173}
       BackgroundRemoval__DefaultProvider: ${BACKGROUND_REMOVAL_PROVIDER:-withoutbg}
       BackgroundRemoval__FallbackProvider: ${BACKGROUND_REMOVAL_FALLBACK:-}
+      BackgroundRemoval__RunJobs: ${BACKGROUND_REMOVAL_RUN_JOBS:-true}
       BackgroundRemoval__Poof__ApiKey: ${POOF_API_KEY:-}
       BackgroundRemoval__PrepareWorker__BaseUrl: http://worker:8000
       BackgroundRemoval__PrepareWorker__UseGpu: ${WORKER_GPU_ENABLED:-false}

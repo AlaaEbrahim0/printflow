@@ -108,6 +108,23 @@ are serialized (`max_gpu_jobs = 1`) because the card has 4 GB VRAM.
 
 ## Background removal
 
+Background removal is a first-class step: `POST
+/api/v1/designs/{designId}/steps/background-removal` queues a `background-removal`
+job and returns `202` immediately. The API then runs the job itself and writes the
+cut-out as a `proposed` version, exactly like a worker step, so approval and
+rejection work unchanged.
+
+The API executes this job rather than a worker. The provider adapters, the
+crop/upscale clients and the alpha refiner all live in the API, and a pipeline run
+takes tens of seconds — far too long for a request. A hosted service
+(`BackgroundRemovalWorker`) polls for queued cutout jobs one at a time and runs
+them through `BackgroundRemovalJobRunner`.
+
+Workers cannot claim these jobs. A cutout carries the `cutout` capability, which
+the claim endpoint refuses to parse for a caller, and `background-removal` is
+absent from the worker job schema. This keeps the promise that a worker is never
+leased a job it has no processor for.
+
 The pipeline lives in the Application layer
 (`api/src/PrintSheet.Application/BackgroundRemoval`) and depends only on ports:
 a background remover, a cropper, an upscaler, an alpha refiner and an alpha
@@ -132,6 +149,7 @@ Providers are chosen by configuration only:
 | --- | --- |
 | `BackgroundRemoval:DefaultProvider` | `withoutbg` (default) or `poof` |
 | `BackgroundRemoval:FallbackProvider` | optional second provider; empty disables fallback |
+| `BackgroundRemoval:RunJobs` | set `false` to stop the API executing cutout jobs |
 | `BackgroundRemoval:Poof:ApiKey` | Poof key; never logged |
 | `BackgroundRemoval:Poof:BaseUrl` | defaults to `https://api.poof.bg/v1/` |
 | `BackgroundRemoval:WithoutBg:BaseUrl` | defaults to `http://localhost:8002` |
@@ -141,7 +159,23 @@ Providers are chosen by configuration only:
 | `BackgroundRemoval:PrepareWorker:UseGpu` | false for the CPU worker |
 | `BackgroundRemoval:AlphaFeatherPx` | matte feather radius, default 0.5; 0 disables |
 | `BackgroundRemoval:AlphaThreshold` | optional hard cutoff (0–255); off by default |
-| `BackgroundRemoval:MaxInputBytes` | 20 MB, Poof's hard cap |
+| `BackgroundRemoval:MaxInputBytes` | 20 MB, Poof's hard cap (applied to the cropped upload) |
+
+`RunJobs: false` leaves queued cutouts untouched, which is what a read-only or
+migration instance wants. The single-job-at-a-time limit is deliberate: the
+pipeline holds several full-size PNGs in memory and the upscaler owns the GPU.
+
+The request body is optional and only overrides the provider for one job:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/designs/$DESIGN_ID/steps/background-removal \
+  -H 'Content-Type: application/json' -d '{}'
+# 202 {"jobId": "...", "status": "queued", ...}
+```
+
+The 20 MB cap is the provider's upload limit, so it is enforced on the cropped
+image that is actually sent — not on the untouched original, which cropping
+usually brings well under the cap.
 
 Fallback is deliberately narrow. It fires for availability faults (401, 402,
 403, 429, 5xx, timeouts, circuit open) and never for input faults (400, 413,
@@ -150,7 +184,9 @@ outbound call here is a POST that spends real work — a billed Poof credit, an
 exclusive GPU minute, a full CPU inference — so the HTTP clients disable retries
 for unsafe methods outright. A retry after an attempt timeout could charge twice
 or hold the GPU twice; fallback and re-running the use case cover transients
-instead. Timeouts and circuit breakers still apply.
+instead. Timeouts and circuit breakers still apply. A cutout that fails for an
+availability reason is reported as retryable, so it is requeued; an input fault
+is terminal.
 
 ### Poof key (secret)
 
@@ -206,8 +242,10 @@ dependency checks, so the workbench stays up when the cutout service is down.
 
 ### Tests
 
-Adapter and pipeline tests use fake HTTP handlers and fake ports; nothing calls
-Poof. The Docker integration test is skipped unless a container URL is exported:
+Adapter, runner and pipeline tests use fake HTTP handlers and fake ports; nothing
+calls Poof. The claim boundary is covered against a real SQLite database, so the
+"workers never see a cutout" rule is tested where it is enforced. The Docker
+integration test is skipped unless a container URL is exported:
 
 ```bash
 docker compose up -d withoutbg
