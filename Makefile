@@ -57,7 +57,9 @@ contracts-setup: .venv-contracts/.installed ## Create the contract-validation ve
 # ---------------------------------------------------------------------------
 
 up: ## Build/start Compose, wait for health, smoke-test
-	$(COMPOSE) up --build -d --wait --wait-timeout 240
+	# The timeout covers withoutBG loading its ~1.5 GB model on first boot, not
+	# just container start; a shorter wait fails a clean machine's first `make up`.
+	$(COMPOSE) up --build -d --wait --wait-timeout 420
 	./scripts/smoke_test.py
 
 down: ## Stop Compose, keep volumes
