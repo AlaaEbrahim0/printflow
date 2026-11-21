@@ -1,4 +1,6 @@
 using System.Net;
+using Polly;
+using Polly.Timeout;
 using PrintSheet.Application.BackgroundRemoval;
 
 namespace PrintSheet.Infrastructure.BackgroundRemoval;
@@ -45,6 +47,27 @@ internal static class BackgroundRemovalHttp
             provider,
             $"{provider} could not be reached.",
             exception);
+
+    /// <summary>
+    /// Maps a rejection raised by the resilience pipeline rather than by HTTP. The
+    /// standard handler does not throw <see cref="OperationCanceledException"/> or
+    /// <see cref="HttpRequestException"/> for these: an attempt timeout surfaces as
+    /// <c>Polly.Timeout.TimeoutRejectedException</c> and an open circuit as
+    /// <c>Polly.CircuitBreaker.BrokenCircuitException</c>. Both mean "try the other
+    /// provider", so they must not escape the port as unknown exceptions.
+    /// </summary>
+    public static BackgroundRemovalException Rejected(string provider, ExecutionRejectedException exception)
+        => exception is TimeoutRejectedException
+            ? new BackgroundRemovalException(
+                BackgroundRemovalFailureReason.Timeout,
+                provider,
+                $"{provider} timed out.",
+                exception)
+            : new BackgroundRemovalException(
+                BackgroundRemovalFailureReason.ProviderUnavailable,
+                provider,
+                $"{provider} is temporarily unavailable.",
+                exception);
 
     private static async Task<string> SafeDetailAsync(
         HttpResponseMessage response,

@@ -13,6 +13,9 @@
     <PackageReference Include="SkiaSharp" Version="3.119.4" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.4" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.11.1" />
+    <!-- The adapters translate Polly's rejection types, so they are referenced
+         directly rather than relied on through Http.Resilience. -->
+    <PackageReference Include="Polly.Core" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.14" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="10.0.14" />
   </ItemGroup>

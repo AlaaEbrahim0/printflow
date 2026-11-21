@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Options;
+using Polly;
 using PrintSheet.Application.Abstractions;
 using PrintSheet.Application.BackgroundRemoval;
 
@@ -81,6 +82,10 @@ internal static class PrepareWorkerRequest
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw BackgroundRemovalHttp.Timeout(operation, new TimeoutException());
+        }
+        catch (ExecutionRejectedException exception)
+        {
+            throw BackgroundRemovalHttp.Rejected(operation, exception);
         }
         catch (HttpRequestException exception)
         {

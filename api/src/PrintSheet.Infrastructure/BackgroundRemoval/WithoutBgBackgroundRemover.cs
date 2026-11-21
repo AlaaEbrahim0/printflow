@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Logging;
+using Polly;
 using PrintSheet.Application.Abstractions;
 using PrintSheet.Application.BackgroundRemoval;
 
@@ -59,6 +60,10 @@ public sealed class WithoutBgBackgroundRemover(
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw BackgroundRemovalHttp.Timeout(Provider, new TimeoutException());
+        }
+        catch (ExecutionRejectedException exception)
+        {
+            throw BackgroundRemovalHttp.Rejected(Provider, exception);
         }
         catch (HttpRequestException exception)
         {
