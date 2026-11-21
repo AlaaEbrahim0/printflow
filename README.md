@@ -37,7 +37,8 @@ make up
 | --- | --- | --- |
 | Web workbench | <http://localhost:5173> | Vite dev server, proxies `/api` and `/healthz` |
 | API | <http://localhost:8080> | `/healthz`, `/api/v1/info` |
-| Worker | <http://localhost:8000> | `/health` |
+| Worker | <http://localhost:8000> | `/health`, `/v1/crop`, `/v1/upscale` |
+| withoutBG | <http://localhost:8002> | `/health`, `/ready`; background removal |
 | PostgreSQL | internal only | `postgres:5432` on the Compose network |
 
 `make up` builds the images, waits for health, and smoke-tests the API,
@@ -45,13 +46,16 @@ database connectivity, worker storage and web page. `make logs` follows logs;
 `make down` stops; `make reset` also deletes the database and storage volumes.
 
 Optional overrides go in `.env` (copy `.env.example`): ports, database
-credentials and the internal worker key. The defaults are development-only.
+credentials, the internal worker key and the background-removal provider
+selection. The defaults are development-only.
 
 ### What Compose runs
 
 - **api** — ASP.NET Core 10, PostgreSQL, storage at `/data/storage`.
 - **worker** — FastAPI image processor, CPU-only, claims image jobs and shares
   the storage volume.
+- **withoutbg** — self-hosted withoutBG v4 background-removal service (CPU,
+  pinned by digest, ~1.5 GB model loaded before `/ready` succeeds).
 - **packer** — lease-based runner for sheet packing, integrity checks and
   exports; invokes the standalone packer CLI and shares storage.
 - **web** — Vite dev server.
@@ -99,6 +103,107 @@ then use `make worker-gpu` for GPU work. On the target workstation this selects
 the GTX 1650 Ti as Vulkan device 1; override
 `PRINTSHEET_REALESRGAN_GPU_DEVICE_INDEX` if device ordering differs. GPU jobs
 are serialized (`max_gpu_jobs = 1`) because the card has 4 GB VRAM.
+
+---
+
+## Background removal
+
+The pipeline lives in the Application layer
+(`api/src/PrintSheet.Application/BackgroundRemoval`) and depends only on ports:
+a background remover, a cropper, an upscaler, an alpha refiner and an alpha
+compositor. Infrastructure supplies the adapters, so the business logic contains
+no provider names, URLs or HTTP status codes.
+
+Order of operations, in `BackgroundRemovalPipeline`:
+
+1. auto-crop the upload (worker `/v1/crop`, the same rules as the trim job);
+2. remove the background on the **cropped, low-resolution** image — the open
+   model computes a matte at its own internal resolution, so feeding it the full
+   print-size image only costs time and adds edge fringing;
+3. upscale the **cropped original colours** with Real-ESRGAN (worker
+   `/v1/upscale`), never the provider's cutout;
+4. upscale the provider's matte to the colour size and refine it
+   (bicubic/Mitchell, optional feather, optional threshold);
+5. recombine: the upscaled RGB with the refined alpha.
+
+Providers are chosen by configuration only:
+
+| Setting | Meaning |
+| --- | --- |
+| `BackgroundRemoval:DefaultProvider` | `withoutbg` (default) or `poof` |
+| `BackgroundRemoval:FallbackProvider` | optional second provider; empty disables fallback |
+| `BackgroundRemoval:Poof:ApiKey` | Poof key; never logged |
+| `BackgroundRemoval:Poof:BaseUrl` | defaults to `https://api.poof.bg/v1/` |
+| `BackgroundRemoval:WithoutBg:BaseUrl` | defaults to `http://localhost:8002` |
+| `BackgroundRemoval:PrepareWorker:BaseUrl` | worker base URL |
+| `BackgroundRemoval:PrepareWorker:WorkerKey` | falls back to `Worker:Key` |
+| `BackgroundRemoval:MaxInputBytes` | 20 MB, Poof's hard cap |
+
+Fallback is deliberately narrow. It fires for availability faults (401, 402,
+403, 429, 5xx, timeouts, circuit open) and never for input faults (400, 413,
+422): the same bytes would be rejected by the second provider too. Poof retries
+are disabled because `POST /remove` is billed and not idempotent; withoutBG and
+the worker allow a single retry for transport faults.
+
+### Poof key (secret)
+
+Never commit the key. Locally:
+
+```bash
+cd api/src/PrintSheet.Api
+dotnet user-secrets set "BackgroundRemoval:Poof:ApiKey" "sk_..."
+```
+
+The API project has a `UserSecretsId`; `appsettings*.json` keeps the key empty
+so the service still starts when Poof is not in use (the adapter then reports an
+availability failure and the selector may fall back). In Compose the key comes
+from the environment:
+
+```bash
+POOF_API_KEY=sk_... BACKGROUND_REMOVAL_PROVIDER=poof docker compose up -d
+```
+
+`BackgroundRemoval__Poof__ApiKey` is read from `POOF_API_KEY`;
+`BackgroundRemoval__DefaultProvider` from `BACKGROUND_REMOVAL_PROVIDER`; and
+`BackgroundRemoval__FallbackProvider` from `BACKGROUND_REMOVAL_FALLBACK` (empty
+by default, so a missing key never produces a surprise billed call).
+
+### Running withoutBG
+
+Compose starts it automatically:
+
+```bash
+docker compose up -d withoutbg     # http://localhost:8002, /health and /ready
+```
+
+The image is pinned by digest in `docker-compose.yml`. Bump it deliberately
+after reviewing the release notes; a re-tagged `latest` must not silently change
+the model behind an approved cutout.
+
+Native development can point at the same container: `WithoutBg:BaseUrl` in
+`appsettings.Development.json` is `http://localhost:8002`.
+
+The API health check for withoutBG is tagged `dependency`, and `/healthz` skips
+dependency checks, so the workbench stays up when the cutout service is down.
+
+### Tests
+
+Adapter and pipeline tests use fake HTTP handlers and fake ports; nothing calls
+Poof. The Docker integration test is skipped unless a container URL is exported:
+
+```bash
+docker compose up -d withoutbg
+make test-api-docker          # adapter against the real container
+
+# The whole pipeline needs a worker with Real-ESRGAN installed (native GPU
+# worker on :8001); the Compose worker has no engine binary.
+make worker-gpu &
+make test-api-live
+```
+
+The live run is the only one that proves the matte actually lands at print size;
+it crops, removes, upscales, refines and recombines a synthetic artwork and
+asserts the subject stays opaque while the paper becomes transparent.
 
 ---
 

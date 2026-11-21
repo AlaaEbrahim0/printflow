@@ -35,6 +35,12 @@ services:
       Storage__Root: /data/storage
       Worker__Key: ${WORKER_KEY:-dev-worker-key}
       Cors__AllowedOrigins__0: http://localhost:${WEB_PORT:-5173}
+      BackgroundRemoval__DefaultProvider: ${BACKGROUND_REMOVAL_PROVIDER:-withoutbg}
+      BackgroundRemoval__FallbackProvider: ${BACKGROUND_REMOVAL_FALLBACK:-}
+      BackgroundRemoval__Poof__ApiKey: ${POOF_API_KEY:-}
+      BackgroundRemoval__PrepareWorker__BaseUrl: http://worker:8000
+      BackgroundRemoval__PrepareWorker__UseGpu: ${WORKER_GPU_ENABLED:-false}
+      BackgroundRemoval__WithoutBg__BaseUrl: http://withoutbg:8000
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
@@ -85,6 +91,32 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 12
+    restart: unless-stopped
+
+  withoutbg:
+    # Self-hosted background removal. Pinned by digest so a re-tagged `latest`
+    # cannot silently change the model; bump deliberately after reviewing the
+    # release notes and running the pipeline smoke test.
+    image: withoutbg/withoutbg-openweights-v4-service-cpu:latest@sha256:e4f9cbf612b265acec0f50d7fb41b885abdd16ec908ab717b27cbc80094b83a2
+    environment:
+      # Keep the open-weights engine: it never sends images off the machine.
+      WITHOUTBG_API_KEY: ""
+      WITHOUTBG_PRO_PASSWORD: ""
+    ports:
+      - "${WITHOUTBG_PORT:-8002}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      # The 1.5 GB model must load before /ready succeeds.
+      start_period: 120s
+      retries: 20
     restart: unless-stopped
 
   packer:
