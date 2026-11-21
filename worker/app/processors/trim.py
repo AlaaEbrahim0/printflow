@@ -60,11 +60,11 @@ class CropOutcome:
 
 
 def _background_sample(
-    job: WorkerJob, arrays, settings: Settings
+    supplied: dict | None, arrays, settings: Settings
 ) -> tuple[BackgroundSample, int]:
     """Use the API-supplied sample when present, else measure the border."""
 
-    supplied = job.parameters.get("backgroundSample") or {}
+    supplied = supplied or {}
     alpha_threshold = int(supplied.get("alphaThreshold", settings.alpha_threshold))
     measured = sample_background(arrays, settings)
     kind = supplied.get("kind") or measured.kind
@@ -164,9 +164,34 @@ def _same_format(scope: JobScope, left: str, right: str) -> bool:
 
 def _auto_crop(job: WorkerJob, scope: JobScope, image: Image.Image, arrays) -> CropOutcome:
     settings = scope.settings
-    tolerance = job.param_int("tolerance", settings.trim_tolerance)
-    padding = job.param_int("paddingPx", settings.trim_padding_px)
-    sample, alpha_threshold = _background_sample(job, arrays, settings)
+    return auto_crop_image(
+        image,
+        arrays,
+        settings,
+        tolerance=job.param_int("tolerance", settings.trim_tolerance),
+        padding_px=job.param_int("paddingPx", settings.trim_padding_px),
+        supplied_background=job.parameters.get("backgroundSample"),
+    )
+
+
+def auto_crop_image(
+    image: Image.Image,
+    arrays,
+    settings: Settings,
+    *,
+    tolerance: int | None = None,
+    padding_px: int | None = None,
+    supplied_background: dict | None = None,
+) -> CropOutcome:
+    """Auto content crop, shared by the trim job and the HTTP crop endpoint.
+
+    Pure with respect to storage: it never reads or writes a file, so the
+    background-removal pipeline can crop the same pixels the trim job would.
+    """
+
+    tolerance = settings.trim_tolerance if tolerance is None else tolerance
+    padding = settings.trim_padding_px if padding_px is None else padding_px
+    sample, alpha_threshold = _background_sample(supplied_background, arrays, settings)
 
     background = background_matches(
         arrays, sample, tolerance=tolerance, alpha_threshold=alpha_threshold

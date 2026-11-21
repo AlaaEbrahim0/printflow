@@ -1,8 +1,8 @@
 # PrintSheet Worker
 
 Phase 3 image-processing worker. Active job types are `classify`, `trim`,
-`upscale`, and `resize`. Legacy background-removal/vectorization records remain
-readable, but those job types are rejected as retired.
+`upscale`, and `resize`. Legacy vectorization records remain readable, but that
+job type is rejected as retired.
 
 It reads and writes only files inside the shared storage root; image bytes never
 travel in JSON. The FastAPI service still only exposes `/` and `/health`; the job
@@ -52,6 +52,27 @@ PRINTSHEET_RUN_JOBS=true .venv/bin/uvicorn app.main:app --port 8000   # + loop
 `/health` reports `storageWritable`, `capabilities`, `gpuEnabled`, `maxGpuJobs`,
 `runJobs`, `leaseSeconds`, `heartbeatSeconds`, `contractVersion`.
 
+### Pixel-preparation routes
+
+Two extra routes expose the existing pure helpers over HTTP for the API's
+background-removal pipeline. They take raw image bytes and return one PNG; no
+storage paths, no job documents, no result envelope. Both require
+`X-Worker-Key`.
+
+| Route | Input | Output |
+| --- | --- | --- |
+| `POST /v1/crop?tolerance=&paddingPx=` | raw `image/png`, `image/jpeg` or `image/webp` | cropped PNG, headers `X-Crop-Passthrough`, `X-Crop-Warning-Codes`, `X-Image-Width`, `X-Image-Height` |
+| `POST /v1/upscale?scale=&model=&tileSize=&gpu=` | raw RGB image | Real-ESRGAN PNG; `scale` must be 2 or 4 |
+
+`/v1/crop` calls the same `auto_crop_image` as the `trim` job, so tolerance and
+padding behave identically. `/v1/upscale` accepts an opaque RGBA PNG (the
+cropper's natural output; a fully opaque alpha channel is storage, not content)
+and drops the alpha before the engine. It refuses an image with real
+transparency (`alpha-not-supported`): the pipeline upscales the cropped RGB
+layer and refines the provider matte separately, so upscaling alpha here would
+invent edges that the matte pass owns. Upscales are serialized with one
+semaphore per process, matching the single-GPU policy.
+
 ## Settings (`PRINTSHEET_*` env or `worker/.env`)
 
 | Variable | Default | Meaning |
@@ -74,7 +95,6 @@ PRINTSHEET_RUN_JOBS=true .venv/bin/uvicorn app.main:app --port 8000   # + loop
 | `DPI_WARN_BELOW` / `DPI_STRONG_WARN_BELOW` | `150` / `100` | low-resolution warnings |
 | `MAX_INPUT_PIXELS` | `80000000` | decompression-bomb guard for worker reads |
 | `BORDER_BAND_RATIO`/`_MIN_PX`/`_MAX_PX` | `0.04`/`2`/`48` | border strip width |
-| `BACKGROUND_MATCH_TOLERANCE` | `12` | per-channel “is this the background?” |
 | `ALPHA_THRESHOLD` | `5` | alpha below this counts as empty (packer uses 5 too) |
 | `EDGE_UNIFORM_RATIO` | `0.9` | share that makes a strip a clean margin |
 | `CLASSIFY_ANALYSIS_MAX_PX` | `600` | colour/edge features work on a copy |

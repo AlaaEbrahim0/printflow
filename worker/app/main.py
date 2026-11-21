@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app import CONTRACT_API_VERSION, __version__
+from app import CONTRACT_API_VERSION, __version__, prepare
 from app.config import Settings, get_settings
 from app.job_client import JobClient
 from app.logs import setup_logging
@@ -23,7 +23,7 @@ from app.runner import JobRunner
 from app.storage import StorageRoot
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, engines=None) -> FastAPI:
     resolved = settings or get_settings()
 
     @asynccontextmanager
@@ -78,6 +78,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ),
         lifespan=lifespan,
     )
+
+    prepare.install(app, resolved, engines)
 
     @app.get("/")
     def root() -> dict[str, object]:
