@@ -53,7 +53,7 @@ export type ProcessingProfileId = 'logo-text' | 'illustration' | 'soft-artwork' 
  * The three editing tools, in the order the shop works. The ids are stable
  * because the tool list derives which one to open from `pipelineStatus`.
  */
-export type ToolId = 'prepare' | 'enhance' | 'size'
+export type ToolId = 'prepare' | 'cutout' | 'enhance' | 'size'
 
 export interface ProcessingProfile {
   id: ProcessingProfileId
@@ -517,6 +517,9 @@ export default function DesignReviewPage() {
           .find((version) => !hiddenLayerIds.includes(version.id)) ?? null)
   const activeHidden = hiddenLayerIds.includes(activeLayer.id)
   const showCompare = compareChoice[activeLayer.id] ?? activeLayer.status === 'proposed'
+  // Cutout is optional, so it is never *suggested*: auto-opening it would imply
+  // every design needs a background removed. It opens only when clicked, but it
+  // still reports "done" once a cutout is on the current lineage.
   const suggestedTool: ToolId = !pipeline.prepared
     ? 'prepare'
     : !pipeline.enhanced
@@ -525,6 +528,7 @@ export default function DesignReviewPage() {
   const shownTool = openTool ?? suggestedTool
   const toolDone: Record<ToolId, boolean> = {
     prepare: pipeline.prepared,
+    cutout: pipeline.cutout,
     enhance: pipeline.enhanced,
     size: pipeline.sized,
   }
@@ -1193,6 +1197,46 @@ export default function DesignReviewPage() {
                   >
                     Save size & create layer
                   </button>
+                </div>
+              </details>
+
+              <details
+                className={`tool${toolDone.cutout ? ' is-done' : ''}`}
+                open={shownTool === 'cutout'}
+                onToggle={(event) =>
+                  setOpenTool(event.currentTarget.open ? 'cutout' : 'none')
+                }
+              >
+                <summary>
+                  <span className="tool-index" aria-hidden="true">+</span>
+                  <span className="tool-text">
+                    <strong>Remove background</strong>
+                    <small>
+                      {toolDone.cutout
+                        ? 'Cut out in this stack — check the mask before approving'
+                        : 'Optional · crop, cut out, then enlarge'}
+                    </small>
+                  </span>
+                  {toolDone.cutout ? <Chip tone="good">done</Chip> : null}
+                </summary>
+                <div className="tool-body stack-sm">
+                  <p className="hint">
+                    Runs on the cropped image, then enlarges the original colours and
+                    rebuilds the alpha at full size. Expect up to a minute; the job keeps
+                    running if you leave this page.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={!canPropose}
+                    onClick={() => void submitJob(() => api.steps.backgroundRemoval(designId))}
+                  >
+                    Remove background
+                  </button>
+                  <p className="hint">
+                    The provider is chosen by the server configuration. Transparent
+                    uploads cannot be cut out again — crop first if the edge is wrong.
+                  </p>
                 </div>
               </details>
             </div>

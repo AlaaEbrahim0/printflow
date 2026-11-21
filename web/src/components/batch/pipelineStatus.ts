@@ -15,6 +15,7 @@ import type { DesignVersion } from '../../api/client'
  */
 export interface PipelineStatus {
   prepared: boolean
+  cutout: boolean
   enhanced: boolean
   sized: boolean
 }
@@ -36,6 +37,7 @@ export function pipelineStatus(
 
   return {
     prepared: lineage.some((version) => version.stepType === 'trim' || version.stepType === 'crop'),
+    cutout: lineage.some((version) => version.stepType === 'background-removal'),
     enhanced: lineage.some((version) => version.stepType === 'upscale'),
     sized: lineage.some((version) => version.stepType === 'resize'),
   }

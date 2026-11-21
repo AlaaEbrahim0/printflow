@@ -182,6 +182,22 @@ describe('jobs, proposals and step semantics', () => {
     expect(settled.error?.code).toBe('nothing-to-trim')
   })
 
+  it('a background removal proposes an alpha version at twice the parent size', () => {
+    const acme = batchByName('ACME summer drop 01')
+    const logo = designByName(acme.id, 'APEX logo')
+    const parent = store().versions.get(logo.currentVersionId)!
+    const job = store().proposeStep(logo.id, 'background-removal', {})
+    expect(store().jobs.get(job.jobId)!.type).toBe('background-removal')
+    store().settleJob(job.jobId)
+
+    const pending = store().versions.get(store().designs.get(logo.id)!.pendingVersionId!)!
+    expect(pending.stepType).toBe('background-removal')
+    expect(pending.status).toBe('proposed')
+    // A cutout is transparent by definition, and the pipeline enlarges it.
+    expect(pending.hasAlpha).toBe(true)
+    expect(pending.widthPx).toBe(parent.widthPx * 2)
+  })
+
   it('a manual crop through the trim endpoint records a crop version', () => {
     const acme = batchByName('ACME summer drop 01')
     const logo = designByName(acme.id, 'APEX logo')

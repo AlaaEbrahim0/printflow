@@ -652,41 +652,22 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Propose background removal (color-to-alpha or mask reuse)
-         * @description Produces a non-destructive mask artifact and transparency. The source is
-         *     never modified.
+         * Propose a background-removal (cutout) version
+         * @description Queues a cutout and returns immediately with a `background-removal` job.
+         *     The API executes this job itself — the provider adapters and the crop,
+         *     upscale and matte-refining stages live behind application ports, so no
+         *     external worker is involved and the job is never offered on the worker
+         *     claim protocol.
          *
-         *     The mask is the reviewable artifact, and it is shaped by the same request:
-         *     `maskGrowPx` offsets the selection edge, `edgeSoftness` feathers it,
-         *     `maskLevels` remaps the alpha ramp and `imageLevels` adjusts the cut-out
-         *     colours. The `ai` mode (BiRefNet) is archived and is rejected by the
-         *     worker with `unsupported-parameters`.
+         *     The pipeline crops first, removes the background from the cropped image,
+         *     upscales the original cropped colours, upscales and refines the matte, and
+         *     recombines. Expect tens of seconds: poll the job rather than the response.
+         *
+         *     `provider` is an optional override of `BackgroundRemoval:DefaultProvider`.
+         *     Fallback to `BackgroundRemoval:FallbackProvider` happens only for
+         *     availability failures; an input the provider cannot decode fails outright.
          */
         post: operations["proposeBackgroundRemoval"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/designs/{designId}/steps/manual-edit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                designId: components["parameters"]["DesignId"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Save a manual-editor PNG as a new proposed version
-         * @description Stores the operator's PNG as an immutable `manual-edit` proposal against
-         *     the current version. Dimensions must match the source version exactly.
-         *     The source is never modified and no worker job is queued.
-         */
-        post: operations["proposeManualEdit"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1097,71 +1078,14 @@ export interface components {
             fitMode: "width" | "height" | "contain";
             dpi?: number | null;
         };
-        BackgroundRemovalStepRequest: {
-            /**
-             * @description `color-to-alpha` keys out a flat background colour, which is the right
-             *     tool for flat logo, text and line artwork. `ai` runs the withoutBG
-             *     open-weights matte (Apache-2.0, routed matting + BiRefNet) for photos,
-             *     busy backgrounds and soft edges. `none` re-applies brush strokes and
-             *     mask shaping to `maskFromVersionId`. Both matte modes feed the same
-             *     mask, so brush edits, speck/hole refinement, grow, feather and levels
-             *     apply to either.
-             * @enum {string}
-             */
-            mode: "ai" | "color-to-alpha" | "none";
-            keyColor?: string | null;
-            tolerance?: number | null;
-            edgeSoftness?: number | null;
-            /**
-             * @description Move the selection edge by this many source pixels: positive grows the
-             *     selection, negative contracts it. The offset is circular (Euclidean),
-             *     so a diagonal edge moves the same distance as a straight one, and a
-             *     grown pixel inherits the nearest selected alpha instead of being
-             *     stamped opaque.
-             */
-            maskGrowPx?: number | null;
-            /**
-             * @description Drop opaque islands and fill background pinholes smaller than this
-             *     area, in source pixels. 0 disables the pass. It runs on the mode mask
-             *     before grow and feather, so a stray pixel is not inflated and a
-             *     pinhole does not survive the blur. DTF prints every opaque pixel, so
-             *     this pass exists to keep specks off the garment.
-             */
-            maskMinAreaPx?: number | null;
-            maskLevels?: components["schemas"]["LevelsAdjustment"] | null;
-            imageLevels?: components["schemas"]["LevelsAdjustment"] | null;
-            /**
-             * @description AI matte engine for `mode: ai`. `withoutbg-open` is the withoutBG
-             *     open-weights bundle. The archived BiRefNet checkpoints are refused so
-             *     a stale client cannot silently run a different model on artwork.
-             * @enum {string|null}
-             */
-            aiModel?: "withoutbg-open" | null;
-            brushOps?: components["schemas"]["BrushOp"][] | null;
-        };
         /**
-         * @description Photoshop-style levels. Input black/white points rescale the ramp, `gamma`
-         *     bends the midpoint (above 1 brightens midtones), and the optional output
-         *     range clamps the result. Applied through a 256-entry lookup table, so the
-         *     same parameters always produce the same bytes.
+         * @description Optional provider override for one cutout. Omit the body to use the
+         *     configured default. Alpha feather and threshold are deployment settings,
+         *     not per-request knobs.
          */
-        LevelsAdjustment: {
-            /** @default 0 */
-            blackPoint: number;
-            /** @default 255 */
-            whitePoint: number;
-            /** @default 1 */
-            gamma: number;
-            /** @default 0 */
-            outputBlack: number;
-            /** @default 255 */
-            outputWhite: number;
-        };
-        BrushOp: {
-            /** @enum {string} */
-            tool: "erase" | "restore";
-            radiusPx: number;
-            points: number[][];
+        BackgroundRemovalStepRequest: {
+            /** @enum {string|null} */
+            provider?: "withoutbg" | "poof" | null;
         };
         RejectVersionRequest: {
             reason?: string | null;
@@ -1430,7 +1354,7 @@ export interface components {
             /** Format: uuid */
             jobId: string;
             /** @enum {string} */
-            type: "classify" | "trim" | "background-removal" | "upscale" | "vectorize" | "resize";
+            type: "classify" | "trim" | "upscale" | "vectorize" | "resize";
             /** Format: uuid */
             batchId: string;
             /** Format: uuid */
@@ -2473,13 +2397,13 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": components["schemas"]["BackgroundRemovalStepRequest"];
             };
         };
         responses: {
-            /** @description Background removal job accepted */
+            /** @description Cutout job accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -2490,57 +2414,6 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
-            422: components["responses"]["UnprocessableEntity"];
-        };
-    };
-    proposeManualEdit: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                designId: components["parameters"]["DesignId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": {
-                    /**
-                     * Format: binary
-                     * @description PNG export from the manual editor; maximum 50 MB.
-                     */
-                    file: string;
-                    /**
-                     * Format: uuid
-                     * @description Current version the edit is based on.
-                     */
-                    sourceVersionId: string;
-                    /** @description Manual-editor history and settings as a JSON object string. */
-                    parameters?: string | null;
-                };
-            };
-        };
-        responses: {
-            /** @description Manual-edit proposal created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DesignDetail"];
-                };
-            };
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            /** @description Manual edit exceeds the upload limit */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
             422: components["responses"]["UnprocessableEntity"];
         };
     };

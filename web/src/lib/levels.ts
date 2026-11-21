@@ -1,4 +1,3 @@
-import type { LevelsAdjustment } from '../api/client'
 
 /**
  * Levels, mirroring the worker's `mask_ops.levels_lut` exactly.
@@ -13,7 +12,17 @@ import type { LevelsAdjustment } from '../api/client'
  * mask levels move which pixels survive the cut-out, the image levels move the
  * colour of what survives.
  */
-export type { LevelsAdjustment }
+/**
+ * Levels are no longer part of the API contract: the 3.0.0 cutout removed the
+ * mask-shaping parameters, so this shape is now purely a preview concern.
+ */
+export interface LevelsAdjustment {
+  blackPoint: number
+  whitePoint: number
+  gamma: number
+  outputBlack: number
+  outputWhite: number
+}
 
 export const LEVELS_DEFAULTS: LevelsAdjustment = {
   blackPoint: 0,

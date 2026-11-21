@@ -218,7 +218,7 @@ export class MockStore {
   /** Public entry point used by the step handlers. */
   proposeStep(
     designId: string,
-    type: 'trim' | 'upscale' | 'resize',
+    type: 'trim' | 'upscale' | 'resize' | 'background-removal',
     parameters: Record<string, unknown>,
   ): JobAccepted {
     const stepType: StepType =
@@ -495,6 +495,15 @@ export class MockStore {
         const scale = Number(parameters.scale ?? 2)
         version.widthPx = Math.round(box.width * scale)
         version.heightPx = Math.round(box.height * scale)
+        break
+      }
+      case 'background-removal': {
+        // The real pipeline crops, cuts out and enlarges, so the mock version
+        // carries alpha and a bigger canvas than its parent.
+        version.hasAlpha = true
+        version.hasMask = true
+        version.widthPx = Math.round(box.width * 2)
+        version.heightPx = Math.round(box.height * 2)
         break
       }
       case 'vectorize': {

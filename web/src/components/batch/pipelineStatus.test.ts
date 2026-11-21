@@ -27,6 +27,7 @@ describe('pipelineStatus', () => {
     const versions = [version('v1', 'original')]
     expect(pipelineStatus(versions, 'v1')).toEqual({
       prepared: false,
+      cutout: false,
       enhanced: false,
       sized: false,
     })
@@ -41,6 +42,7 @@ describe('pipelineStatus', () => {
     ]
     expect(pipelineStatus(versions, 'v4')).toEqual({
       prepared: true,
+      cutout: false,
       enhanced: true,
       sized: true,
     })
@@ -57,6 +59,7 @@ describe('pipelineStatus', () => {
     ]
     expect(pipelineStatus(versions, 'v4')).toEqual({
       prepared: true,
+      cutout: false,
       enhanced: false,
       sized: true,
     })
@@ -67,10 +70,33 @@ describe('pipelineStatus', () => {
     expect(pipelineStatus(versions, 'v2').prepared).toBe(true)
   })
 
+  it('counts a background removal on the lineage as a cutout', () => {
+    const versions = [
+      version('v1', 'original'),
+      version('v2', 'trim', 'v1'),
+      version('v3', 'background-removal', 'v2'),
+    ]
+    const status = pipelineStatus(versions, 'v3')
+    expect(status.cutout).toBe(true)
+    // The cutout pipeline crops internally, but it does not replace the trim
+    // step, so preparation still comes from the explicit trim version.
+    expect(status.prepared).toBe(true)
+  })
+
+  it('does not count a cutout that is off the current lineage', () => {
+    const versions = [
+      version('v1', 'original'),
+      version('v2', 'background-removal', 'v1'),
+      version('v3', 'resize', 'v1'),
+    ]
+    expect(pipelineStatus(versions, 'v3').cutout).toBe(false)
+  })
+
   it('survives a missing current version id', () => {
     const versions = [version('v1', 'original'), version('v2', 'resize', 'v1')]
     expect(pipelineStatus(versions, null)).toEqual({
       prepared: false,
+      cutout: false,
       enhanced: false,
       sized: false,
     })
@@ -80,6 +106,7 @@ describe('pipelineStatus', () => {
     const versions = [version('v2', 'resize', 'missing')]
     expect(pipelineStatus(versions, 'v2')).toEqual({
       prepared: false,
+      cutout: false,
       enhanced: false,
       sized: true,
     })
