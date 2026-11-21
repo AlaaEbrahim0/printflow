@@ -6,6 +6,7 @@ using PrintSheet.Api;
 using PrintSheet.Api.Endpoints;
 using PrintSheet.Application;
 using PrintSheet.Infrastructure;
+using PrintSheet.Infrastructure.BackgroundRemoval;
 using PrintSheet.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -33,7 +34,10 @@ builder.Services.AddCors(options =>
 builder.Services.AddPrintSheetInfrastructure(builder.Configuration);
 builder.Services
     .AddHealthChecks()
-    .AddDbContextCheck<PrintSheetDbContext>("database", tags: ["ready"]);
+    .AddDbContextCheck<PrintSheetDbContext>("database", tags: ["ready"])
+    // External, tagged so the API's own readiness never depends on the cutout
+    // container being up; operators can inspect it without blocking the workbench.
+    .AddCheck<WithoutBgHealthCheck>("withoutbg", tags: ["dependency"]);
 
 var app = builder.Build();
 
@@ -65,7 +69,7 @@ app.MapGet("/api/v1/info", () => Results.Ok(new
 
 app.MapGet("/healthz", async (HealthCheckService healthChecks) =>
 {
-    var report = await healthChecks.CheckHealthAsync();
+    var report = await healthChecks.CheckHealthAsync(check => !check.Tags.Contains("dependency"));
     var payload = new
     {
         status = report.Status.ToString(),

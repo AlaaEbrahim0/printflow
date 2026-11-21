@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using PrintSheet.Application.Abstractions;
 using PrintSheet.Application.Services;
+using PrintSheet.Infrastructure.BackgroundRemoval;
 using PrintSheet.Infrastructure.Imaging;
 using PrintSheet.Infrastructure.Persistence;
 using PrintSheet.Infrastructure.Storage;
@@ -58,6 +59,8 @@ public static class DependencyInjection
         services.AddScoped<SettingsService>();
         services.AddScoped<JobCompletionService>();
         services.AddScoped<JobService>();
+
+        services.AddBackgroundRemoval(configuration);
 
         return services;
     }
