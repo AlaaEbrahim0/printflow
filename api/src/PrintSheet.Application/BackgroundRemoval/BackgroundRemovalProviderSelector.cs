@@ -48,22 +48,55 @@ public sealed class BackgroundRemovalProviderSelector : IBackgroundRemovalServic
 
     public async Task<BackgroundRemovalResult> RemoveAsync(
         ImageInput image,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? preferredProvider = null)
     {
+        var primary = Resolve(preferredProvider);
+
         try
         {
-            return await _primary.RemoveAsync(image, cancellationToken);
+            return await primary.RemoveAsync(image, cancellationToken);
         }
         catch (BackgroundRemovalException exception) when (exception.AllowsFallback && _fallback is not null)
         {
+            // The override replaces the primary for this one job; the availability
+            // fallback policy still applies, so a provider outage does not fail a
+            // cutout the operator could have had. When the override *is* the
+            // configured fallback there is nowhere left to go, so surface the fault
+            // rather than silently retrying the same provider.
+            if (string.Equals(primary.Provider, _fallback.Provider, StringComparison.OrdinalIgnoreCase))
+            {
+                throw;
+            }
+
             _logger.LogWarning(
                 "Background removal provider {Provider} failed ({Reason}); falling back to {Fallback}.",
-                _primary.Provider,
+                primary.Provider,
                 exception.Reason,
                 _fallback.Provider);
 
             return await _fallback.RemoveAsync(image, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// The adapter for a per-job override, or the configured primary when none was
+    /// requested. An unknown name is an input fault, not an availability fault: the
+    /// API validates overrides when the job is queued, so reaching this with a
+    /// bogus name means the request path and this lookup disagree.
+    /// </summary>
+    private IBackgroundRemover Resolve(string? preferredProvider)
+    {
+        if (string.IsNullOrWhiteSpace(preferredProvider))
+        {
+            return _primary;
+        }
+
+        return Find(preferredProvider)
+            ?? throw new BackgroundRemovalException(
+                BackgroundRemovalFailureReason.InvalidImage,
+                preferredProvider,
+                $"The requested background-removal provider '{preferredProvider}' is not configured.");
     }
 
     private IBackgroundRemover? Find(string name)

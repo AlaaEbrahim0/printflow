@@ -114,7 +114,9 @@ public sealed class BackgroundRemovalJobRunner
         BackgroundRemovalPipelineResult result;
         try
         {
-            result = await _pipeline.RunAsync(input, cancellationToken);
+            // The override was validated when the job was queued; the runner only
+            // needs to forward it so the job runs on the provider the operator chose.
+            result = await _pipeline.RunAsync(input, cancellationToken, ReadProviderOverride(job));
         }
         catch (BackgroundRemovalException exception)
         {
@@ -232,7 +234,10 @@ public sealed class BackgroundRemovalJobRunner
             {
                 ["widthPx"] = result.WidthPx,
                 ["heightPx"] = result.HeightPx,
-                ["hasAlpha"] = true,
+                // hasAlpha is deliberately not reported: the completion service
+                // inspects the file on disk and that is the only claim it can verify.
+                // A hardcoded `true` here would win over the inspection and could
+                // record transparency the file does not have.
                 ["provider"] = result.Provider,
                 ["durationMs"] = (int)result.TotalElapsed.TotalMilliseconds,
                 ["removalMs"] = (int)result.RemovalElapsed.TotalMilliseconds,
@@ -263,4 +268,19 @@ public sealed class BackgroundRemovalJobRunner
 
     private static Result<(ImageInput, Guid, string)> Invalid(string message)
         => Result<(ImageInput, Guid, string)>.Failure(ErrorCodes.InvalidRequest, message);
+
+    /// <summary>
+    /// The per-job provider override, if the operator supplied one when queueing.
+    /// StepService omits the property entirely when no override was given, so an
+    /// absent or blank value means "use the configured default".
+    /// </summary>
+    private static string? ReadProviderOverride(Job job)
+    {
+        using var parameters = JsonDocument.Parse(job.ParametersJson);
+        return parameters.RootElement.ValueKind == JsonValueKind.Object
+            && parameters.RootElement.TryGetProperty("provider", out var provider)
+            && provider.ValueKind == JsonValueKind.String
+            ? provider.GetString()
+            : null;
+    }
 }

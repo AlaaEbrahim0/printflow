@@ -29,6 +29,28 @@ public sealed class BackgroundRemovalJobRunnerTests
     }
 
     [Fact]
+    public async Task ForwardsTheProviderOverrideStoredOnTheJob()
+    {
+        var harness = Harness.Create(parametersJson: """{"provider":"poof"}""");
+
+        await harness.Runner.RunNextAsync(CancellationToken.None);
+
+        // The endpoint validates the override and stores it; the runner must pass it
+        // on, otherwise every job silently runs on the configured default.
+        Assert.Equal("poof", harness.Pipeline.LastPreferredProvider);
+    }
+
+    [Fact]
+    public async Task UsesTheConfiguredDefaultWhenNoOverrideWasGiven()
+    {
+        var harness = Harness.Create();
+
+        await harness.Runner.RunNextAsync(CancellationToken.None);
+
+        Assert.Null(harness.Pipeline.LastPreferredProvider);
+    }
+
+    [Fact]
     public async Task ClaimsOnlyTheCutoutCapability()
     {
         var harness = Harness.Create();
@@ -50,7 +72,9 @@ public sealed class BackgroundRemovalJobRunnerTests
         Assert.Equal("withoutbg", metadata.GetProperty("provider").GetString());
         Assert.Equal(400, metadata.GetProperty("widthPx").GetInt32());
         Assert.Equal(200, metadata.GetProperty("heightPx").GetInt32());
-        Assert.True(metadata.GetProperty("hasAlpha").GetBoolean());
+        // hasAlpha is left to the completion service, which inspects the file. The
+        // runner must not assert transparency it has not verified.
+        Assert.False(metadata.TryGetProperty("hasAlpha", out _));
     }
 
     [Fact]
@@ -137,7 +161,8 @@ public sealed class BackgroundRemovalJobRunnerTests
 
         public static Harness Create(
             bool designFound = true,
-            bool jobAvailable = true)
+            bool jobAvailable = true,
+            string parametersJson = "")
         {
             var job = Job.Create(
                 Guid.NewGuid(),
@@ -145,7 +170,7 @@ public sealed class BackgroundRemovalJobRunnerTests
                 Guid.NewGuid(),
                 JobType.BackgroundRemoval,
                 JobCapability.Cutout,
-                "{}",
+                parametersJson.Length > 0 ? parametersJson : "{}",
                 $$"""{"sourceVersionId":"{{Guid.NewGuid()}}"}""",
                 "batch/designs/x/versions/source.png",
                 "batch/designs/x/versions/output.png",
@@ -300,11 +325,15 @@ public sealed class BackgroundRemovalJobRunnerTests
 
         public BackgroundRemovalException? Throws { get; set; }
 
+        public string? LastPreferredProvider { get; private set; }
+
         public Task<BackgroundRemovalPipelineResult> RunAsync(
             ImageInput input,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string? preferredProvider = null)
         {
             Calls++;
+            LastPreferredProvider = preferredProvider;
             if (Throws is not null)
             {
                 throw Throws;

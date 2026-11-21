@@ -25,7 +25,15 @@ public interface IBackgroundRemovalService
 
     IReadOnlyList<IBackgroundRemover> Providers { get; }
 
-    Task<BackgroundRemovalResult> RemoveAsync(ImageInput image, CancellationToken cancellationToken);
+    /// <summary>
+    /// Removes the background with the primary provider, falling back only for
+    /// availability faults. <paramref name="preferredProvider"/> overrides the
+    /// configured primary for a single job; it must be one of <see cref="Providers"/>.
+    /// </summary>
+    Task<BackgroundRemovalResult> RemoveAsync(
+        ImageInput image,
+        CancellationToken cancellationToken,
+        string? preferredProvider = null);
 }
 
 /// <summary>
@@ -36,7 +44,11 @@ public interface IBackgroundRemovalService
 /// </summary>
 public interface IBackgroundRemovalPipeline
 {
+    /// <param name="preferredProvider">
+    /// Optional per-job provider override; null uses the configured default.
+    /// </param>
     Task<BackgroundRemoval.BackgroundRemovalPipelineResult> RunAsync(
         ImageInput input,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? preferredProvider = null);
 }

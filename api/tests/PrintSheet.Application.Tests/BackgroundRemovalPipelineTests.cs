@@ -216,11 +216,15 @@ public sealed class BackgroundRemovalPipelineTests
 
         public IReadOnlyList<IBackgroundRemover> Providers => [];
 
+        public string? LastPreferredProvider { get; private set; }
+
         public Task<BackgroundRemovalResult> RemoveAsync(
             ImageInput image,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string? preferredProvider = null)
         {
             LastImage = image;
+            LastPreferredProvider = preferredProvider;
             calls.Add("remove");
             return Task.FromResult(
                 new BackgroundRemovalResult(CutoutPng, "fake", TimeSpan.FromMilliseconds(5)));

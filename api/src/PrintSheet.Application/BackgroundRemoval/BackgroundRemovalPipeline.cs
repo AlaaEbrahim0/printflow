@@ -57,7 +57,8 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
 
     public async Task<BackgroundRemovalPipelineResult> RunAsync(
         ImageInput input,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? preferredProvider = null)
     {
         Validate(input);
         var total = Stopwatch.StartNew();
@@ -68,7 +69,8 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
 
         var removal = await _remover.RemoveAsync(
             new ImageInput(croppedPng, "image/png", "cropped.png"),
-            cancellationToken);
+            cancellationToken,
+            preferredProvider);
 
         var cutout = await InspectAsync(removal.PngBytes, cancellationToken);
         if (cutout.WidthPx != cropped.WidthPx || cutout.HeightPx != cropped.HeightPx)

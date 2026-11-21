@@ -78,6 +78,116 @@ public sealed class BackgroundRemovalProviderSelectorTests
     }
 
     [Fact]
+    public async Task HonoursAPerJobProviderOverride()
+    {
+        var primary = new StubRemover("withoutbg", _ => Result("withoutbg"));
+        var fallback = new StubRemover("poof", _ => Result("poof"));
+        var selector = Create(primary, fallback, "withoutbg", "poof");
+
+        // The operator asked for Poof on this one job; the configured default must
+        // not win, and the override must not be treated as a fallback.
+        var result = await selector.RemoveAsync(
+            Input,
+            CancellationToken.None,
+            preferredProvider: "poof");
+
+        Assert.Equal("poof", result.Provider);
+        Assert.Equal(0, primary.Calls);
+        Assert.Equal(1, fallback.Calls);
+        // The reported default is still the configured one.
+        Assert.Equal("withoutbg", selector.Provider);
+    }
+
+    [Fact]
+    public async Task AnOverrideThatIsAlsoTheFallbackSurfacesTheFault()
+    {
+        var primary = new StubRemover("withoutbg", _ => Result("withoutbg"));
+        var overrideProvider = new StubRemover(
+            "poof",
+            _ => throw new BackgroundRemovalException(
+                BackgroundRemovalFailureReason.ProviderUnavailable,
+                "poof",
+                "down"));
+        var selector = Create(primary, overrideProvider, "withoutbg", "poof");
+
+        // The override names the configured fallback, so retrying would mean calling
+        // the same provider again. The availability fault surfaces instead.
+        var error = await Assert.ThrowsAsync<BackgroundRemovalException>(
+            () => selector.RemoveAsync(
+                Input,
+                CancellationToken.None,
+                preferredProvider: "poof"));
+
+        Assert.Equal(BackgroundRemovalFailureReason.ProviderUnavailable, error.Reason);
+        Assert.Equal(0, primary.Calls);
+        Assert.Equal(1, overrideProvider.Calls);
+    }
+
+    [Fact]
+    public async Task AnOverrideFallsBackWhenADifferentFallbackIsConfigured()
+    {
+        // Default is Poof, the configured fallback is withoutBG, and the operator
+        // overrides this job to Poof - the same as the default, so a Poof outage
+        // still falls back to withoutBG rather than failing the cutout.
+        var primary = new StubRemover(
+            "poof",
+            _ => throw new BackgroundRemovalException(
+                BackgroundRemovalFailureReason.ProviderUnavailable,
+                "poof",
+                "down"));
+        var fallback = new StubRemover("withoutbg", _ => Result("withoutbg"));
+        var selector = Create(primary, fallback, "poof", "withoutbg");
+
+        var result = await selector.RemoveAsync(
+            Input,
+            CancellationToken.None,
+            preferredProvider: "poof");
+
+        Assert.Equal("withoutbg", result.Provider);
+        Assert.Equal(1, fallback.Calls);
+    }
+
+    [Fact]
+    public async Task AnUnknownOverrideIsAnInputFaultAndDoesNotCallAnyProvider()
+    {
+        var poof = new StubRemover("poof", _ => Result("poof"));
+        var selector = Create(poof, null, "poof", null);
+
+        var error = await Assert.ThrowsAsync<BackgroundRemovalException>(
+            () => selector.RemoveAsync(
+                Input,
+                CancellationToken.None,
+                preferredProvider: "nope"));
+
+        Assert.Equal(BackgroundRemovalFailureReason.InvalidImage, error.Reason);
+        Assert.False(error.AllowsFallback);
+        Assert.Equal(0, poof.Calls);
+    }
+
+    [Fact]
+    public async Task AnOverrideNamingThePrimaryStillFallsBack()
+    {
+        var primary = new StubRemover(
+            "withoutbg",
+            _ => throw new BackgroundRemovalException(
+                BackgroundRemovalFailureReason.ProviderUnavailable,
+                "withoutbg",
+                "down"));
+        var fallback = new StubRemover("poof", _ => Result("poof"));
+        var selector = Create(primary, fallback, "withoutbg", "poof");
+
+        // Explicitly asking for the configured primary must behave exactly like
+        // omitting the override: an outage still falls back.
+        var result = await selector.RemoveAsync(
+            Input,
+            CancellationToken.None,
+            preferredProvider: "withoutbg");
+
+        Assert.Equal("poof", result.Provider);
+        Assert.Equal(1, fallback.Calls);
+    }
+
+    [Fact]
     public void RejectsAnUnregisteredProviderName()
     {
         var poof = new StubRemover("poof", _ => Result("poof"));
