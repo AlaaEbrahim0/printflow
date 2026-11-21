@@ -16,7 +16,10 @@ public sealed class WithoutBgHealthCheck(
         CancellationToken cancellationToken = default)
     {
         using var client = httpClientFactory.CreateClient("withoutbg-health");
-        client.BaseAddress = new Uri(options.Value.BaseUrl);
+        // Same normalisation as the typed clients: without the trailing slash a
+        // base URL that ends in a path segment would drop that segment.
+        var baseUrl = options.Value.BaseUrl;
+        client.BaseAddress = new Uri(baseUrl.EndsWith('/') ? baseUrl : baseUrl + "/");
         client.Timeout = TimeSpan.FromSeconds(5);
 
         try

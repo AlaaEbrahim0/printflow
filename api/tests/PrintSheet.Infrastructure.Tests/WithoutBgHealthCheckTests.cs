@@ -16,6 +16,22 @@ public sealed class WithoutBgHealthCheckTests
     }
 
     [Fact]
+    public async Task KeepsThePathOfABaseUrlWithoutATrailingSlash()
+    {
+        string? requested = null;
+        var result = await Check(
+            new StubHandler((request, _) =>
+            {
+                requested = request.RequestUri!.AbsoluteUri;
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }),
+            "http://withoutbg.test/gateway");
+
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+        Assert.Equal("http://withoutbg.test/gateway/ready", requested);
+    }
+
+    [Fact]
     public async Task ReportsUnhealthyWhenTheModelIsStillLoading()
     {
         var result = await Check(
@@ -34,11 +50,11 @@ public sealed class WithoutBgHealthCheckTests
         Assert.NotNull(result.Exception);
     }
 
-    private static Task<HealthCheckResult> Check(StubHandler handler)
+    private static Task<HealthCheckResult> Check(StubHandler handler, string baseUrl = "http://withoutbg.test/")
     {
         var check = new WithoutBgHealthCheck(
             new StubFactory(handler),
-            Options.Create(new WithoutBgOptions { BaseUrl = "http://withoutbg.test/" }));
+            Options.Create(new WithoutBgOptions { BaseUrl = baseUrl }));
 
         return check.CheckHealthAsync(new HealthCheckContext());
     }
