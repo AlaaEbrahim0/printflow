@@ -65,9 +65,11 @@ public sealed class EfJobQueue(PrintSheetDbContext db, IClock clock) : IJobQueue
             .Where(job => job.Status == JobStatus.Queued)
             .ToListAsync(cancellationToken);
 
-        // The cutout capability belongs to the in-process runner. A lease request
-        // that asks for it is treated as "not mine", so no worker can ever be
-        // handed a job whose processor does not exist, regardless of caller.
+        // The cutout capability belongs to the in-process runner. Workers never ask
+        // for it (the claim endpoint refuses to parse the name), so matching on
+        // capability alone is what keeps an in-process job away from a worker while
+        // still letting the runner lease it. Filtering by job type instead would
+        // starve the runner.
         var candidate = queued
             .Where(job =>
                 types.Contains(job.Type)

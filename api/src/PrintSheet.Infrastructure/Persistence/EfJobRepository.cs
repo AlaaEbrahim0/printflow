@@ -77,7 +77,12 @@ public sealed class EfJobRepository(PrintSheetDbContext db) : IJobRepository
                    && (job.Type == JobType.Trim
                        || job.Type == JobType.Upscale
                        || job.Type == JobType.Vectorize
-                       || job.Type == JobType.Resize),
+                       || job.Type == JobType.Resize
+                       // A cutout runs in-process for up to a minute. Without this
+                       // the operator could queue a second step that competes for the
+                       // same design and fails only after the pipeline has done all
+                       // the work.
+                       || job.Type == JobType.BackgroundRemoval),
             cancellationToken);
 
     public Task<bool> HasAnyActiveJobAsync(Guid batchId, CancellationToken cancellationToken)

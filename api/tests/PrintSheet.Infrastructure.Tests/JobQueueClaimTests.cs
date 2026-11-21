@@ -94,18 +94,51 @@ public sealed class JobQueueClaimTests : IAsyncDisposable
         Assert.Equal("api-cutout", claimed.LeaseOwner);
     }
 
+    [Fact]
+    public async Task TreatsAQueuedCutoutAsAnActiveStepJob()
+    {
+        var batchId = Guid.NewGuid();
+        await QueueAsync(batchId, JobType.BackgroundRemoval, JobCapability.Cutout);
+        await _db.SaveChangesAsync();
+
+        var jobs = new EfJobRepository(_db);
+
+        // A cutout holds the design for up to a minute. If it did not count as an
+        // active step job, a second step could be queued against the same design and
+        // would fail only after the pipeline had already done all the work.
+        Assert.True(await jobs.HasActiveStepJobAsync(_designId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DoesNotTreatAFinishedCutoutAsActive()
+    {
+        var batchId = Guid.NewGuid();
+        var job = await QueueAsync(batchId, JobType.BackgroundRemoval, JobCapability.Cutout);
+        await _db.SaveChangesAsync();
+        job.TryClaim("api-cutout", "lease-token", 900, DateTimeOffset.UnixEpoch);
+        job.Complete("lease-token", "{}", DateTimeOffset.UnixEpoch.AddSeconds(30));
+        await _db.SaveChangesAsync();
+
+        var jobs = new EfJobRepository(_db);
+
+        Assert.False(await jobs.HasActiveStepJobAsync(_designId, CancellationToken.None));
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _db.DisposeAsync();
         await _connection.DisposeAsync();
     }
 
+    /// <summary>Every job in a test shares one design, so the active-step query is meaningful.</summary>
+    private readonly Guid _designId = Guid.NewGuid();
+
     private async Task<Job> QueueAsync(Guid batchId, JobType type, JobCapability capability)
     {
         var job = Job.Create(
             Guid.NewGuid(),
             batchId,
-            Guid.NewGuid(),
+            _designId,
             type,
             capability,
             "{}",
