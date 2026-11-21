@@ -15,10 +15,10 @@ out.** Do not leave the next agent guessing.
 PrintSheet Workbench is an internal, review-driven tool for a custom T-shirt
 DTF printing business. Staff upload ~20 customer designs per batch (often
 low-quality PNG screenshots). The tool proposes trim, crop, upscale and final
-print sizing. Background removal and vectorization were retired in contract
-v2.0.0; their historical versions stay readable. A human approves every step. The
-packer nests approved designs onto a master sheet that is exactly 58 cm wide
-(6850 px at 300 DPI); sheet height is minimized because print cost is
+print sizing, plus a background-removal (cutout) step. Vectorization was retired
+in contract v2.0.0 and remains readable as history only. A human approves every
+step. The packer nests approved designs onto a master sheet that is exactly
+58 cm wide (6850 px at 300 DPI); sheet height is minimized because print cost is
 proportional to height. Every processing step creates a new immutable
 `DesignVersion`; originals are never overwritten; exports are blocked unless a
 machine-readable integrity check passes.
@@ -78,17 +78,20 @@ or multi-worker work. Phase 1a remains complete and serves careful single-design
 sessions. Finish IndexedDB drafts, then pull Phase 4 ahead for Quick Levels,
 one-click Clean for background removal, background color/uniformity readout,
 and color-key flow. Then Phase 2 selection tools, Phase 3 complex editor shell,
-Phase 5 packing integrity, Phase 6 export. withoutbg stays deferred; color key
-and Quick Levels serve logos/text/simple illustrations, manual editor serves
-complex designs. Subagents run sequentially, at most one, mechanical tasks only;
-core work stays owner-written. Worker processing stays sequential, concurrency 1
-for all job types.
+Phase 5 packing integrity, Phase 6 export. withoutbg is no longer deferred - it
+shipped as the self-hosted cutout provider in v3.1.0 (see §15); color key and
+Quick Levels still serve logos/text/simple illustrations. Subagents run
+sequentially, at most one, mechanical tasks only; core work stays owner-written.
+Worker processing stays sequential, concurrency 1 for all job types.
 
-Contract v2.0.0 retired background removal and vectorization, added optional
-packing of a selected subset, made `all-designs-placed` the fifth blocking
-integrity check, and versioned IntegrityReport as `2.0`. The API, worker,
-packer, web and Compose images are aligned on v2.0.0; the fixture E2E and a
-live GPU upscale both pass.
+Contract v3.1.0 added background removal back as an additive step: a cutout is
+queued like any other step but executed **in-process by the API** behind a
+`cutout` job capability, because a 30-90 s synchronous request does not fit the
+worker claim protocol. Contract v2.0.0 had retired background removal and
+vectorization, added optional packing of a selected subset, made
+`all-designs-placed` the fifth blocking integrity check, and versioned
+IntegrityReport as `2.0`. The API, worker, packer, web and Compose images are
+aligned on v3.1.0; the fixture E2E and a live GPU upscale both pass.
 
 Phase 0 deliverables:
 
@@ -167,9 +170,9 @@ Phase 2 progress:
 │   └── spikes/psd-spike/        ← executable PSD/PSB reproducer
 ├── web/                         ← React 19 + TypeScript + Vite shell
 ├── contracts/
-│   ├── openapi/                 ← printsheet-api.yaml (3.0.3, v2.0.0)
+│   ├── openapi/                 ← printsheet-api.yaml (3.0.3, v3.1.0)
 │   ├── jsonschema/              ← 5 worker/packer/integrity contracts
-│   └── examples/                ← 15 validated examples
+│   └── examples/                ← 14 validated examples
 ├── docs/
 │   ├── domain-model.md          ← aggregates, state machines, invariants
 │   ├── adr/                     ← 0001–0007 + index
@@ -236,10 +239,10 @@ version or docs first.
   and exports.
 - EF Core persistence supports PostgreSQL in Compose and SQLite in Development;
   `/healthz` checks the configured database and `/api/v1/info` returns contract
-  version `2.0.0`.
-- Supported new steps are classify, trim/manual crop, upscale, resize.
-  `background-removal`, `vectorize`, and `manual-edit` are retired step types
-  that remain readable in historical records but cannot be proposed anew.
+  version `3.1.0`.
+- Supported new steps are classify, trim/manual crop, upscale, resize and
+  background removal. `vectorize` and `manual-edit` are retired step types that
+  remain readable in historical records but cannot be proposed anew.
 - Processing steps create immutable proposed versions. The current pointer
   changes only on approval; files are stored under the shared storage root.
 - `PrintUnits` implements cm↔px and effective DPI; domain tests cover it.
@@ -260,14 +263,16 @@ dotnet test PrintSheet.slnx
 - FastAPI processing service with health and worker/job endpoints.
 - `PRINTSHEET_*` settings via `pydantic-settings`.
 - `PRINTSHEET_MAX_GPU_JOBS` is constrained to 1 (GTX 1650 Ti, 4 GB VRAM).
-- Image processing covers trim/crop, upscale, resize, classify. `background-removal`,
-  `vectorize`, and `manual-edit` are retired job types; their schemas remain
-  for historical readability but new work is rejected with `retired` or
-  `unsupported-parameters`.
+- Image processing covers trim/crop, upscale, resize, classify. `background-removal`
+  is deliberately **not** a worker job type: the API runs cutouts in-process
+  (`cutout` capability), so `background-removal` stays out of `JOB_TYPES` and the
+  worker-job schema. `vectorize` and `manual-edit` are retired job types; their
+  schemas remain for historical readability but new work is rejected with
+  `retired` or `unsupported-parameters`.
 - Job polling starts only when `PRINTSHEET_RUN_JOBS=true`; Compose and
   `scripts/run-worker.sh` enable it. Health-only app/test runs keep the default
   false.
-- Current test suite: 192 tests.
+- Current test suite: 200 tests.
 - Tests:
 
 ```bash
@@ -324,13 +329,13 @@ npm test
 
 ## 7. Frozen contracts
 
-Contract version: **2.0.0** (breaking change 2026-11-08; frozen 1.0.0 was
-2026-11-05).
+Contract version: **3.1.0** (additive on top of the 3.0.0 breaking change; the
+frozen 1.0.0 was 2026-11-05).
 
 Canonical files:
 
-- `contracts/openapi/printsheet-api.yaml` — HTTP API, OpenAPI 3.0.3, 36 paths,
-  66 schemas.
+- `contracts/openapi/printsheet-api.yaml` — HTTP API, OpenAPI 3.0.3, 39 paths,
+  67 schemas.
 - `contracts/jsonschema/worker-job.schema.json` — worker request envelope with
   per-type parameters.
 - `contracts/jsonschema/worker-result.schema.json` — worker completion result,
@@ -340,7 +345,7 @@ Canonical files:
   referencing the integrity report.
 - `contracts/jsonschema/integrity-report.schema.json` — five blocking checks
   (`schemaVersion` 2.0).
-- `contracts/examples/` — 15 validated examples covering every supported worker
+- `contracts/examples/` — 14 validated examples covering every supported worker
   job type and both integrity outcomes.
 - `contracts/CHANGELOG.md`, `contracts/README.md` — change policy.
 
@@ -379,7 +384,7 @@ must not accidentally reverse them:
   `excluded`.
 - Version statuses: `proposed`, `approved`, `rejected`.
 - Step types: `original`, `trim`, `crop`, `upscale`, `resize`,
-  `background-removal`, `manual-edit`. Historical `vectorize` values remain
+  `background-removal`. Historical `vectorize` and `manual-edit` values remain
   readable but are retired for new proposals.
 - Only one `proposed` version per design. A stale proposal (parent no longer
   current) must be rejected, not quietly rebased.
@@ -398,10 +403,11 @@ must not accidentally reverse them:
   configurable settings, not scattered magic numbers.
 - Full-bleed inputs (all four edges non-uniform) must not get an auto-trim
   proposal.
-- `background-removal`, `vectorize`, and `manual-edit` are retired step types
-  that remain in the `StepType` enum for historical record readability but cannot
-  be proposed anew. All historical mask and vector artifacts remain readable and
-  downloadable; they are never edited.
+- `vectorize` and `manual-edit` are retired step types that remain in the
+  `StepType` enum for historical record readability but cannot be proposed anew.
+  `background-removal` is a live step type, executed in-process by the API. All
+  historical mask and vector artifacts remain readable and downloadable; they are
+  never edited.
 - `all-designs-placed` is the fifth blocking check. Subset packs report omitted
   designs with reason `not-selected`; any unplaced design makes
   `IntegrityReport.passed` false and blocks export.
@@ -603,7 +609,7 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 ## 15. Live status
 
-**Last updated:** 2026-11-20 (background-removal and manual-edit retired; contracts v3.0.0)
+**Last updated:** 2026-11-22 (background removal restored as an in-process cutout; v3.1.0)
 
 **Done and verified:**
 
@@ -617,15 +623,27 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
   worker through new `POST /v1/crop` and `POST /v1/upscale` routes rather than
   duplicating auto-trim or Real-ESRGAN. Fallback fires only for availability
   faults, never for input faults. Verified live end to end against the pinned
-  withoutBG container plus the native GPU worker. No production HTTP route yet:
-  a synchronous 30–90 s request does not fit the current job architecture.
-- API Clean Architecture implementation builds; 11 domain tests and 5
-  infrastructure tests pass. The live fixture-flow script covers the API job
-  lifecycle.
-- Worker processing covers classify, trim/crop, upscale, resize; 192 tests pass.
-  `background-removal`, `vectorize`, and `manual-edit` are retired job types;
-  their schemas remain for historical readability but new work is rejected with
-  `retired` or `unsupported-parameters`.
+  withoutBG container plus the native GPU worker.
+- **Background removal is now a shipped step (contracts 3.1.0).** It is queued
+  through `POST /api/v1/designs/{designId}/steps/background-removal` and executed
+  in-process by the API (`BackgroundRemovalJobRunner` behind
+  `BackgroundRemovalWorker`), not by the worker: a run takes 30-90 s, so the
+  request returns a job and the UI polls. Isolation is by capability, not job
+  type - the runner is the only caller that claims `cutout`, and the claim
+  endpoint refuses to parse that name so no worker can ever take one. The
+  `provider` override is validated at the endpoint, stored on the job and
+  forwarded to the selector; it is not silently discarded. Measured live: a
+  cutout produced a 1268x1068 RGBA proposal in 64.9 s with transparent corners
+  and the subject at its source colour.
+- API Clean Architecture implementation builds; 13 domain, 35 application and
+  57 infrastructure tests pass (3 live-only tests skip without the worker and
+  withoutBG URLs). The live fixture-flow script covers the API job lifecycle.
+- Worker processing covers classify, trim/crop, upscale, resize; 200 tests pass.
+  `background-removal` is not a worker job type at all (the API runs it), so it
+  is absent from `JOB_TYPES` and the worker-job schema. `vectorize` and
+  `manual-edit` are retired job types; their schemas remain for historical
+  readability but new work is rejected with `retired` or
+  `unsupported-parameters`.
 - Packer conservative-bitmap nesting/integrity/export implementation is
   integrated. Lease-based API runner has targeted tests for pack, integrity,
   export, path safety, failure payloads and lease loss; the complete packer
@@ -656,13 +674,15 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
   blobs: 1 design 0.7 s, 10 designs 10.3 s, 40 designs 67 s with 1.26 GB peak
   RSS; all five checks pass.
 - Web workflow routes (including partial-selection packing previews) are
-  implemented. `npm test`: 200 passed across 16 files. `npm run build` succeeds;
-  `npm run lint` exits successfully with existing React-hook/fast-refresh
-  warnings.
+  implemented. `npm test`: 246 passed across 20 files. `npm run build` succeeds;
+  `npm run lint` exits 0 with pre-existing React-hook/fast-refresh warnings and
+  no errors.
 - PSD/PSB spike rerun from the committed reproducer; report and JSON results in
   `docs/spikes/psd-spike/`.
-- Frozen contracts complete at v3.0.0: 5 JSON Schemas, 14 examples, OpenAPI
-  3.0.3 with updated paths. `scripts/validate_contracts.py` green.
+- Frozen contracts complete at v3.1.0: 5 JSON Schemas, 14 examples, OpenAPI
+  3.0.3 with 39 paths / 67 schemas. `scripts/validate_contracts.py` derives the
+  newest version from `contracts/CHANGELOG.md` and fails if
+  `ContractVersion.Current` disagrees with the OpenAPI doc.
 - `ARCHITECTURE.md`, `docs/domain-model.md`, ADRs 0001–0007 with index. ADR 0004
   is superseded by 0007 for the placement-geometry and scope change.
 - `scripts/generate_fixtures.py` produces 10 realistic inputs + manifest +
@@ -882,12 +902,41 @@ reference data, not immediate work.
   an explicit lock command if the shop needs “sent to printer” immutability.
 - The MVP allows one current sheet per batch; very tall batches must be split
   by excluding designs or accepted as one tall sheet/one export.
-- `background-removal`, `vectorize`, and `manual-edit` are retired step/job types.
-  Historical artifacts remain downloadable; no new work can be proposed.
+- `vectorize` and `manual-edit` are retired step/job types. Historical artifacts
+  remain downloadable; no new work can be proposed. `background-removal` was
+  retired in v3.0.0 and restored in v3.1.0 as an in-process API job.
 
 ---
 
-## 15. Handoff log
+## 16. Handoff log
+
+### 2026-11-22 — background removal restored as an in-process cutout (contracts 3.1.0)
+
+- v3.0.0 removed the in-worker cutout pipeline. v3.1.0 adds it back as an
+  **additive** step with a different executor: `JobCapability.Cutout` isolates a
+  job that the API runs itself (`BackgroundRemovalJobRunner` + hosted
+  `BackgroundRemovalWorker`), because a 30-90 s run does not fit the worker claim
+  protocol. `background-removal` stays out of worker `JOB_TYPES` and
+  `worker-job.schema.json`; `JobService.ClaimAsync` rejects `"cutout"` as
+  unparseable so no worker can take one.
+- Pipeline order is fixed and tested: auto-crop -> remove background on the
+  cropped low-res image -> upscale the original cropped RGB -> upscale/refine
+  alpha separately -> recombine. The 20 MB provider cap is enforced on the
+  **cropped** bytes, not the original upload.
+- Three defects found and fixed after the feature landed: the endpoint validated
+  and stored a `provider` override that the pipeline never read (every cutout
+  silently used the configured default); `HasActiveStepJobAsync` omitted
+  `BackgroundRemoval`, so a second step could be queued against a design while a
+  cutout held it and would fail only after the work was done; and the runner
+  hardcoded `hasAlpha: true`, which won over the completion service's file
+  inspection. Each has a regression test that fails when the fix is reverted.
+- `scripts/validate_contracts.py` now derives the newest version from
+  `contracts/CHANGELOG.md` instead of pinning a literal, and fails when
+  `ContractVersion.Current` disagrees with the OpenAPI doc.
+- Gates: contracts v3.1.0 green, API 13 + 35 + 57 tests (3 skipped), worker 200,
+  packer 161, web 246 / 20 files, `dotnet build` 0 warnings / 0 errors.
+- Not verified: Compose alone cannot finish the upscale step (no Real-ESRGAN
+  binary in the worker image); use the native GPU worker on `:8001`.
 
 ### 2026-11-20 — background-removal and manual-edit retired; contracts v3.0.0
 
@@ -1409,7 +1458,7 @@ Append newest entries at the top. Keep them short and factual.
   (144), and web build/lint. Web lint has warnings but exits successfully.
 - The worker-job schema/example now explicitly permit brush-only mask
   reapplication (`mode: "none"` plus `maskFromVersionId` and `brushOps`); this
-  additive contract clarification is recorded in section 16.
+  additive contract clarification is recorded in section 17.
 - API, web workflow, and brush changes remain uncommitted in the worktree.
 - Next: add focused API-level tests and continue Phase 1 integration. Docker
   runtime verification remains blocked until daemon/socket access is available.
@@ -1425,7 +1474,7 @@ Append newest entries at the top. Keep them short and factual.
 
 ---
 
-## 16. Contract change notifications
+## 17. Contract change notifications
 
 Contract version 1.0.0 was frozen on 2026-11-05. It was superseded by the
 breaking 2.0.0 change on 2026-11-08 after two additive clarifications on
