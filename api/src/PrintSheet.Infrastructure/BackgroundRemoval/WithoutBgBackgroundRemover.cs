@@ -9,6 +9,10 @@ namespace PrintSheet.Infrastructure.BackgroundRemoval;
 /// <summary>
 /// Self-hosted withoutBG cutout. Raw image body in, RGBA PNG out; the API key
 /// concept does not exist on the self-hosted service.
+///
+/// The default cutout is requested rather than <c>?output=matte</c> on purpose:
+/// its alpha channel *is* the matte, and returning RGBA keeps this adapter and
+/// Poof on one shape, so the refiner has a single path for both providers.
 /// </summary>
 public sealed class WithoutBgBackgroundRemover(
     HttpClient client,

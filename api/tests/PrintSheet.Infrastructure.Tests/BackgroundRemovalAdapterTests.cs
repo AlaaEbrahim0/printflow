@@ -115,6 +115,9 @@ public sealed class BackgroundRemovalAdapterTests
         var handler = new StubHandler((request, body) =>
         {
             Assert.Equal("/v1/remove-background", request.RequestUri!.AbsolutePath);
+            // The default cutout's alpha channel is the matte, so no query is
+            // needed; a grayscale matte would need a second decode path.
+            Assert.Empty(request.RequestUri.Query);
             Assert.Equal("image/png", request.Content!.Headers.ContentType!.MediaType);
             Assert.Equal(Input.Bytes, body);
             return Png();
@@ -126,6 +129,7 @@ public sealed class BackgroundRemovalAdapterTests
             .RemoveAsync(Input, CancellationToken.None);
 
         Assert.Equal("withoutbg", result.Provider);
+        Assert.NotEmpty(result.PngBytes);
         Assert.Equal(1, handler.Calls);
     }
 
