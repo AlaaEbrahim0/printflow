@@ -68,11 +68,28 @@ def check_api_health() -> None:
     assert str(database.get("status", "")).lower() == "healthy", f"database={database}"
 
 
+def expected_contract_version() -> str:
+    cs_file = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "api",
+        "src",
+        "PrintSheet.Api",
+        "ContractVersion.cs",
+    )
+    if os.path.isfile(cs_file):
+        with open(cs_file, encoding="utf-8") as handle:
+            for line in handle:
+                if "Current =" in line and '"' in line:
+                    return line.split('"')[1]
+    return "3.1.0"
+
+
 def check_api_info() -> None:
     status, payload = fetch_json(f"{API_URL}/api/v1/info")
     assert status == 200, f"expected 200, got {status}"
     assert isinstance(payload, dict), "expected a JSON object"
-    assert payload.get("contractVersion") == "2.0.0", payload
+    expected = expected_contract_version()
+    assert payload.get("contractVersion") == expected, f"expected {expected}, got {payload.get('contractVersion')}"
     assert payload.get("service") == "printsheet-api", payload
     assert payload.get("phase") == 2, payload
 
