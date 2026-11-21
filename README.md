@@ -141,9 +141,12 @@ Providers are chosen by configuration only:
 
 Fallback is deliberately narrow. It fires for availability faults (401, 402,
 403, 429, 5xx, timeouts, circuit open) and never for input faults (400, 413,
-422): the same bytes would be rejected by the second provider too. Poof retries
-are disabled because `POST /remove` is billed and not idempotent; withoutBG and
-the worker allow a single retry for transport faults.
+422): the same bytes would be rejected by the second provider too. Every
+outbound call here is a POST that spends real work — a billed Poof credit, an
+exclusive GPU minute, a full CPU inference — so the HTTP clients disable retries
+for unsafe methods outright. A retry after an attempt timeout could charge twice
+or hold the GPU twice; fallback and re-running the use case cover transients
+instead. Timeouts and circuit breakers still apply.
 
 ### Poof key (secret)
 
