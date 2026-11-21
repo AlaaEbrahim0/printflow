@@ -217,6 +217,16 @@ The live run is the only one that proves the matte actually lands at print size;
 it crops, removes, upscales, refines and recombines a synthetic artwork and
 asserts the subject stays opaque while the paper becomes transparent.
 
+### Known limitation: input that already has transparency
+
+The pipeline assumes an opaque source (a scan, photo or flattened export). The
+worker's upscaler refuses an image with real transparency, because upscaling a
+matte here would invent edges that the provider matte owns, so a transparent
+upload fails the pipeline with `InvalidImage` instead of being flattened behind
+your back. Flatten such a source onto its intended background before running
+background removal; the opaque-alpha PNG the cropper normally produces is
+accepted (see `worker/README.md`).
+
 ---
 
 ## Repository map
