@@ -137,6 +137,10 @@ Providers are chosen by configuration only:
 | `BackgroundRemoval:WithoutBg:BaseUrl` | defaults to `http://localhost:8002` |
 | `BackgroundRemoval:PrepareWorker:BaseUrl` | worker base URL |
 | `BackgroundRemoval:PrepareWorker:WorkerKey` | falls back to `Worker:Key` |
+| `BackgroundRemoval:PrepareWorker:UpscaleScale` | 2 or 4 (Real-ESRGAN's only ratios) |
+| `BackgroundRemoval:PrepareWorker:UseGpu` | false for the CPU worker |
+| `BackgroundRemoval:AlphaFeatherPx` | matte feather radius, default 0.5; 0 disables |
+| `BackgroundRemoval:AlphaThreshold` | optional hard cutoff (0–255); off by default |
 | `BackgroundRemoval:MaxInputBytes` | 20 MB, Poof's hard cap |
 
 Fallback is deliberately narrow. It fires for availability faults (401, 402,
