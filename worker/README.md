@@ -5,8 +5,10 @@ Phase 3 image-processing worker. Active job types are `classify`, `trim`,
 job type is rejected as retired.
 
 It reads and writes only files inside the shared storage root; image bytes never
-travel in JSON. The FastAPI service still only exposes `/` and `/health`; the job
-loop is opt-in (`PRINTSHEET_RUN_JOBS=true`) so liveness never depends on the API.
+travel in JSON. Besides `/` and `/health`, the service exposes two in-memory
+pixel-preparation routes for the API's background-removal pipeline (see below).
+The job loop is opt-in (`PRINTSHEET_RUN_JOBS=true`) so liveness never depends on
+the API.
 
 ## Quick start
 
