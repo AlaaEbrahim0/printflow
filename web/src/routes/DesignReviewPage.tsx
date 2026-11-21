@@ -6,27 +6,21 @@ import {
   type CropRect,
   type DesignDetail,
   type DesignVersion,
-  type LevelsAdjustment,
 } from '../api/client'
 import { AlphaPreview } from '../components/preview/AlphaPreview'
-import { BackgroundPicker } from '../components/preview/BackgroundPicker'
 import { PhotopeaIcon } from '../components/photopea/PhotopeaIcon'
 import { ErrorBanner } from '../components/ui/Banner'
 import { Chip, StatusChip } from '../components/ui/Chip'
-import { CheckboxField, ColorField, NumberField, SelectField } from '../components/ui/Field'
+import { CheckboxField, NumberField, SelectField } from '../components/ui/Field'
 import { EmptyState, ErrorState, Loading } from '../components/ui/States'
 import { ImageComparisonSlider } from '../components/compare'
 import CropTool from '../components/crop/CropTool'
-import { LevelsControl, MaskGrowControl } from '../components/cutout/MaskControls'
-import { BackgroundReadout, QuickLevels } from '../components/cutout/QuickLevels'
-import { LevelsPreview } from '../components/cutout/LevelsPreview'
+
 import { useAsync, useJobPoller } from '../hooks/useAsync'
 import { formatPixels, shortId, statusLabel, stepLabel } from '../lib/format'
 import { reviewReadiness } from '../components/batch/reviewReadiness'
 import { pipelineStatus } from '../components/batch/pipelineStatus'
 import { WORKBENCH_DEFAULTS } from '../lib/defaults'
-import { LEVELS_DEFAULTS, isIdentityLevels } from '../lib/levels'
-import { isHexColor } from '../lib/preview'
 import { photopeaEditorPath } from '../lib/photopea'
 import { DEFAULT_PREVIEW_BACKGROUND, previewBackgroundFor, type PreviewBackground } from '../lib/preview'
 import {
@@ -52,35 +46,27 @@ const UPSCALE_MODELS = [
  * every slider. Selecting a profile never deletes a version: it only rewrites the
  * *proposal* values in the advanced panel. When it differs from what is already
  * configured, the panel shows an overwrite notice rather than applying silently.
- *
- * The cutout defaults are all colour-key based. The BiRefNet AI cutout is
- * archived (it ate the whole memory budget for minutes and still produced
- * unreliable edges), so no profile may select it.
  */
 export type ProcessingProfileId = 'logo-text' | 'illustration' | 'soft-artwork' | 'manual'
 
 /**
- * The four editing tools, in the order the shop works. The ids are stable
+ * The three editing tools, in the order the shop works. The ids are stable
  * because the tool list derives which one to open from `pipelineStatus`.
  */
-export type ToolId = 'prepare' | 'enhance' | 'cutout' | 'size'
+export type ToolId = 'prepare' | 'enhance' | 'size'
 
 export interface ProcessingProfile {
   id: ProcessingProfileId
   label: string
   description: string
   defaults: {
-    cutoutKeyColor: string
-    cutoutTolerance: number
-    cutoutEdgeSoftness: number
-    maskGrowPx: number
     upscaleModel: (typeof UPSCALE_MODELS)[number]['value']
     upscaleScale: 2 | 4
   }
 }
 
 /**
- * The four editor profiles. The exact order is deliberate: the shop runs logos,
+ * The three editor profiles. The exact order is deliberate: the shop runs logos,
  * text and line-art first, then illustrations, then soft artwork, and Manual
  * only as a fallback so the defaults never fight a real image.
  */
@@ -90,10 +76,6 @@ export const PROCESSING_PROFILES: ProcessingProfile[] = [
     label: 'Logo / text',
     description: 'Flat black-and-white mark on a clear background.',
     defaults: {
-      cutoutKeyColor: '#ffffff',
-      cutoutTolerance: 10,
-      cutoutEdgeSoftness: 0,
-      maskGrowPx: 0,
       upscaleModel: 'realesrgan-x4plus-anime',
       upscaleScale: 2,
     },
@@ -103,10 +85,6 @@ export const PROCESSING_PROFILES: ProcessingProfile[] = [
     label: 'Illustration',
     description: 'Flat colour art with hard edges.',
     defaults: {
-      cutoutKeyColor: '#ffffff',
-      cutoutTolerance: 14,
-      cutoutEdgeSoftness: 0.5,
-      maskGrowPx: 1,
       upscaleModel: 'realesrgan-x4plus-anime',
       upscaleScale: 2,
     },
@@ -116,10 +94,6 @@ export const PROCESSING_PROFILES: ProcessingProfile[] = [
     label: 'Soft artwork',
     description: 'Photographic or blended colour art.',
     defaults: {
-      cutoutKeyColor: '#ffffff',
-      cutoutTolerance: 20,
-      cutoutEdgeSoftness: 1.0,
-      maskGrowPx: 2,
       upscaleModel: 'realesrgan-x4plus',
       upscaleScale: 2,
     },
@@ -129,10 +103,6 @@ export const PROCESSING_PROFILES: ProcessingProfile[] = [
     label: 'Manual',
     description: 'No preset; you configure every control.',
     defaults: {
-      cutoutKeyColor: '#ffffff',
-      cutoutTolerance: 12,
-      cutoutEdgeSoftness: 0,
-      maskGrowPx: 0,
       upscaleModel: 'realesrgan-x4plus',
       upscaleScale: 2,
     },
@@ -237,16 +207,6 @@ export default function DesignReviewPage() {
     'realesrgan-x4plus',
   )
   const [upscaleScale, setUpscaleScale] = useState<2 | 4>(4)
-  const [cutoutKeyColor, setCutoutKeyColor] = useState('#ffffff')
-  const [cutoutTolerance, setCutoutTolerance] = useState(12)
-  const [cutoutEdgeSoftness, setCutoutEdgeSoftness] = useState(0)
-  const [cutoutMode, setCutoutMode] = useState<'ai' | 'color-to-alpha'>('ai')
-  // DTF prints every opaque pixel, so specks and pinholes are cleaned by default.
-  // The operator can turn it off by setting the area to 0.
-  const [maskMinAreaPx, setMaskMinAreaPx] = useState(24)
-  const [maskGrowPx, setMaskGrowPx] = useState(0)
-  const [maskLevels, setMaskLevels] = useState<LevelsAdjustment>({ ...LEVELS_DEFAULTS })
-  const [imageLevels, setImageLevels] = useState<LevelsAdjustment>({ ...LEVELS_DEFAULTS })
   const [targetWidthCm, setTargetWidthCm] = useState<number | null>(null)
   const [targetHeightCm, setTargetHeightCm] = useState<number | null>(null)
   const [aspectLinked, setAspectLinked] = useState(true)
@@ -275,21 +235,13 @@ export default function DesignReviewPage() {
   useEffect(() => {
     const next = profile.defaults
     const changed =
-      next.cutoutKeyColor !== cutoutKeyColor ||
-      next.cutoutTolerance !== cutoutTolerance ||
-      next.cutoutEdgeSoftness !== cutoutEdgeSoftness ||
-      next.maskGrowPx !== maskGrowPx ||
       next.upscaleModel !== upscaleModel ||
       next.upscaleScale !== upscaleScale
     if (changed) {
-      setCutoutKeyColor(next.cutoutKeyColor)
-      setCutoutTolerance(next.cutoutTolerance)
-      setCutoutEdgeSoftness(next.cutoutEdgeSoftness)
-      setMaskGrowPx(next.maskGrowPx)
       setUpscaleModel(next.upscaleModel)
       setUpscaleScale(next.upscaleScale)
       setProfileNotice(
-        'This profile applies colour-key and mask defaults over your current advanced settings. Levels are left as you set them.',
+        'This profile applies upscale defaults over your current advanced settings.',
       )
     } else {
       setProfileNotice(null)
@@ -312,7 +264,7 @@ export default function DesignReviewPage() {
   const designJobs = (data?.jobs.items ?? []).filter(
     (candidate) =>
       candidate.designId === designId &&
-      ['trim', 'upscale', 'vectorize', 'background-removal', 'resize'].includes(candidate.type),
+      ['trim', 'upscale', 'vectorize', 'resize'].includes(candidate.type),
   )
   const activeJobId = designJobs.find((candidate) =>
     candidate.status === 'queued' || candidate.status === 'running',
@@ -542,39 +494,6 @@ export default function DesignReviewPage() {
   const sourceDpi = data?.suggestions.status === 'ready'
     ? data.suggestions.source?.effectiveDpiAtTarget
     : null
-  const suggestions = data?.suggestions.status === 'ready' ? data.suggestions : null
-  // One-click Clean defaults, taken from what the classifier sampled.
-  //
-  // Both numbers were measured against the fixture artwork with
-  // `scripts/check_clean_preset.py`, which runs the worker's own
-  // `sample_background` + `background_matches` and scores the result against a
-  // ground truth that does not depend on the sampled colour (border pixels are
-  // background by construction; pixels >60 away from the border median are
-  // artwork).
-  //
-  // Confidence is a *uniformity* score — the share of border pixels within the
-  // matching tolerance of the median — so it answers "is there one background
-  // colour here at all", not "how tight should the key be". Below 0.7 there is
-  // no single background to key: the busy collage (0.00) and the phone
-  // screenshot (0.13) each left 66-99% of their border behind. So the gate
-  // lives here, and tolerance stays fixed.
-  //
-  // 24 is the tightest tolerance that clears the residual second tone in the
-  // pale-mist and overwide-banner fixtures (3% of border at 10-20, 0% at 24)
-  // while removing no artwork on any design. It is also exactly the manual
-  // control's default, so Clean and a hand-set key agree.
-  const CLEAN_MIN_CONFIDENCE = 0.7
-  const CLEAN_TOLERANCE = 24
-  const cleanDefaults = (() => {
-    const sample = suggestions?.features?.sampledBackground
-    if (!sample || sample.kind === 'transparent') return null
-    const confidence = sample.confidence ?? 0
-    if (confidence < CLEAN_MIN_CONFIDENCE) return null
-    const keyColor =
-      sample.hex ?? (sample.kind === 'black' ? '#000000' : sample.kind === 'white' ? '#ffffff' : null)
-    if (!keyColor || !isHexColor(keyColor)) return null
-    return { keyColor: keyColor.toLowerCase(), tolerance: CLEAN_TOLERANCE, confidence }
-  })()
   const jobStartedAt = job ? Date.parse(job.startedAt ?? job.createdAt) : Number.NaN
   const elapsedMs = Number.isFinite(jobStartedAt) ? Math.max(0, observedAt - jobStartedAt) : null
   const elapsedText = elapsedMs === null ? null : formatElapsed(elapsedMs)
@@ -602,14 +521,11 @@ export default function DesignReviewPage() {
     ? 'prepare'
     : !pipeline.enhanced
       ? 'enhance'
-      : !pipeline.cutout
-        ? 'cutout'
-        : 'size'
+      : 'size'
   const shownTool = openTool ?? suggestedTool
   const toolDone: Record<ToolId, boolean> = {
     prepare: pipeline.prepared,
     enhance: pipeline.enhanced,
-    cutout: pipeline.cutout,
     size: pipeline.sized,
   }
 
@@ -653,11 +569,51 @@ export default function DesignReviewPage() {
       <div className="editor">
         <div className="editor-stage">
           <div className="editor-stage-bar">
-            <BackgroundPicker
-              value={background}
-              onChange={setBackground}
-              garmentHex={design.garmentColor.hex}
-            />
+            <div
+              className="background-picker"
+              role="group"
+              aria-label="Preview background"
+            >
+              <button
+                type="button"
+                className={`chip${background.kind === 'checkerboard' ? ' is-active' : ''}`}
+                onClick={() => setBackground({ kind: 'checkerboard', hex: '#ffffff' })}
+                aria-pressed={background.kind === 'checkerboard'}
+              >
+                Checker
+              </button>
+              <button
+                type="button"
+                className={`chip${background.kind === 'white' ? ' is-active' : ''}`}
+                onClick={() => setBackground({ kind: 'white', hex: '#ffffff' })}
+                aria-pressed={background.kind === 'white'}
+              >
+                White
+              </button>
+              <button
+                type="button"
+                className={`chip${background.kind === 'black' ? ' is-active' : ''}`}
+                onClick={() => setBackground({ kind: 'black', hex: '#000000' })}
+                aria-pressed={background.kind === 'black'}
+              >
+                Black
+              </button>
+              <button
+                type="button"
+                className={`chip${background.kind === 'custom' && background.hex !== '#ffffff' && background.hex !== '#000000' ? ' is-active' : ''}`}
+                onClick={() => setBackground({ kind: 'custom', hex: design.garmentColor?.hex ?? '#ff00ff' })}
+                aria-pressed={background.kind === 'custom' && background.hex !== '#ffffff' && background.hex !== '#000000'}
+              >
+                Garment
+              </button>
+              <input
+                type="color"
+                className="custom-colour"
+                value={background.kind === 'custom' ? background.hex : '#ffffff'}
+                onChange={(event) => setBackground({ kind: 'custom', hex: event.target.value })}
+                aria-label="Custom preview colour"
+              />
+            </div>
             {state.kind === 'reloading' ? (
               <span className="pill" role="status">Refreshing…</span>
             ) : null}
@@ -1125,205 +1081,6 @@ export default function DesignReviewPage() {
               </details>
 
               <details
-                className={`tool${toolDone.cutout ? ' is-done' : ''}`}
-                open={shownTool === 'cutout'}
-                onToggle={(event) =>
-                  setOpenTool(event.currentTarget.open ? 'cutout' : 'none')
-                }
-              >
-                <summary>
-                  <span className="tool-index">3</span>
-                  <span className="tool-text">
-                    <strong>Cut out</strong>
-                    <small>
-                      {toolDone.cutout
-                        ? 'Background removed — check the transparent edges'
-                        : 'Colour-key cutout · mask shaping'}
-                    </small>
-                  </span>
-                  {toolDone.cutout ? <Chip tone="good">done</Chip> : null}
-                </summary>
-                <div className="tool-body stack-sm">
-                  {suggestions?.features?.sampledBackground ? (
-                    <BackgroundReadout
-                      kind={suggestions.features.sampledBackground.kind ?? null}
-                      hex={suggestions.features.sampledBackground.hex ?? null}
-                      confidence={suggestions.features.sampledBackground.confidence ?? null}
-                    />
-                  ) : null}
-                  <div className="segmented" role="group" aria-label="Cutout method">
-                    <button
-                      type="button"
-                      className={`segment${cutoutMode === 'ai' ? ' is-active' : ''}`}
-                      disabled={!canPropose}
-                      onClick={() => setCutoutMode('ai')}
-                      data-testid="cutout-mode-ai"
-                    >
-                      AI matte
-                    </button>
-                    <button
-                      type="button"
-                      className={`segment${cutoutMode === 'color-to-alpha' ? ' is-active' : ''}`}
-                      disabled={!canPropose}
-                      onClick={() => setCutoutMode('color-to-alpha')}
-                      data-testid="cutout-mode-key"
-                    >
-                      Colour key
-                    </button>
-                  </div>
-                  {cutoutMode === 'ai' ? (
-                    <p className="hint" data-testid="cutout-ai-hint">
-                      withoutBG open weights: the matting branch handles hair and soft
-                      edges, BiRefNet handles hard, flat objects. Long jobs are fine;
-                      quality is the point. Check thin type and hairlines at full
-                      resolution before approving.
-                    </p>
-                  ) : (
-                    <div className="row">
-                      <ColorField
-                        label="Key color"
-                        value={cutoutKeyColor}
-                        onChange={(event) => setCutoutKeyColor(event.target.value)}
-                      />
-                      <NumberField
-                        label="Tolerance"
-                        value={cutoutTolerance}
-                        min={0}
-                        max={255}
-                        step={1}
-                        onValueChange={(val) => setCutoutTolerance(val ?? 12)}
-                        hint="How far from the key colour still counts as background."
-                      />
-                    </div>
-                  )}
-                  <div className="row">
-                    <NumberField
-                      label="Edge softness"
-                      suffix="px"
-                      value={cutoutEdgeSoftness}
-                      min={0}
-                      max={10}
-                      step={0.5}
-                      onValueChange={(val) => setCutoutEdgeSoftness(val ?? 0)}
-                      hint="Blurs the alpha ramp after the key or matte."
-                    />
-                    <NumberField
-                      label="Drop specks under"
-                      suffix="px²"
-                      value={maskMinAreaPx}
-                      min={0}
-                      max={5000}
-                      step={1}
-                      onValueChange={(val) => setMaskMinAreaPx(val ?? 24)}
-                      hint="Opaque islands and pinholes smaller than this are removed. DTF prints every opaque pixel."
-                    />
-                  </div>
-                  <QuickLevels
-                    fileUrl={activeLayer.fileUrl}
-                    value={imageLevels}
-                    onChange={setImageLevels}
-                    disabled={!canPropose}
-                  />
-                  <button
-                    type="button"
-                    className="btn primary"
-                    disabled={!canPropose}
-                    onClick={() =>
-                      void submitJob(() =>
-                        api.steps.backgroundRemoval(designId, {
-                          mode: cutoutMode,
-                          ...(cutoutMode === 'color-to-alpha'
-                            ? { keyColor: cutoutKeyColor, tolerance: cutoutTolerance }
-                            : { aiModel: 'withoutbg-open' }),
-                          edgeSoftness: cutoutEdgeSoftness > 0 ? cutoutEdgeSoftness : undefined,
-                          maskMinAreaPx: maskMinAreaPx > 0 ? maskMinAreaPx : undefined,
-                          maskGrowPx: maskGrowPx !== 0 ? maskGrowPx : undefined,
-                          maskLevels: isIdentityLevels(maskLevels) ? undefined : maskLevels,
-                          imageLevels: isIdentityLevels(imageLevels) ? undefined : imageLevels,
-                        }),
-                      )
-                    }
-                  >
-                    Remove background
-                  </button>
-                  <button
-                    type="button"
-                    className="btn"
-                    disabled={!canPropose || !cleanDefaults}
-                    title={
-                      cleanDefaults
-                        ? `Keys out ${cleanDefaults.keyColor} at tolerance ${cleanDefaults.tolerance} (${Math.round(cleanDefaults.confidence * 100)}% uniform border)`
-                        : 'Clean is only offered when the artwork has a uniform background colour.'
-                    }
-                    onClick={() => {
-                      const clean = cleanDefaults
-                      if (!clean) return
-                      setCutoutKeyColor(clean.keyColor)
-                      setCutoutTolerance(clean.tolerance)
-                      setImageLevels({ ...LEVELS_DEFAULTS })
-                      setMaskLevels({ ...LEVELS_DEFAULTS })
-                      setMaskGrowPx(0)
-                      void submitJob(() =>
-                        api.steps.backgroundRemoval(designId, {
-                          mode: 'color-to-alpha',
-                          keyColor: clean.keyColor,
-                          tolerance: clean.tolerance,
-                        }),
-                      )
-                    }}
-                    data-testid="clean-cutout"
-                  >
-                    Clean
-                  </button>
-                  <p className="hint" data-testid="cutout-hint">
-                    {cleanDefaults
-                      ? 'Clean keys out the sampled background colour in one click — for logos, text and flat illustrations.'
-                      : 'The border is not a uniform colour, so there is no background to key. Cut this one in the manual editor, or pick the key colour by hand.'}
-                  </p>
-                  <MaskGrowControl value={maskGrowPx} onChange={setMaskGrowPx} disabled={!canPropose} />
-                  <details className="compact-details advanced" open>
-                    <summary>Levels adjustments</summary>
-                    <div className="stack-sm">
-                      <LevelsPreview
-                        imageUrl={activeLayer.fileUrl}
-                        maskUrl={
-                          proposalDetails?.artifacts?.maskUrl
-                          ?? currentDetails?.artifacts?.maskUrl
-                          ?? null
-                        }
-                        imageLevels={imageLevels}
-                        maskLevels={maskLevels}
-                        background={
-                          background.kind === 'checkerboard' ? undefined : background.hex
-                        }
-                      />
-                      <p className="hint">
-                        Live preview at preview resolution: the same colour and alpha
-                        curves the worker applies to the full file. The proposal is
-                        still the thing you approve.
-                      </p>
-                      <LevelsControl
-                        label="Mask levels"
-                        curveCaption="alpha"
-                        value={maskLevels}
-                        onChange={setMaskLevels}
-                        disabled={!canPropose}
-                        hint="Reshapes the transparency itself: raise the black point to drop a faint halo, lower the white point to make a soft edge solid."
-                      />
-                      <LevelsControl
-                        label="Image levels"
-                        curveCaption="colour"
-                        value={imageLevels}
-                        onChange={setImageLevels}
-                        disabled={!canPropose}
-                        hint="Moves the colour of the pixels that survive the cut-out. Independent of the mask."
-                      />
-                    </div>
-                  </details>
-                </div>
-              </details>
-
-              <details
                 className={`tool${toolDone.size ? ' is-done' : ''}`}
                 open={shownTool === 'size'}
                 onToggle={(event) =>
@@ -1331,7 +1088,7 @@ export default function DesignReviewPage() {
                 }
               >
                 <summary>
-                  <span className="tool-index">4</span>
+                  <span className="tool-index">3</span>
                   <span className="tool-text">
                     <strong>Print size</strong>
                     <small>
@@ -1434,7 +1191,7 @@ export default function DesignReviewPage() {
                       })()
                     }}
                   >
-                    Save size &amp; create layer
+                    Save size & create layer
                   </button>
                 </div>
               </details>

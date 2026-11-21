@@ -22,7 +22,6 @@
       "enum": [
         "classify",
         "trim",
-        "background-removal",
         "upscale",
         "vectorize",
         "resize"
@@ -41,7 +40,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "mask": { "$ref": "#/$defs/relativePath" },
         "svg": { "$ref": "#/$defs/relativePath" }
       }
     },
@@ -49,7 +47,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "mask": { "$ref": "#/$defs/relativePath" },
         "svg": { "$ref": "#/$defs/relativePath" }
       }
     },
@@ -74,7 +71,7 @@
       "if": {
         "properties": {
           "type": {
-            "enum": ["trim", "background-removal", "upscale", "vectorize", "resize"]
+            "enum": ["trim", "upscale", "vectorize", "resize"]
           }
         },
         "required": ["type"]
@@ -83,19 +80,6 @@
         "required": ["outputPath"],
         "properties": {
           "outputPath": { "$ref": "#/$defs/relativePath" }
-        }
-      }
-    },
-    {
-      "description": "Background removal always exports its non-destructive mask artifact.",
-      "if": {
-        "properties": { "type": { "const": "background-removal" } },
-        "required": ["type"]
-      },
-      "then": {
-        "required": ["outputArtifacts"],
-        "properties": {
-          "outputArtifacts": { "required": ["mask"] }
         }
       }
     },
@@ -109,25 +93,6 @@
         "required": ["outputArtifacts"],
         "properties": {
           "outputArtifacts": { "required": ["svg"] }
-        }
-      }
-    },
-    {
-      "description": "Brush edits load the mask from the referenced proposed version.",
-      "if": {
-        "properties": {
-          "type": { "const": "background-removal" },
-          "parameters": {
-            "properties": { "maskFromVersionId": { "type": "string" } },
-            "required": ["maskFromVersionId"]
-          }
-        },
-        "required": ["type", "parameters"]
-      },
-      "then": {
-        "required": ["inputArtifacts"],
-        "properties": {
-          "inputArtifacts": { "required": ["mask"] }
         }
       }
     },
@@ -150,17 +115,6 @@
       "then": {
         "properties": {
           "parameters": { "$ref": "#/$defs/trimParameters" }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": { "type": { "const": "background-removal" } },
-        "required": ["type"]
-      },
-      "then": {
-        "properties": {
-          "parameters": { "$ref": "#/$defs/backgroundRemovalParameters" }
         }
       }
     },
@@ -267,89 +221,6 @@
         {
           "if": { "properties": { "mode": { "const": "manual" } }, "required": ["mode"] },
           "then": { "required": ["cropRect"] }
-        }
-      ]
-    },
-    "brushOp": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["tool", "radiusPx", "points"],
-      "properties": {
-        "tool": { "enum": ["erase", "restore"] },
-        "radiusPx": { "type": "integer", "minimum": 1, "maximum": 4096 },
-        "points": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 100000,
-          "items": {
-            "type": "array",
-            "minItems": 2,
-            "maxItems": 2,
-            "items": { "type": "integer", "minimum": 0 }
-          }
-        }
-      }
-    },
-    "levelsAdjustment": {
-      "type": "object",
-      "description": "Photoshop-style levels: input black/white points, midtone gamma, and an optional output range.",
-      "additionalProperties": false,
-      "properties": {
-        "blackPoint": { "type": "integer", "minimum": 0, "maximum": 254, "default": 0 },
-        "whitePoint": { "type": "integer", "minimum": 1, "maximum": 255, "default": 255 },
-        "gamma": { "type": "number", "minimum": 0.01, "maximum": 9.99, "default": 1.0 },
-        "outputBlack": { "type": "integer", "minimum": 0, "maximum": 255, "default": 0 },
-        "outputWhite": { "type": "integer", "minimum": 0, "maximum": 255, "default": 255 }
-      }
-    },
-    "backgroundRemovalParameters": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["mode"],
-      "properties": {
-        "mode": { "enum": ["ai", "color-to-alpha", "none"] },
-        "keyColor": { "$ref": "#/$defs/hexColor" },
-        "tolerance": { "type": "integer", "minimum": 0, "maximum": 255 },
-        "edgeSoftness": { "type": "number", "minimum": 0, "maximum": 10 },
-        "maskGrowPx": { "type": "number", "minimum": -100, "maximum": 100 },
- "maskMinAreaPx": {
-  "type": "number",
-  "minimum": 0,
-  "maximum": 100000,
-  "description": "Drop opaque islands and fill background pinholes smaller than this area, in source pixels. 0 disables the pass. Applied to every mode before grow/feather so specks are not inflated and pinholes do not survive the blur."
- },
-        "maskLevels": { "$ref": "#/$defs/levelsAdjustment" },
-        "imageLevels": { "$ref": "#/$defs/levelsAdjustment" },
-        "aiModel": { "type": "string", "minLength": 1, "description": "AI matte engine. \"withoutbg-open\" is the withoutBG open-weights bundle (Apache-2.0, routed matting + BiRefNet). The archived BiRefNet checkpoints are not available." },
-        "maskFromVersionId": { "type": ["string", "null"], "format": "uuid" },
-        "brushOps": {
-          "type": "array",
-          "maxItems": 10000,
-          "items": { "$ref": "#/$defs/brushOp" }
-        }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": { "mode": { "const": "color-to-alpha" } },
-            "required": ["mode"]
-          },
-          "then": { "required": ["keyColor"] }
-        },
-        {
-          "if": {
-            "properties": { "mode": { "const": "none" } },
-            "required": ["mode"],
-            "not": {
-              "properties": { "maskFromVersionId": { "type": "string" } },
-              "required": ["maskFromVersionId"]
-            }
-          },
-          "then": {
-            "properties": {
-              "brushOps": { "maxItems": 0 }
-            }
-          }
         }
       ]
     },

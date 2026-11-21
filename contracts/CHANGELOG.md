@@ -1,5 +1,21 @@
 # Contract Changelog
 
+## 3.0.0 — 2026-11-20
+
+Breaking API change: removed background-removal and manual-edit proposal endpoints
+and their worker job types. The `background-removal` and `manual-edit` step types
+remain in the `StepType` enum for historical record readability; new work cannot
+submit these operations. Worker job schema dropped `background-removal` from the
+type enum and all mask-shaping fields (`maskMinAreaPx`, `maskGrowPx`,
+`maskLevels`, `imageLevels`, `aiModel`, `brushOps`). The `IntegrityReport`
+schema is unchanged at version `2.0`. Packer contracts are unchanged.
+
+- Deleted `POST /api/v1/designs/{designId}/steps/background-removal`
+- Deleted `POST /api/v1/designs/{designId}/steps/manual-edit`
+- Worker job types: `classify`, `trim`, `upscale`, `vectorize`, `resize`
+- Web workbench: cutout tool, manual editor, Quick Levels, Background Readout,
+  and Clean button removed. `AlphaPreview` and `BackgroundPicker` retained.
+
 ## Additive changes — 2026-11-13
 
 No breaking change; the OpenAPI version stays `2.0.0`.

@@ -75,7 +75,6 @@ public sealed class EfJobRepository(PrintSheetDbContext db) : IJobRepository
             job => job.DesignId == designId
                    && (job.Status == JobStatus.Queued || job.Status == JobStatus.Running)
                    && (job.Type == JobType.Trim
-                       || job.Type == JobType.BackgroundRemoval
                        || job.Type == JobType.Upscale
                        || job.Type == JobType.Vectorize
                        || job.Type == JobType.Resize),

@@ -62,49 +62,7 @@ public sealed record ResizeStepCommand(
     int? Dpi);
 
 /// <summary>
-/// A browser-rasterised manual cleanup (crop, levels, colour, cut-out) uploaded
-/// as a finished PNG. The operator is the processor, so there is no job; the
-/// bytes still become a new proposed version that must be approved.
-/// </summary>
-public sealed record ManualEditCommand(
-    Stream File,
-    long Length,
-    string FileName,
-    Guid ParentVersionId,
-    string? Mode,
-    bool? CropApplied,
-    ManualCropRect? CropRect,
-    IReadOnlyList<BrushOpCommand>? BrushOps,
-    LevelsAdjustmentCommand? ImageLevels,
-    decimal? HueShift,
-    decimal? Saturation,
-    decimal? Lightness,
-    string? Notes,
-    string EditorProfile);
-
-/// <summary>The crop taken from the parent, in parent pixel coordinates.</summary>
-public sealed record ManualCropRect(int X, int Y, int Width, int Height);
-
-/// <summary>
-/// A background-removal proposal. The mask is the reviewable artifact: the worker
-/// writes an 8-bit grayscale mask and the cut-out image, never touching the source.
-/// </summary>
-public sealed record BackgroundRemovalStepCommand(
-    string Mode,
-    string? KeyColor,
-    int? Tolerance,
-    decimal? EdgeSoftness,
-    string? AiModel,
-    IReadOnlyList<BrushOpCommand>? BrushOps,
-    decimal? MaskGrowPx = null,
-    LevelsAdjustmentCommand? MaskLevels = null,
-    LevelsAdjustmentCommand? ImageLevels = null,
-    decimal? MaskMinAreaPx = null);
-
-/// <summary>
-/// Photoshop-style levels. The same object shapes the mask alpha ramp and the
-/// cut-out colours, but the two stay independent: tone and selection are judged
-/// separately during review.
+/// Photoshop-style levels. Used for historical versions only.
 /// </summary>
 public sealed record LevelsAdjustmentCommand(
     int? BlackPoint,

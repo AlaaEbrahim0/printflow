@@ -1,15 +1,16 @@
-# PrintSheet Contracts — v2.0.0
+# PrintSheet Contracts — v3.0.0
 
 These files define the interface between API, worker, packer and web.
 Contract changes are not free: update the schema, its examples, the changelog,
 and notify every track in the handoff summary.
 
-The API contract is v2.0.0. Background removal runs as a `color-to-alpha` colour
-key or an `ai` matte (`aiModel: withoutbg-open`, the withoutBG open-weights
-bundle), plus optional mask shaping (`maskGrowPx`, `edgeSoftness`,
-`maskMinAreaPx`, `maskLevels`, `imageLevels`). Archived BiRefNet model ids and
-the historical `vectorize` type remain in the schemas and persisted models so
-existing records stay readable, but neither accepts new work.
+The API contract is v3.0.0. Background removal and manual-edit proposal endpoints
+were removed in this version. The `background-removal` and `manual-edit` step
+types remain in the `StepType` enum for historical record readability; new work
+cannot submit these operations. Active worker job types are `classify`, `trim`,
+`upscale`, `vectorize`, `resize`. The historical `vectorize` type remains in the
+schemas and persisted models so existing records stay readable, but does not accept
+new work.
 
 ## Files
 

@@ -258,19 +258,7 @@ public sealed record ResizeStepRequest(
     string? FitMode,
     int? Dpi);
 
-public sealed record BackgroundRemovalStepRequest(
-    string Mode,
-    string? KeyColor,
-    int? Tolerance,
-    decimal? EdgeSoftness,
-    string? AiModel,
-    IReadOnlyList<BrushOpRequest>? BrushOps,
-    decimal? MaskGrowPx,
-    LevelsAdjustmentRequest? MaskLevels,
-    LevelsAdjustmentRequest? ImageLevels,
-    decimal? MaskMinAreaPx);
-
-/// <summary>Photoshop-style levels for the mask ramp or the cut-out colours.</summary>
+/// <summary>Photoshop-style levels for the mask ramp or the cut-out colours (historical).</summary>
 public sealed record LevelsAdjustmentRequest(
     int? BlackPoint,
     int? WhitePoint,
@@ -278,7 +266,7 @@ public sealed record LevelsAdjustmentRequest(
     int? OutputBlack,
     int? OutputWhite);
 
-/// <summary>One erase/restore stroke. Points are source pixel [x, y] pairs.</summary>
+/// <summary>One erase/restore stroke. Points are source pixel [x, y] pairs (historical).</summary>
 public sealed record BrushOpRequest(
     string Tool,
     int RadiusPx,

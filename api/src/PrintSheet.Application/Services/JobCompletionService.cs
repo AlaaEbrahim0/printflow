@@ -903,7 +903,6 @@ public sealed class JobCompletionService
         {
             JobType.Classify => StepType.Original,
             JobType.Trim => StepType.Trim,
-            JobType.BackgroundRemoval => StepType.BackgroundRemoval,
             JobType.Upscale => StepType.Upscale,
             JobType.Vectorize => StepType.Vectorize,
             JobType.Resize => StepType.Resize,

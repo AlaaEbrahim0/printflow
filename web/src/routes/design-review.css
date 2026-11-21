@@ -622,3 +622,22 @@
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
+
+/* Zoom and levels live on the stage, not in the rail: the point of the canvas is
+ * to judge a one-pixel halo at real size. */
+.zoom-control {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.editor-canvas .preview-surface {
+  width: 100%;
+}
+
+.editor-canvas .preview-surface canvas {
+  max-width: none;
+}

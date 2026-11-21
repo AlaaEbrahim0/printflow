@@ -4,10 +4,10 @@
   max-width: 100%;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: var(--stage-bg);
   border: 1px solid var(--line-strong);
   user-select: none;
   touch-action: none;
+  background: var(--stage-bg);
 }
 
 .comparison-slider:focus-visible {
@@ -15,79 +15,80 @@
   outline-offset: 2px;
 }
 
-.comparison-layer {
+/* One backdrop for both sides: a transparent PNG then composites over the exact
+ * same checkerboard, so the seam is the only difference between them. */
+.comparison-stage {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
   overflow: hidden;
 }
 
-.comparison-layer .alpha-preview {
+.comparison-image {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
-}
-
-.comparison-layer.before {
-  z-index: 2;
+  pointer-events: none;
 }
 
 .comparison-layer.after {
-  z-index: 1;
-}
-
-.comparison-divider {
   position: absolute;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
+  overflow: hidden;
+  will-change: clip-path;
+}
+
+.comparison-layer.after > img,
+.comparison-layer.after > .preview-surface {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.comparison-split {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--overlay);
   pointer-events: none;
   z-index: 3;
 }
 
 .comparison-handle {
   position: absolute;
-  left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: var(--panel);
   border: 2px solid var(--accent);
   box-shadow: var(--shadow-2);
   display: grid;
   place-items: center;
-  color: var(--accent);
-  font-size: 1rem;
+  pointer-events: none;
+  z-index: 3;
   transition: transform 80ms ease, box-shadow 120ms ease;
+}
+
+.comparison-handle > span {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-left: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
 }
 
 .comparison-slider:hover .comparison-handle,
 .comparison-slider:focus-visible .comparison-handle {
-  transform: translate(-50%, -50%) scale(1.1);
+  transform: translate(-50%, -50%) scale(1.08);
   box-shadow: 0 6px 20px var(--accent-line);
-}
-
-.comparison-handle::before,
-.comparison-handle::after {
-  content: '';
-  position: absolute;
-  width: 2px;
-  height: 18px;
-  background: var(--accent);
-  border-radius: 1px;
-}
-
-.comparison-handle::before {
-  top: -18px;
-}
-
-.comparison-handle::after {
-  bottom: -18px;
 }
 
 .comparison-label {
@@ -105,6 +106,7 @@
   white-space: nowrap;
   pointer-events: none;
   opacity: 0.9;
+  z-index: 3;
   transition: opacity 120ms ease;
 }
 
@@ -114,7 +116,6 @@
 
 .comparison-label.after {
   right: 10px;
-  left: auto;
 }
 
 .comparison-slider:hover .comparison-label {
@@ -135,6 +136,7 @@
   white-space: nowrap;
   pointer-events: none;
   opacity: 0.8;
+  z-index: 3;
   transition: opacity 120ms ease;
 }
 
@@ -161,11 +163,6 @@
   .comparison-handle {
     width: 44px;
     height: 44px;
-  }
-
-  .comparison-handle::before,
-  .comparison-handle::after {
-    height: 22px;
   }
 
   .comparison-label {

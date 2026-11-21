@@ -17,7 +17,6 @@ public sealed class EfJobQueue(PrintSheetDbContext db, IClock clock) : IJobQueue
     [
         JobType.Classify,
         JobType.Trim,
-        JobType.BackgroundRemoval,
         JobType.Upscale,
         JobType.Vectorize,
         JobType.Resize,

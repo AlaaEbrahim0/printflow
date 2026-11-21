@@ -63,16 +63,13 @@ describe('mock store seeding', () => {
     expect(sticker.pendingVersionId).not.toBeNull()
   })
 
-  it('serves honest alpha variants: the background-removal version carries transparency and a mask', () => {
+  it('serves honest alpha variants: the upscale version carries transparency', () => {
     const acme = batchByName('ACME summer drop 01')
     const sticker = designByName(acme.id, 'Round sticker (fringe)')
     const current = store().versions.get(sticker.currentVersionId)!
-    expect(current.stepType).toBe('background-removal')
+    expect(current.stepType).toBe('upscale')
     expect(current.hasAlpha).toBe(true)
     expect(current.variant).toBe('transparent')
-    const detail = store().designDetail(sticker.id)
-    const maskUrl = detail.versions.find((item) => item.id === current.id)?.artifacts?.maskUrl
-    expect(maskUrl).toContain('/mask')
   })
 })
 
@@ -89,7 +86,7 @@ describe('version approval transitions', () => {
     const detail = store().approveVersion(sticker.id, pendingId)
     expect(detail.currentVersionId).toBe(pendingId)
     expect(detail.pendingVersion).toBeNull()
-    expect(detail.status).toBe('in-progress')
+    expect(detail.status).toBe('ready')
     expect(store().versions.get(pendingId)!.status).toBe('approved')
   })
 
@@ -140,7 +137,7 @@ describe('version approval transitions', () => {
     const sticker = designByName(acme.id, 'Round sticker (fringe)')
     store().rejectVersion(sticker.id, sticker.pendingVersionId!, 'not sharp enough')
     const rejected = store().newestFirst(sticker.id).find((v) => v.status === 'rejected')!
-    expect(rejected.stepType).toBe('upscale')
+    expect(rejected.stepType).toBe('resize')
     expect(problem(() => store().revert(sticker.id, rejected.id)).code).toBe('version-not-approved')
 
     const currentBefore = sticker.currentVersionId

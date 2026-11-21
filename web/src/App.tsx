@@ -5,7 +5,6 @@ import BatchListPage from './routes/BatchListPage'
 import DesignReviewPage from './routes/DesignReviewPage'
 import JobsPage from './routes/JobsPage'
 import PhotopeaEditorPage from './routes/PhotopeaEditorPage'
-import ManualEditorPage from './routes/ManualEditorPage'
 import SettingsPage from './routes/SettingsPage'
 import SheetPage from './routes/SheetPage'
 import { SettingsProvider } from './state/SettingsContext'
@@ -127,7 +126,6 @@ export function WorkbenchRoutes() {
   return (
     <Routes>
       <Route path="/batches/:batchId/designs/:designId/photopea" element={<PhotopeaEditorPage />} />
-      <Route path="/batches/:batchId/designs/:designId/manual-editor" element={<ManualEditorPage />} />
       <Route element={<WorkbenchLayout />}>
         <Route path="/" element={<BatchListPage />} />
         <Route path="/batches/:batchId" element={<BatchDetailPage />} />

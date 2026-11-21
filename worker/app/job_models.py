@@ -15,10 +15,10 @@ from typing import Any
 from app.errors import UnsupportedParameterError
 
 JOB_TYPES = frozenset(
-    {"classify", "trim", "background-removal", "upscale", "vectorize", "resize"}
+    {"classify", "trim", "upscale", "vectorize", "resize"}
 )
 IMAGE_JOB_TYPES = JOB_TYPES - {"classify"}
-ARTIFACT_NAMES = ("mask", "svg")
+ARTIFACT_NAMES = ("svg",)
 
 
 @dataclass(frozen=True)

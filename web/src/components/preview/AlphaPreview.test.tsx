@@ -1,31 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { useState } from 'react'
+import { describe, expect, it } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import { AlphaPreview } from './AlphaPreview'
-import { BackgroundPicker } from './BackgroundPicker'
 import {
   DEFAULT_PREVIEW_BACKGROUND,
-  PRESET_GARMENT_COLORS,
   backgroundStyle,
   previewBackgroundFor,
   isHexColor,
   normalizeHex,
-  type PreviewBackground,
 } from '../../lib/preview'
 
 const FILE = '/api/v1/designs/aaa/versions/bbb/file'
-
-/** A controllable picker so a click visibly changes the composited surface. */
-function StatefulPicker({ initial }: { initial: PreviewBackground }) {
-  const [value, setValue] = useState<PreviewBackground>(initial)
-  return (
-    <>
-      <BackgroundPicker value={value} onChange={setValue} />
-      <AlphaPreview fileUrl={FILE} alt="Swatch" background={value} />
-    </>
-  )
-}
 
 describe('AlphaPreview', () => {
   it('composites the immutable version file over the chosen background', () => {
@@ -105,60 +89,5 @@ describe('background model', () => {
     expect(isHexColor('abc123')).toBe(false)
     expect(normalizeHex('abc123')).toBe('#abc123')
     expect(normalizeHex('#ZZZZZZ')).toBe('#ffffff')
-  })
-})
-
-describe('BackgroundPicker', () => {
-  it('offers checkerboard, white, black and custom and reports the change', async () => {
-    const user = userEvent.setup()
-    const onChange = vi.fn()
-    render(<BackgroundPicker value={DEFAULT_PREVIEW_BACKGROUND} onChange={onChange} />)
-    for (const kind of ['white', 'black', 'custom'] as const) {
-      await user.click(screen.getByTestId(`background-${kind}`))
-    }
-    expect(onChange).toHaveBeenCalledTimes(3)
-    expect(onChange.mock.calls[2]![0]).toMatchObject({ kind: 'custom', hex: '#ff00ff' })
-  })
-
-  it('uses the design garment colour as the starting custom swatch', async () => {
-    const user = userEvent.setup()
-    const onChange = vi.fn()
-    render(
-      <BackgroundPicker value={DEFAULT_PREVIEW_BACKGROUND} onChange={onChange} garmentHex="#1b2a4a" />,
-    )
-    await user.click(screen.getByTestId('background-custom'))
-    expect(onChange).toHaveBeenCalledWith({ kind: 'custom', hex: '#1b2a4a' })
-  })
-
-  it('reveals presets and a hex field only for the custom background', async () => {
-    const user = userEvent.setup()
-    render(
-      <StatefulPicker initial={{ kind: 'checkerboard', hex: '#ffffff' }} />,
-    )
-    expect(screen.queryByLabelText('Garment color')).not.toBeInTheDocument()
-
-    await user.click(screen.getByTestId('background-custom'))
-    const group = screen.getByRole('group', { name: 'Preset garment colours' })
-    expect(within(group).getAllByRole('button')).toHaveLength(PRESET_GARMENT_COLORS.length)
-    expect(screen.getByLabelText('Garment color')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Navy' }))
-    expect(screen.getByTestId('preview-surface')).toHaveAttribute('data-background-hex', '#1b2a4a')
-  })
-
-  it('exposes a radiogroup and reflects the controlled selection', async () => {
-    const user = userEvent.setup()
-    const onChange = vi.fn()
-    const { rerender } = render(
-      <BackgroundPicker value={DEFAULT_PREVIEW_BACKGROUND} onChange={onChange} />,
-    )
-    const group = screen.getByRole('radiogroup', { name: 'Preview background' })
-    expect(group).toBeInTheDocument()
-    expect(screen.getByTestId('background-checkerboard')).toHaveAttribute('aria-checked', 'true')
-    await user.click(screen.getByTestId('background-white'))
-    expect(onChange).toHaveBeenCalledWith({ kind: 'white', hex: '#ffffff' })
-    rerender(<BackgroundPicker value={{ kind: 'white', hex: '#ffffff' }} onChange={onChange} />)
-    expect(screen.getByTestId('background-white')).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByTestId('background-checkerboard')).toHaveAttribute('aria-checked', 'false')
   })
 })

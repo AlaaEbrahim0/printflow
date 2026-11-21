@@ -36,8 +36,6 @@ public static class DesignEndpoints
         group.MapPost("/{designId:guid}/steps/crop", CropAsync);
         group.MapPost("/{designId:guid}/steps/upscale", UpscaleAsync);
         group.MapPost("/{designId:guid}/steps/resize", ResizeAsync);
-        group.MapPost("/{designId:guid}/steps/background-removal", BackgroundRemovalAsync);
-        group.MapPost("/{designId:guid}/steps/manual-edit", ManualEditAsync).DisableAntiforgery();
     }
 
     private static async Task<IResult> GetAsync(
@@ -352,65 +350,6 @@ public static class DesignEndpoints
                 request.Scale,
                 request.TileSize,
                 request.Gpu ?? true),
-            cancellationToken);
-        return result.IsSuccess
-            ? Accepted(result.Value!)
-            : ApiResults.Problem(result.Error!);
-    }
-
-    private static async Task<IResult> ManualEditAsync(
-        Guid designId,
-        [FromForm] IFormFile file,
-        [FromForm] Guid sourceVersionId,
-        [FromForm] string? parameters,
-        DesignService designs,
-        CancellationToken cancellationToken)
-    {
-        await using var stream = file.OpenReadStream();
-        var result = await designs.ProposeManualEditAsync(designId, sourceVersionId, stream, file.Length, parameters ?? "{}", cancellationToken);
-        return result.IsSuccess ? Results.Created($"/api/v1/designs/{designId}/versions", result.Value.Design.ToDetail()) : ApiResults.Problem(result.Error!);
-    }
-
-    private static async Task<IResult> BackgroundRemovalAsync(
-        Guid designId,
-        BackgroundRemovalStepRequest request,
-        StepService steps,
-        CancellationToken cancellationToken)
-    {
-        var result = await steps.ProposeBackgroundRemovalAsync(
-            designId,
-            new BackgroundRemovalStepCommand(
-                request.Mode,
-                request.KeyColor,
-                request.Tolerance,
-                request.EdgeSoftness,
-                request.AiModel,
-                request.BrushOps?
-                    .Select(op => new BrushOpCommand(
-                        op.Tool,
-                        op.RadiusPx,
-                        (op.Points ?? [])
-                            .Select(point => new BrushPointCommand(point[0], point[1]))
-                            .ToArray()))
-                    .ToArray(),
-                request.MaskGrowPx,
-                request.MaskLevels is null
-                    ? null
-                    : new LevelsAdjustmentCommand(
-                        request.MaskLevels.BlackPoint,
-                        request.MaskLevels.WhitePoint,
-                        request.MaskLevels.Gamma,
-                        request.MaskLevels.OutputBlack,
-                        request.MaskLevels.OutputWhite),
-                request.ImageLevels is null
-                    ? null
-                    : new LevelsAdjustmentCommand(
-                        request.ImageLevels.BlackPoint,
-                        request.ImageLevels.WhitePoint,
-                        request.ImageLevels.Gamma,
-                        request.ImageLevels.OutputBlack,
-                        request.ImageLevels.OutputWhite),
-                request.MaskMinAreaPx),
             cancellationToken);
         return result.IsSuccess
             ? Accepted(result.Value!)

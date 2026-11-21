@@ -140,38 +140,6 @@ def test_unknown_job_type_is_rejected() -> None:
         validate_job(document, CONTRACTS_DIR)
 
 
-def test_background_replacement_must_export_a_mask() -> None:
-    document = job_document(
-        "background-removal",
-        version_path("a"),
-        output_relative=version_path("b"),
-        parameters={"mode": "none"},
-    )
-    with pytest.raises(JobContractError) as excinfo:
-        validate_job(document, CONTRACTS_DIR)
-    assert any("outputArtifacts" in problem for problem in excinfo.value.details["errors"])
-
-
-def test_brush_ops_need_a_mask_source_version_to_carry_a_mask() -> None:
-    document = job_document(
-        "background-removal",
-        version_path("a"),
-        output_relative=version_path("b"),
-        parameters={
-            "mode": "color-to-alpha",
-            "keyColor": "#FFFFFF",
-            "maskFromVersionId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-            "brushOps": [{"tool": "erase", "radiusPx": 4, "points": [[1, 1]]}],
-        },
-        output_artifacts={"mask": version_path("b").replace(".png", "/mask.png")},
-    )
-    with pytest.raises(JobContractError):
-        validate_job(document, CONTRACTS_DIR)
-
-    document["inputArtifacts"] = {"mask": version_path("a").replace(".png", "/mask.png")}
-    assert validate_job(document, CONTRACTS_DIR)
-
-
 def test_manual_trim_requires_a_crop_rect() -> None:
     document = job_document(
         "trim", version_path("a"), output_relative=version_path("b"), parameters={"mode": "manual"}

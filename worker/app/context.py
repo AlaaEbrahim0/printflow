@@ -21,8 +21,6 @@ from PIL import Image
 from app.config import Settings
 from app.engines.command import CommandRunner, SubprocessCommandRunner
 from app.engines.realesrgan import RealesrganEngine
-from app.engines.withoutbg import WithoutBgCutout
-from app.engines.withoutbg import shared as shared_cutout
 from app.errors import MissingInputArtifactError
 from app.imaging import (
     image_has_alpha,
@@ -39,21 +37,15 @@ from app.storage import StorageRoot
 class Engines:
     """Injectable engine bundle.
 
-    ``cutout`` is the withoutBG open-weights matte. It stays lazy on purpose: the
-    worker starts and serves key/trim/upscale jobs even when the package or the
-    weights are absent, and only an ``ai`` job then fails with
-    ``engine-unavailable``.
     """
 
     realesrgan: RealesrganEngine
-    cutout: WithoutBgCutout
 
 
 def default_engines(settings: Settings, runner: CommandRunner | None = None) -> Engines:
     resolved_runner = runner or SubprocessCommandRunner()
     return Engines(
         realesrgan=RealesrganEngine(settings, resolved_runner),
-        cutout=shared_cutout(settings),
     )
 
 

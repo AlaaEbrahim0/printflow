@@ -218,7 +218,7 @@ export class MockStore {
   /** Public entry point used by the step handlers. */
   proposeStep(
     designId: string,
-    type: 'trim' | 'upscale' | 'resize' | 'background-removal',
+    type: 'trim' | 'upscale' | 'resize',
     parameters: Record<string, unknown>,
   ): JobAccepted {
     const stepType: StepType =
@@ -379,6 +379,7 @@ export class MockStore {
   private deriveDesignStatus(design: MockDesignRecord): DesignStatus {
     if (design.status === 'excluded') return 'excluded'
     if (design.betterSourceRequested) return 'needs-better-source'
+    if (design.pendingVersionId) return 'in-progress'
     const current = this.versions.get(design.currentVersionId)
     const batch = this.batches.get(design.batchId)
     if (!current || !batch) return 'received'
@@ -498,14 +499,6 @@ export class MockStore {
       }
       case 'vectorize': {
         version.hasSvg = true
-        break
-      }
-      case 'background-removal': {
-        const mode = String(parameters.mode ?? 'color-to-alpha')
-        const reusesMask = typeof parameters.maskFromVersionId === 'string'
-        version.variant = mode === 'none' && !reusesMask ? 'with-bg' : 'transparent'
-        version.hasAlpha = mode !== 'none' || reusesMask
-        version.hasMask = mode !== 'none' || reusesMask
         break
       }
       case 'resize': {
@@ -1797,7 +1790,6 @@ function parametersForVersion(
 
 function stepTypeForJob(type: Job['type'], parameters: Record<string, unknown>): StepType {
   if (type === 'trim') return parameters.mode === 'manual' ? 'crop' : 'trim'
-  if (type === 'background-removal') return 'background-removal'
   return type as StepType
 }
 
@@ -2047,8 +2039,8 @@ export const SEED_BATCHES: SeedBatch[] = [
         garmentColor: { kind: 'dark' },
         notes: 'Customer screenshot. Halo visible on black tees.',
         chain: [
-          { stepType: 'background-removal', parameters: { mode: 'color-to-alpha', keyColor: '#ffffff', tolerance: 14, edgeSoftness: 1.5, maskGrowPx: 1 } },
-          { stepType: 'upscale', parameters: { model: 'realesrgan-x4plus-anime', scale: 2 }, status: 'proposed' },
+          { stepType: 'upscale', parameters: { model: 'realesrgan-x4plus-anime', scale: 2 }, status: 'approved' },
+          { stepType: 'resize', parameters: { targetWidthCm: 12, targetHeightCm: 10, dpi: 300 }, status: 'proposed' },
         ],
       },
       { assetKey: 'full-bleed-collage', name: 'Full-bleed collage', targetCm: [30, 22] },
@@ -2079,7 +2071,6 @@ export const SEED_BATCHES: SeedBatch[] = [
         targetCm: [22, 18],
         chain: [
           { stepType: 'trim', parameters: { mode: 'auto', paddingPx: 12 } },
-          { stepType: 'background-removal', parameters: { mode: 'color-to-alpha', keyColor: '#ffffff' } },
           { stepType: 'resize' },
         ],
       },
@@ -2094,7 +2085,6 @@ export const SEED_BATCHES: SeedBatch[] = [
         name: 'Crest front',
         targetCm: [16, 16],
         chain: [
-          { stepType: 'background-removal', parameters: { mode: 'color-to-alpha', keyColor: '#0b0b0b' } },
           { stepType: 'resize' },
         ],
       },
@@ -2119,7 +2109,6 @@ export const SEED_BATCHES: SeedBatch[] = [
         name: 'Steam cup',
         targetCm: [12, 12],
         chain: [
-          { stepType: 'background-removal', parameters: { mode: 'color-to-alpha', keyColor: '#0b0b0b' } },
           { stepType: 'resize' },
         ],
       },

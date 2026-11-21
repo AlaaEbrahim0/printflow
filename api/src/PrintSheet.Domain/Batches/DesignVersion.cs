@@ -189,56 +189,6 @@ public sealed class DesignVersion
     }
 
     /// <summary>
-    /// An operator-made cleanup (crop, levels, colour or a cut-out mask) that was
-    /// rasterised in the browser and uploaded as a finished PNG. Unlike a worker
-    /// proposal there is no job: the operator is the processor. It is still a
-    /// <see cref="VersionStatus.Proposed"/> version that must be approved, so the
-    /// operator can never silently replace the current pixels. The file is a new
-    /// immutable file; the parent version is never touched.
-    /// </summary>
-    public static Result<DesignVersion> CreateManualEdit(
-        Guid id,
-        Guid designId,
-        Guid parentId,
-        string filePath,
-        string? maskPath,
-        int widthPx,
-        int heightPx,
-        bool hasAlpha,
-        string parametersJson,
-        DateTimeOffset createdAt)
-    {
-        var validation = ValidateFileMetadata(id, designId, filePath, widthPx, heightPx, parametersJson);
-        if (!validation.IsSuccess)
-        {
-            return Result<DesignVersion>.Failure(validation.Error!);
-        }
-
-        if (parentId == Guid.Empty)
-        {
-            return Result<DesignVersion>.Failure(
-                ErrorCodes.InvalidRequest,
-                "A manual edit requires the version it was drawn on as its parent.");
-        }
-
-        return Result<DesignVersion>.Success(new DesignVersion(
-            id,
-            designId,
-            parentId,
-            StepType.Crop,
-            VersionStatus.Proposed,
-            filePath,
-            maskPath,
-            svgPath: null,
-            widthPx,
-            heightPx,
-            hasAlpha,
-            parametersJson,
-            jobId: null,
-            createdAt));
-    }
-
-    /// <summary>
     /// An operator-prepared PNG that is already background-removed and exported
     /// at the exact target pixel size. It is stored as a separate immutable
     /// resize version (the file is copied, never referenced from the original)

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PrintSheet Workbench API
-  version: 2.0.0
+  version: 3.0.0
   description: |
     Contract for the PrintSheet Workbench HTTP API.
 
@@ -814,89 +814,6 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
-  /api/v1/designs/{designId}/steps/background-removal:
-    parameters:
-      - $ref: '#/components/parameters/DesignId'
-    post:
-      tags: [Designs]
-      operationId: proposeBackgroundRemoval
-      summary: Propose background removal (color-to-alpha or mask reuse)
-      description: |
-        Produces a non-destructive mask artifact and transparency. The source is
-        never modified.
-
-        The mask is the reviewable artifact, and it is shaped by the same request:
-        `maskGrowPx` offsets the selection edge, `edgeSoftness` feathers it,
-        `maskLevels` remaps the alpha ramp and `imageLevels` adjusts the cut-out
-        colours. The `ai` mode (BiRefNet) is archived and is rejected by the
-        worker with `unsupported-parameters`.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/BackgroundRemovalStepRequest' }
-      responses:
-        '202':
-          description: Background removal job accepted
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/JobAccepted' }
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/UnprocessableEntity'
-
-  /api/v1/designs/{designId}/steps/manual-edit:
-    parameters:
-      - $ref: '#/components/parameters/DesignId'
-    post:
-      tags: [Designs]
-      operationId: proposeManualEdit
-      summary: Save a manual-editor PNG as a new proposed version
-      description: |
-        Stores the operator's PNG as an immutable `manual-edit` proposal against
-        the current version. Dimensions must match the source version exactly.
-        The source is never modified and no worker job is queued.
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [file, sourceVersionId]
-              properties:
-                file:
-                  type: string
-                  format: binary
-                  description: PNG export from the manual editor; maximum 50 MB.
-                sourceVersionId:
-                  type: string
-                  format: uuid
-                  description: Current version the edit is based on.
-                parameters:
-                  type: string
-                  nullable: true
-                  description: Manual-editor history and settings as a JSON object string.
-      responses:
-        '201':
-          description: Manual-edit proposal created
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/DesignDetail' }
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '413':
-          description: Manual edit exceeds the upload limit
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/ProblemDetails' }
-        '422':
-          $ref: '#/components/responses/UnprocessableEntity'
-
   /api/v1/jobs:
     get:
       tags: [Jobs]
@@ -1529,112 +1446,6 @@ components:
         fitMode: { type: string, enum: [width, height, contain], default: contain }
         dpi: { type: integer, nullable: true, minimum: 72, maximum: 1200 }
 
-    BackgroundRemovalStepRequest:
-      type: object
-      required: [mode]
-      properties:
-        mode:
-          type: string
-          enum: [ai, color-to-alpha, none]
-          description: |
-            `color-to-alpha` keys out a flat background colour, which is the right
-            tool for flat logo, text and line artwork. `ai` runs the withoutBG
-            open-weights matte (Apache-2.0, routed matting + BiRefNet) for photos,
-            busy backgrounds and soft edges. `none` re-applies brush strokes and
-            mask shaping to `maskFromVersionId`. Both matte modes feed the same
-            mask, so brush edits, speck/hole refinement, grow, feather and levels
-            apply to either.
-        keyColor:
-          type: string
-          nullable: true
-          pattern: '^#[0-9A-Fa-f]{6}$'
-        tolerance:
-          type: integer
-          nullable: true
-          minimum: 0
-          maximum: 255
-        edgeSoftness:
-          type: number
-          nullable: true
-          minimum: 0
-          maximum: 10
-        maskGrowPx:
-          type: number
-          nullable: true
-          minimum: -100
-          maximum: 100
-          description: |
-            Move the selection edge by this many source pixels: positive grows the
-            selection, negative contracts it. The offset is circular (Euclidean),
-            so a diagonal edge moves the same distance as a straight one, and a
-            grown pixel inherits the nearest selected alpha instead of being
-            stamped opaque.
-        maskMinAreaPx:
-          type: number
-          nullable: true
-          minimum: 0
-          maximum: 100000
-          description: |
-            Drop opaque islands and fill background pinholes smaller than this
-            area, in source pixels. 0 disables the pass. It runs on the mode mask
-            before grow and feather, so a stray pixel is not inflated and a
-            pinhole does not survive the blur. DTF prints every opaque pixel, so
-            this pass exists to keep specks off the garment.
-        maskLevels:
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/LevelsAdjustment'
-        imageLevels:
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/LevelsAdjustment'
-        aiModel:
-          type: string
-          nullable: true
-          enum: [withoutbg-open]
-          description: |
-            AI matte engine for `mode: ai`. `withoutbg-open` is the withoutBG
-            open-weights bundle. The archived BiRefNet checkpoints are refused so
-            a stale client cannot silently run a different model on artwork.
-        brushOps:
-          type: array
-          nullable: true
-          items: { $ref: '#/components/schemas/BrushOp' }
-
-    LevelsAdjustment:
-      type: object
-      description: |
-        Photoshop-style levels. Input black/white points rescale the ramp, `gamma`
-        bends the midpoint (above 1 brightens midtones), and the optional output
-        range clamps the result. Applied through a 256-entry lookup table, so the
-        same parameters always produce the same bytes.
-      properties:
-        blackPoint: { type: integer, minimum: 0, maximum: 254, default: 0 }
-        whitePoint: { type: integer, minimum: 1, maximum: 255, default: 255 }
-        gamma: { type: number, minimum: 0.01, maximum: 9.99, default: 1.0 }
-        outputBlack: { type: integer, minimum: 0, maximum: 255, default: 0 }
-        outputWhite: { type: integer, minimum: 0, maximum: 255, default: 255 }
-
-    BrushOp:
-      type: object
-      required: [tool, radiusPx, points]
-      properties:
-        tool:
-          type: string
-          enum: [erase, restore]
-        radiusPx:
-          type: integer
-          minimum: 1
-          maximum: 4096
-        points:
-          type: array
-          minItems: 1
-          items:
-            type: array
-            minItems: 2
-            maxItems: 2
-            items: { type: integer }
-
     RejectVersionRequest:
       type: object
       properties:
@@ -2023,7 +1834,7 @@ components:
         jobId: { type: string, format: uuid }
         type:
           type: string
-          enum: [classify, trim, background-removal, upscale, vectorize, resize]
+          enum: [classify, trim, upscale, vectorize, resize]
         batchId: { type: string, format: uuid }
         designId: { type: string, format: uuid }
         inputPath: { type: string }

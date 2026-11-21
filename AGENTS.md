@@ -237,11 +237,9 @@ version or docs first.
 - EF Core persistence supports PostgreSQL in Compose and SQLite in Development;
   `/healthz` checks the configured database and `/api/v1/info` returns contract
   version `2.0.0`.
-- Supported new steps are classify, trim/manual crop, upscale, resize,
-  background-removal and manual-edit. Background removal is live: `ai` (the
-  withoutBG matte) or `color-to-alpha`, plus mask shaping. `vectorize` is retired
-  and its stored SVG endpoints only serve history. Withdrawn as 2026-11-10
-  staleness: background removal is proposable again and produces a mask artifact.
+- Supported new steps are classify, trim/manual crop, upscale, resize.
+  `background-removal`, `vectorize`, and `manual-edit` are retired step types
+  that remain readable in historical records but cannot be proposed anew.
 - Processing steps create immutable proposed versions. The current pointer
   changes only on approval; files are stored under the shared storage root.
 - `PrintUnits` implements cm↔px and effective DPI; domain tests cover it.
@@ -262,25 +260,14 @@ dotnet test PrintSheet.slnx
 - FastAPI processing service with health and worker/job endpoints.
 - `PRINTSHEET_*` settings via `pydantic-settings`.
 - `PRINTSHEET_MAX_GPU_JOBS` is constrained to 1 (GTX 1650 Ti, 4 GB VRAM).
-- Image processing covers trim/crop, upscale, resize, classify and
-  background-removal (`ai` matte or colour key + mask shaping). GPU jobs are
-  constrained to one at a time. `vectorize` fails with a structured `retired`
-  reason; the schema still accepts old documents so historical records remain
-  readable.
-- The AI matte is `worker/app/engines/withoutbg.py` (`mode: ai`,
-  `aiModel: withoutbg-open`). The package is imported lazily so every non-AI job
-  still starts when the ~1.5 GB weights are absent; weights land in `HF_HOME`
-  (`models/hf` natively, `/data/models/hf` in Compose) on first AI use, unless
-  `PRINTSHEET_CUTOUT_MODEL_PATH` pins an offline bundle.
-- The matte runs on CPU, one inference at a time, and caps the working size at
-  the bundle's `max_inference_size` before upsampling. Budget tens of seconds to
-  ~6 minutes per design at 3500 × 4834. An upload that already carries a
-  transparent background keeps its own alpha (`source-alpha-used`) instead of
-  paying for an inference that can only shave visible pixels.
+- Image processing covers trim/crop, upscale, resize, classify. `background-removal`,
+  `vectorize`, and `manual-edit` are retired job types; their schemas remain
+  for historical readability but new work is rejected with `retired` or
+  `unsupported-parameters`.
 - Job polling starts only when `PRINTSHEET_RUN_JOBS=true`; Compose and
   `scripts/run-worker.sh` enable it. Health-only app/test runs keep the default
   false.
-- Current test suite: 195 tests.
+- Current test suite: 192 tests.
 - Tests:
 
 ```bash
@@ -411,13 +398,10 @@ must not accidentally reverse them:
   configurable settings, not scattered magic numbers.
 - Full-bleed inputs (all four edges non-uniform) must not get an auto-trim
   proposal.
-- Background-removal proposals are live again: `ai` (withoutBG open weights,
-  `aiModel: withoutbg-open`) or `color-to-alpha`, both feeding one mask pipeline
-  (brush ops, `maskMinAreaPx` speck/hole refinement, grow/contract, feather, mask
-  levels). Archived BiRefNet model ids are refused, never silently substituted.
-  Every mask and vector SVG stays readable and downloadable; historical files are
-  never edited. The manual editor is frozen: its route and tests stay, but the
-  review page does not link to it.
+- `background-removal`, `vectorize`, and `manual-edit` are retired step types
+  that remain in the `StepType` enum for historical record readability but cannot
+  be proposed anew. All historical mask and vector artifacts remain readable and
+  downloadable; they are never edited.
 - `all-designs-placed` is the fifth blocking check. Subset packs report omitted
   designs with reason `not-selected`; any unplaced design makes
   `IntegrityReport.passed` false and blocks export.
@@ -619,36 +603,9 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 ## 15. Live status
 
-**Last updated:** 2026-11-13 (AI cutout adopted: withoutBG matte, shared mask pipeline, DTF speck pass, live levels preview; manual editor frozen)
+**Last updated:** 2026-11-20 (background-removal and manual-edit retired; contracts v3.0.0)
 
 **Done and verified:**
-
-- **AI background removal is live (2026-11-13).** `mode: ai` runs the withoutBG
-  open-weights bundle (`aiModel: withoutbg-open`; Apache-2.0 + Meta DINOv3
-  attribution), measured against the shop's own hand-cut alpha: already-cut
-  `Meter.png` 3500 × 4834 kept its own alpha at IoU 0.9912 / MAE 0.53 of 255;
-  opaque-background uploads scored IoU 0.9988 (`6+5+`), 0.9992 (`+6`), 0.9974
-  (`weewc`), 0.9846 (`3`); `2` lost 13.3% of the subject and is the known worst
-  case. The matte enters the *same* mask pipeline as the colour key, so
-  `brushOps`, `maskMinAreaPx`, `maskGrowPx`, `maskLevels` and `imageLevels` all
-  apply. Two defects were found and fixed while measuring: alpha was dropped
-  without compositing before inference (real files hold flat grey under
-  transparency, which the model read as artwork), and re-mating an upload that
-  was already cut out cost 356 s to reproduce its own alpha. Already-cut uploads
-  now report `source-alpha-used` and skip the engine. Details and the full
-  scoring tables: `docs/image-engine-validation.md`.
-- **DTF speck pass (2026-11-13).** New `maskMinAreaPx` (schema, API, worker, UI
-  default 24 px²) drops opaque islands and fills background pinholes before
-  grow/feather, because a DTF printer renders every opaque pixel. `mask_ops
-  .refine_mask_regions` is label-LUT based and costs 0.06 s on a 17 MP mask.
-- **Live levels preview (2026-11-13).** `web/src/components/cutout/LevelsPreview
-  .tsx` draws the same colour and alpha curves the worker applies over a
-  downscaled copy while the sliders move; submitting still creates an immutable
-  proposal. Levels are open by default in the cutout step.
-- **Manual editor frozen (2026-11-13).** The review page's "Manual cleanup" link
-  is gone; the route, modules and tests are untouched.
-- Worker suite 228 tests green; web suite 566 tests / 51 files green; `tsc -b`
-  clean; API build 0 warnings/0 errors.
 
 - Git repo initialized (`main`); skeleton commit `d0d44b9`; Phase 0 deliverable
   commit `9f52d0b`.
@@ -665,12 +622,10 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 - API Clean Architecture implementation builds; 11 domain tests and 5
   infrastructure tests pass. The live fixture-flow script covers the API job
   lifecycle.
-- Worker processing covers classify, trim/crop, upscale, resize and
-  background-removal; 225 tests pass. Background removal runs a colour key
-  (`color-to-alpha`) or reapplies brush edits to an earlier mask (`none`) and
-  produces a non-destructive mask artifact; its `ai` (BiRefNet) mode is archived
-  and fails with `unsupported-parameters`. Retired vectorize jobs fail with a
-  structured `retired` reason while historical schema documents stay readable.
+- Worker processing covers classify, trim/crop, upscale, resize; 192 tests pass.
+  `background-removal`, `vectorize`, and `manual-edit` are retired job types;
+  their schemas remain for historical readability but new work is rejected with
+  `retired` or `unsupported-parameters`.
 - Packer conservative-bitmap nesting/integrity/export implementation is
   integrated. Lease-based API runner has targeted tests for pack, integrity,
   export, path safety, failure payloads and lease loss; the complete packer
@@ -706,8 +661,8 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
   warnings.
 - PSD/PSB spike rerun from the committed reproducer; report and JSON results in
   `docs/spikes/psd-spike/`.
-- Frozen contracts complete at v2.0.0: 5 JSON Schemas, 15 examples, OpenAPI
-  3.0.3 with 36 paths / 66 schemas. `scripts/validate_contracts.py` green.
+- Frozen contracts complete at v3.0.0: 5 JSON Schemas, 14 examples, OpenAPI
+  3.0.3 with updated paths. `scripts/validate_contracts.py` green.
 - `ARCHITECTURE.md`, `docs/domain-model.md`, ADRs 0001–0007 with index. ADR 0004
   is superseded by 0007 for the placement-geometry and scope change.
 - `scripts/generate_fixtures.py` produces 10 realistic inputs + manifest +
@@ -721,111 +676,6 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
   worker health check reports writable storage and image-only capability.
   The native GPU worker uses port 8001 and claims GPU jobs only, so it can run
   alongside the Compose CPU worker on port 8000.
-- `make test` passes after the v2.0.0 alignment: contracts, 11 API domain tests,
-  5 infrastructure tests, 195 worker tests, 161 packer tests, and the web
-  build/lint. Separately, `npm test` passes all 109 web tests.
-- Compose `make e2e-fixtures` passes intake, resize approval, packing,
-  five-check integrity, and PNG export (batch
-  `1de0e8d2-221b-4fea-b62e-6eba25ff4157`, report `schemaVersion` 2.0).
-- Release API image builds with SkiaSharp instead of the licensed ImageSharp
-  package; API/domain and image-inspector tests pass.
-- The pinned, checksum-verified Real-ESRGAN Linux installer and native GPU
-  launcher are in place. Vulkan device 1 is the GTX 1650 Ti on this host.
-  Earlier AC-powered runs: a 360 × 240 photo fixture scaled 4× to 1440 × 960 in
-  7.835 s; a 960 × 320 thin signature scaled 2× in 15.560 s versus 98.159 s on
-  Intel Vulkan device 0. On 2026-11-08 the host was **discharging on battery**:
-  the same direct 360 × 240 ×4 run took ~28 s while the GPU stayed at 300 MHz /
-  P8 (100% utilization, no boost). Plug in AC and use a performance power
-  profile before judging GPU speed.
-- A live API GPU job on 2026-11-08 routed to the native worker and produced
-  1440 × 960 from the low-res fixture in 33.1 s, correctly retaining the
-  91.0 DPI `very-low-effective-dpi` warning.
-- Re-measured on 2026-11-08 with AC connected: the same 360 × 240 → 1440 × 960
-  ×4 job took **12.7 s in the worker** (15.1 s end to end including queueing)
-  with the GPU boosting to 1935 MHz, versus 33.1 s at 300 MHz on battery. The
-  ~2.6× speedup is the power profile, not a code change — always state which
-  one a timing came from.
-- Upscale DPI warnings now use the source dimensions, so AI-created pixels do
-  not erase a low-resolution warning; the 2× signature remains flagged at
-  121.9 DPI. Visual review of the photo fixture saw detail recovery but also
-  synthetic texture/sharpening artifacts. Every result remains a proposal for
-  human comparison and approval.
-- One user-provided 316 × 198 line-art sample was processed only in temporary
-  local storage: Real-ESRGAN x4 completed on the GTX in 5.337 s but remained
-  40.1 DPI at target size; Potrace produced a clean transparent preview and
-  SVG in 100 ms. The original was untouched and no image was added to the repo.
-- Detailed fixture and sample measurements are recorded in
-  `docs/image-engine-validation.md`. Representative shop photos and color art
-  still need review.
-- Design review now puts Real-ESRGAN enhancement first, explains likely AI
-  artifacts and the limits of upscaling, surfaces the source DPI before
-  processing, and uses explicit model/scale labels. A focused route test
-  verifies the selected model, scale and GPU request reach the API.
-- Design review now groups cropping, enhancement and print sizing into a
-  three-step expandable pipeline. Active jobs show an indeterminate progress
-  bar, elapsed time, sample GPU timing, and explicit queued-worker guidance;
-  transient job-poll errors retry automatically. At a 562px viewport the page
-  has no horizontal overflow.
-- Historical vector/background-removal runs (VTracer transparency, Potrace dark
-  garment output, AI removal) remain recorded in
-  `docs/image-engine-validation.md`; those engines and proposal endpoints are
-  retired in v2.0.0.
-- Crop, trim, upscale and API-stored job errors were revalidated on generated
-  artwork. The API serializes stored errors as the contract's `code`,
-  `message`, `retryable`, and object-valued `details`, so failure reasons
-  display in the UI.
-- The design screen reloads persisted batch jobs and reattaches to the latest
-  relevant job after navigation. Existing failed jobs remain in history and
-  must be resubmitted after fixes; they are not silently retried.
-- API health, Compose smoke and the live failed-job response shape were checked
-  against the rebuilt v2.0.0 stack.
-- **Batch grid no longer downloads full-resolution PNGs (2026-11-09).** A batch
-  of 25 ready-to-pack PNGs totalling ~200 MB made the design grid unusable
-  because every card loaded a full PNG. `GET .../versions/{id}/file` now accepts
-  an optional `maxPx` (32–2048) and renders a derived, alpha-preserving PNG with
-  `SkiaSharp` whose longest side is at most `maxPx`; smaller sources are never
-  enlarged. Decoding is gated to two concurrent renders, encoded bytes are
-  cached in memory (256 MB, keyed by the immutable version id), and responses
-  carry an `ETag` plus `Cache-Control: public, max-age=31536000, immutable` with
-  `304 Not Modified` revalidation. The design grid requests `maxPx=640` with
-  `loading="lazy" decoding="async" fetchpriority="low"`; the design review page
-  keeps the full-resolution file `eager`/`high` because that screen exists to
-  judge pixels.
-- **Measured on the user's 10-PNG batch (2026-11-09).** The same batch that was
-  slow to load transfers 42.35 MB of full PNGs but only 2.62 MB of 640 px
-  thumbnails — 93.8% less, 16.2× smaller — with all ten cards rendering. Cold
-  thumbnail render ~250 ms, cached ~15–22 ms, and a conditional request returns
-  `304` with zero bytes. All ten thumbnails stay RGBA with the longest side at
-  exactly 640 px and the source aspect ratio preserved (max deviation 0.0012).
-  Skia ignores the PNG "quality" argument (identical bytes for every value), so
-  these are lossless PNGs; WebP would be ~48% smaller but is not worth losing
-  fidelity in artwork review.
-- **Global jobs screen (2026-11-09).** `GET /api/v1/jobs` lists jobs across all
-  batches so `/jobs` shows running work instead of only per-batch history. The
-  screen sorts live jobs first, polls every 2 s, shows a live count, links each
-  row to its batch and design, offers cancel with a conflict-safe refresh, and
-  keeps a batch-scoped view at `/batches/:id/jobs`. Batch detail links to it.
-- **Print size now follows the artwork aspect ratio (2026-11-09).** The design
-  review size step links width and height by default (lock/unlock checkbox),
-  offers "Use artwork size", and derives the linked side during render so a crop
-  or upscale relinks the size immediately with no effect. An already-saved
-  non-ratio size is preserved on load and shown as unlinked rather than silently
-  rewritten. Resolution is displayed as the batch's read-only snapshotted
-  working DPI, and the output pixel size at the chosen dimensions is shown.
-- **Not-found responses now match the contract (2026-11-09).** The two-argument
-  `ApiResults.Problem(code, message)` overload defaulted to `422`, so a missing
-  batch or design returned `422` where OpenAPI documents `404`. It now routes
-  through the existing `StatusFor` mapping; request-validation failures remain
-  `422`. The web client already treated `404` as not-found, so the UI improves
-  rather than changes behavior.
-- **Current gates (2026-11-09).** API build 0 warnings/0 errors; 13 domain + 9
-  infrastructure tests pass. Web `npm test`: 214 passed across 17 files (three
-  consecutive runs). `npm run build` succeeds; `npm run lint` exits 0 with the
-  same 17 pre-existing hook/fast-refresh warnings. `scripts/validate_contracts.py`
-  green. Compose rebuilt, `make up` + `make smoke` pass, and `make e2e-fixtures`
-  passes (batch `6dd8c4a0-ea49-470f-a9d2-c0841df85d24`). Live checks confirmed
-  `maxPx` validation (`422` outside 32–2048), thumbnail caching/`304`, global job
-  listing and filtering, and `404` for missing batch/design.
 
 **In progress / immediate next:**
 
@@ -1032,15 +882,26 @@ reference data, not immediate work.
   an explicit lock command if the shop needs “sent to printer” immutability.
 - The MVP allows one current sheet per batch; very tall batches must be split
   by excluding designs or accepted as one tall sheet/one export.
-- Background removal is live but deliberately limited to a colour key. The
-  `ai` (BiRefNet) cutout is archived in `archive/birefnet/`: it is not merely
-  hidden, it is refused. Busy artwork is cut in Photoshop/Photopea and imported
-  through ready-to-pack intake. Vectorization is retired the same way; all
-  historical artifacts remain downloadable.
+- `background-removal`, `vectorize`, and `manual-edit` are retired step/job types.
+  Historical artifacts remain downloadable; no new work can be proposed.
 
 ---
 
 ## 15. Handoff log
+
+### 2026-11-20 — background-removal and manual-edit retired; contracts v3.0.0
+
+- Removed all background-removal and manual-edit code paths: API endpoints,
+  worker processor and engine, mask_ops, web cutout UI, manual editor, Quick Levels.
+- Contracts bumped to v3.0.0 (breaking). OpenAPI and worker-job schema no longer
+  include `background-removal` or `manual-edit`. StepType enum keeps legacy
+  values for historical readability. 14 examples validate.
+- Deleted model weights and caches: `models/cutout` (2.1 GB BiRefNet),
+  `models/hf` (1.4 GB withoutBG), `storage/models/withoutbg`, `archive/birefnet/`,
+  `~/.cache/huggingface` (1.9 GB).
+- Docker compose: removed `HF_HOME`, `./models:/data/models` worker mount.
+- API tests 22 pass, worker tests 192 pass, packer tests 161 pass, web build/lint
+  pass. Contract validation green.
 
 Append newest entries at the top. Keep them short and factual.
 

@@ -1,6 +1,7 @@
 import { useRef, useState, type MouseEvent, type TouchEvent, type KeyboardEvent } from 'react'
-import { AlphaPreview } from '../preview/AlphaPreview'
-import { type PreviewBackground, DEFAULT_PREVIEW_BACKGROUND } from '../../lib/preview'
+import { type PreviewBackground, DEFAULT_PREVIEW_BACKGROUND, backgroundStyle } from '../../lib/preview'
+import { isIdentityLevels, type LevelsAdjustment } from '../../lib/levels'
+import { PreviewSurface } from '../preview/PreviewSurface'
 import './ImageComparisonSlider.css'
 
 export interface ImageComparisonSliderProps {
@@ -19,10 +20,23 @@ export interface ImageComparisonSliderProps {
   afterLabel?: string
   /** Initial slider position 0–1 (default: 0.5) */
   initialPosition?: number
+  /** Levels applied to the after side only; the before side is untouched. */
+  afterImageLevels?: LevelsAdjustment
+  afterMaskLevels?: LevelsAdjustment
   /** Test ID prefix */
   testId?: string
 }
 
+/**
+ * Two layers, one clip edge.
+ *
+ * Both sides share one stage element and one background so the seam is a single
+ * vertical line at the same place in both images. The previous version put each
+ * image in its own padded, absolutely-positioned box and anchored the divider
+ * with `inset: 0; left: p%`, which stretched it from the split to the right edge
+ * and drew the handle halfway along *that* box — so the handle never sat on the
+ * seam.
+ */
 export function ImageComparisonSlider({
   beforeUrl,
   afterUrl,
@@ -36,6 +50,8 @@ export function ImageComparisonSlider({
   beforeLabel = 'Before',
   afterLabel = 'After',
   initialPosition = 0.5,
+  afterImageLevels,
+  afterMaskLevels,
   testId = 'comparison',
 }: ImageComparisonSliderProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -49,6 +65,7 @@ export function ImageComparisonSlider({
     if (!container) return null
     const rect = container.getBoundingClientRect()
     const clientX = 'touches' in event ? event.touches[0]?.clientX ?? 0 : event.clientX
+    if (!rect.width) return null
     return clamp((clientX - rect.left) / rect.width)
   }
 
@@ -87,63 +104,73 @@ export function ImageComparisonSlider({
     }
   }
 
-  const beforeStyle = { clipPath: `inset(0 ${(1 - position) * 100}% 0 0)` }
-  const afterStyle = { clipPath: `inset(0 0 0 ${position * 100}%)` }
-  const dividerStyle = { left: `${position * 100}%` }
-
-  const aspectRatio = beforeWidthPx / beforeHeightPx
+  // The after side is the layer under review, so its artwork ratio sizes the
+  // stage; a crop that changed the ratio would otherwise letterbox in a box that
+  // still claims the old shape.
+  const aspectRatio =
+    afterWidthPx > 0 && afterHeightPx > 0
+      ? afterWidthPx / afterHeightPx
+      : beforeWidthPx > 0 && beforeHeightPx > 0
+        ? beforeWidthPx / beforeHeightPx
+        : 1
+  const levelsActive =
+    !isIdentityLevels(afterImageLevels) || !isIdentityLevels(afterMaskLevels)
 
   return (
     <div
       ref={containerRef}
       className="comparison-slider"
       data-testid={testId}
-      role="img"
-      aria-label={`${beforeLabel} / ${afterLabel} comparison. Use arrow keys to move slider.`}
+      role="group"
+      aria-label={`${beforeLabel} / ${afterLabel} comparison. Use arrow keys to move the divider.`}
       tabIndex={0}
       onMouseDown={handlePointerDown}
       onTouchStart={handlePointerDown}
       onKeyDown={handleKeyDown}
-      style={{ aspectRatio: `${aspectRatio.toFixed(4)}`, height: 'auto' } as React.CSSProperties}
+      style={{ aspectRatio: `${aspectRatio.toFixed(4)}` }}
     >
-      <div className="comparison-layer before" style={beforeStyle} aria-hidden="true">
-        <AlphaPreview
-          fileUrl={beforeUrl}
+      <div className="comparison-stage" style={backgroundStyle(background)}>
+        <img
+          className="comparison-image"
+          src={beforeUrl}
           alt={beforeAlt}
-          background={background}
-          widthPx={beforeWidthPx}
-          heightPx={beforeHeightPx}
-          loading="eager"
-          decoding="async"
-          fetchPriority="high"
+          draggable={false}
         />
+        <div
+          className="comparison-layer after"
+          style={{ clipPath: `inset(0 0 0 ${(position * 100).toFixed(3)}%)` }}
+        >
+          {levelsActive ? (
+            <PreviewSurface
+              fileUrl={afterUrl}
+              alt={afterAlt}
+              background={background}
+              imageLevels={afterImageLevels}
+              maskLevels={afterMaskLevels}
+              layout="fill"
+              testId={`${testId}-after`}
+            />
+          ) : (
+            <img
+              className="comparison-image"
+              src={afterUrl}
+              alt={afterAlt}
+              draggable={false}
+            />
+          )}
+        </div>
       </div>
 
-      <div className="comparison-layer after" style={afterStyle} aria-hidden="true">
-        <AlphaPreview
-          fileUrl={afterUrl}
-          alt={afterAlt}
-          background={background}
-          widthPx={afterWidthPx}
-          heightPx={afterHeightPx}
-          loading="eager"
-          decoding="async"
-          fetchPriority="high"
-        />
+      <div className="comparison-split" style={{ left: `${position * 100}%` }} aria-hidden="true" />
+      <div className="comparison-handle" style={{ left: `${position * 100}%` }} aria-hidden="true">
+        <span />
       </div>
 
-      <div
-        className="comparison-divider"
-        style={dividerStyle}
-        aria-hidden="true"
-      >
-        <span className="comparison-handle" />
-        <span className="comparison-label before">{beforeLabel}</span>
-        <span className="comparison-label after">{afterLabel}</span>
-      </div>
+      <span className="comparison-label before">{beforeLabel}</span>
+      <span className="comparison-label after">{afterLabel}</span>
 
       <div className="comparison-hint" aria-hidden="true">
-        Drag or use ← → keys to compare
+        Drag or use ← → to compare
       </div>
 
       <div
