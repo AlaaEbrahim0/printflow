@@ -6,6 +6,7 @@ COPY src/PrintSheet.Domain/PrintSheet.Domain.csproj src/PrintSheet.Domain/
 COPY src/PrintSheet.Application/PrintSheet.Application.csproj src/PrintSheet.Application/
 COPY src/PrintSheet.Infrastructure/PrintSheet.Infrastructure.csproj src/PrintSheet.Infrastructure/
 COPY src/PrintSheet.Api/PrintSheet.Api.csproj src/PrintSheet.Api/
+COPY tests/PrintSheet.Application.Tests/PrintSheet.Application.Tests.csproj tests/PrintSheet.Application.Tests/
 COPY tests/PrintSheet.Domain.Tests/PrintSheet.Domain.Tests.csproj tests/PrintSheet.Domain.Tests/
 COPY tests/PrintSheet.Infrastructure.Tests/PrintSheet.Infrastructure.Tests.csproj tests/PrintSheet.Infrastructure.Tests/
 RUN dotnet restore PrintSheet.slnx
