@@ -114,38 +114,51 @@ public sealed class SkiaAlphaRefiner(IOptions<BackgroundRemovalOptions> options)
         return pixels;
     }
 
-    /// <summary>One separable box pass; a 0.5 px feather becomes a 3-tap blur.</summary>
+    /// <summary>
+    /// One separable box pass; a 0.5 px feather becomes a 3-tap blur.
+    ///
+    /// Sliding-window sums keep this O(pixels) rather than O(pixels × radius):
+    /// a 6850 px print layer is 47 M pixels, and the naive version would be
+    /// billions of adds at the maximum feather.
+    /// </summary>
     private static void BoxBlur(byte[] pixels, int width, int height, int radius)
     {
         var horizontal = new byte[pixels.Length];
+        var window = (radius * 2) + 1;
+
         for (var y = 0; y < height; y++)
         {
             var row = y * width;
+            // Seed the window with the left edge replicated `radius` times.
+            var sum = 0;
+            for (var k = -radius; k <= radius; k++)
+            {
+                sum += pixels[row + Math.Clamp(k, 0, width - 1)];
+            }
+
             for (var x = 0; x < width; x++)
             {
-                var sum = 0;
-                for (var k = -radius; k <= radius; k++)
-                {
-                    var sample = Math.Clamp(x + k, 0, width - 1);
-                    sum += pixels[row + sample];
-                }
-
-                horizontal[row + x] = (byte)(sum / ((radius * 2) + 1));
+                horizontal[row + x] = (byte)(sum / window);
+                var leaving = pixels[row + Math.Clamp(x - radius, 0, width - 1)];
+                var entering = pixels[row + Math.Clamp(x + radius + 1, 0, width - 1)];
+                sum += entering - leaving;
             }
         }
 
-        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
         {
-            for (var x = 0; x < width; x++)
+            var sum = 0;
+            for (var k = -radius; k <= radius; k++)
             {
-                var sum = 0;
-                for (var k = -radius; k <= radius; k++)
-                {
-                    var sample = Math.Clamp(y + k, 0, height - 1);
-                    sum += horizontal[(sample * width) + x];
-                }
+                sum += horizontal[(Math.Clamp(k, 0, height - 1) * width) + x];
+            }
 
-                pixels[(y * width) + x] = (byte)(sum / ((radius * 2) + 1));
+            for (var y = 0; y < height; y++)
+            {
+                pixels[(y * width) + x] = (byte)(sum / window);
+                var leaving = horizontal[(Math.Clamp(y - radius, 0, height - 1) * width) + x];
+                var entering = horizontal[(Math.Clamp(y + radius + 1, 0, height - 1) * width) + x];
+                sum += entering - leaving;
             }
         }
     }

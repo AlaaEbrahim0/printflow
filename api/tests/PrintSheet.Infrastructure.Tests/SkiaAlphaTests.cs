@@ -73,6 +73,36 @@ public sealed class SkiaAlphaTests
     }
 
     [Fact]
+    public async Task FeatherSoftensAHardMatteEdge()
+    {
+        // 5x1: opaque, opaque, transparent, transparent, transparent.
+        var cutout = CreateRgbaPng(5, 1, ToRgba([255, 255, 0, 0, 0]));
+
+        var hard = await CreateRefiner(feather: 0, threshold: null).RefineAsync(
+            new AlphaRefinement(cutout, 5, 1),
+            CancellationToken.None);
+        var feathered = await CreateRefiner(feather: 1, threshold: null).RefineAsync(
+            new AlphaRefinement(cutout, 5, 1),
+            CancellationToken.None);
+
+        Assert.Equal([255, 255, 0, 0, 0], hard.Pixels);
+        // A 3-tap pass averages each pixel with its clamped neighbours.
+        Assert.Equal([255, 170, 85, 0, 0], feathered.Pixels);
+    }
+
+    [Fact]
+    public async Task FeatherIsAnEdgeBlurNotAGlobalDim()
+    {
+        var cutout = CreateRgbaPng(6, 1, ToRgba([255, 255, 255, 255, 255, 255]));
+
+        var mask = await CreateRefiner(feather: 2, threshold: null).RefineAsync(
+            new AlphaRefinement(cutout, 6, 1),
+            CancellationToken.None);
+
+        Assert.All(mask.Pixels, value => Assert.Equal(255, value));
+    }
+
+    [Fact]
     public async Task RefinerRejectsBytesThatAreNotAnImage()
     {
         var error = await Assert.ThrowsAsync<BackgroundRemovalException>(
