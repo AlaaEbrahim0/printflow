@@ -11,7 +11,7 @@ PYTHON ?= python3
 
 .PHONY: help setup api-setup worker-setup packer-setup web-setup contracts-setup
 .PHONY: up down reset ps logs smoke verify test test-api test-worker test-packer test-web test-contracts
-.PHONY: build fixtures e2e-fixtures api worker worker-gpu worker-gpu-setup web clean distclean test-web-full test-api-docker test-api-live
+.PHONY: build fixtures e2e-fixtures api worker worker-gpu worker-gpu-setup worker-live-test web clean distclean test-web-full test-api-docker test-api-live
 
 help: ## Show the available targets
 	@awk 'BEGIN {FS = ":.*##"; printf "PrintSheet Workbench\n\nUsage: make <target>\n\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -89,6 +89,9 @@ test-api: ## Domain/API tests
 test-api-docker: ## withoutBG container integration tests (needs `docker compose up -d withoutbg`)
 	PRINTSHEET_TEST_WITHOUTBG_URL=http://localhost:$${WITHOUTBG_PORT:-8002}/ \
 		dotnet test api/PrintSheet.slnx --filter Category=Docker
+
+worker-live-test: ## Worker on :8001 with Real-ESRGAN, no job loop (for live tests)
+	./scripts/run-worker-live-test.sh
 
 test-api-live: ## Full pipeline against a live worker (Real-ESRGAN) and withoutBG
 	PRINTSHEET_TEST_WORKER_URL=http://localhost:$${WORKER_GPU_PORT:-8001}/ \

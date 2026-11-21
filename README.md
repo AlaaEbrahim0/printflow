@@ -198,9 +198,10 @@ Poof. The Docker integration test is skipped unless a container URL is exported:
 docker compose up -d withoutbg
 make test-api-docker          # adapter against the real container
 
-# The whole pipeline needs a worker with Real-ESRGAN installed (native GPU
-# worker on :8001); the Compose worker has no engine binary.
-make worker-gpu &
+# The whole pipeline needs a worker with Real-ESRGAN installed; the Compose
+# worker has no engine binary. This target starts one on :8001 without the job
+# loop, so it does not compete with a running worker.
+make worker-live-test &
 make test-api-live
 ```
 
