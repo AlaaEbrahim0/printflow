@@ -194,6 +194,13 @@ only installed for the GPU worker, so to exercise the upscale step natively run
 `make worker-gpu` and set `BackgroundRemoval:PrepareWorker:BaseUrl` to
 `http://localhost:8001` with `UseGpu: true`.
 
+Step 3 needs a worker with Real-ESRGAN installed. The Compose worker ships
+without the engine binary, so a Compose-only deployment can remove backgrounds
+but cannot finish the pipeline; run the native GPU worker (`make worker-gpu`)
+and point `BackgroundRemoval:PrepareWorker:BaseUrl` at it. That is deliberate:
+print-size upscaling on CPU takes minutes per layer even with the engine present,
+and the pipeline's timeouts are sized for a GPU.
+
 The API health check for withoutBG is tagged `dependency`, and `/healthz` skips
 dependency checks, so the workbench stays up when the cutout service is down.
 
