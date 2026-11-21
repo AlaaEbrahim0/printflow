@@ -499,9 +499,10 @@ export class MockStore {
       }
       case 'background-removal': {
         // The real pipeline crops, cuts out and enlarges, so the mock version
-        // carries alpha and a bigger canvas than its parent.
+        // carries alpha and a bigger canvas than its parent. It deliberately does
+        // not set hasMask: the in-process runner writes only the cut-out image, so
+        // claiming a mask here would offer a link the real API cannot serve.
         version.hasAlpha = true
-        version.hasMask = true
         version.widthPx = Math.round(box.width * 2)
         version.heightPx = Math.round(box.height * 2)
         break

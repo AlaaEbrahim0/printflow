@@ -196,6 +196,9 @@ describe('jobs, proposals and step semantics', () => {
     // A cutout is transparent by definition, and the pipeline enlarges it.
     expect(pending.hasAlpha).toBe(true)
     expect(pending.widthPx).toBe(parent.widthPx * 2)
+    // The in-process runner writes only the cut-out image, so no mask artifact
+    // exists. Claiming one here would show a link the real API cannot serve.
+    expect(pending.hasMask).toBe(false)
   })
 
   it('a manual crop through the trim endpoint records a crop version', () => {
