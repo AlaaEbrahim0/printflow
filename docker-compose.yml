@@ -39,7 +39,7 @@ services:
       BackgroundRemoval__FallbackProvider: ${BACKGROUND_REMOVAL_FALLBACK:-}
       BackgroundRemoval__RunJobs: ${BACKGROUND_REMOVAL_RUN_JOBS:-true}
       BackgroundRemoval__Poof__ApiKey: ${POOF_API_KEY:-}
-      BackgroundRemoval__PrepareWorker__BaseUrl: http://worker:8000
+      BackgroundRemoval__PrepareWorker__BaseUrl: ${BACKGROUND_REMOVAL_PREPARE_WORKER_BASE_URL:-http://worker:8000}
       BackgroundRemoval__PrepareWorker__UseGpu: ${WORKER_GPU_ENABLED:-false}
       BackgroundRemoval__WithoutBg__BaseUrl: http://withoutbg:8000
     ports:
@@ -67,6 +67,8 @@ services:
       PRINTSHEET_WORKER_KEY: ${WORKER_KEY:-dev-worker-key}
       PRINTSHEET_WORKER_ID: worker-compose
       PRINTSHEET_GPU_ENABLED: "false"
+      PRINTSHEET_REALESRGAN_BINARY: /tools/realesrgan-ncnn-vulkan
+      PRINTSHEET_REALESRGAN_MODEL_DIR: /tools/models
       PRINTSHEET_RUN_JOBS: "true"
       PRINTSHEET_LOG_LEVEL: INFO
       PRINTSHEET_LOG_JSON: "true"
@@ -74,6 +76,7 @@ services:
       - "${WORKER_PORT:-8000}:8000"
     volumes:
       - ./storage:/data/storage
+      - ./.tools/realesrgan-v0.2.5.0:/tools:ro
     healthcheck:
       test:
         [

@@ -102,7 +102,7 @@ class RealesrganEngine:
             "-f",
             output_format,
             "-g",
-            str(gpu_index),
+            "auto" if gpu_index < 0 else str(gpu_index),
         ]
         if self.settings.realesrgan_model_dir is not None:
             command += ["-m", str(self.settings.realesrgan_model_dir)]

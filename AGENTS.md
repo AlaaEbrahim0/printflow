@@ -910,6 +910,19 @@ reference data, not immediate work.
 
 ## 16. Handoff log
 
+### 2026-11-22 — Compose worker Real-ESRGAN support and -g auto fix
+
+- Fixed 503 Service Unavailable in prepare-worker upscale during background removal:
+  `worker/Dockerfile` now installs `libvulkan1` and `mesa-vulkan-drivers` for Vulkan
+  software rasterizer (llvmpipe); `docker-compose.yml` mounts `.tools/realesrgan-v0.2.5.0:/tools:ro`
+  and sets `PRINTSHEET_REALESRGAN_BINARY` and `PRINTSHEET_REALESRGAN_MODEL_DIR`.
+- Fixed `realesrgan.py` passing `-g -1` on CPU fallback, which caused `realesrgan-ncnn-vulkan`
+  to exit 255 with `invalid gpu device`; now passes `-g auto`.
+- Updated `scripts/run-worker.sh` to auto-detect Real-ESRGAN binary and models.
+- Verified in-stack live execution: `POST /v1/crop` and `POST /v1/upscale` return 200 OK,
+  and in-process background removal completed end-to-end to `succeeded` status with an
+  approved RGBA cutout version.
+
 ### 2026-11-22 — background removal restored as an in-process cutout (contracts 3.1.0)
 
 - v3.0.0 removed the in-worker cutout pipeline. v3.1.0 adds it back as an

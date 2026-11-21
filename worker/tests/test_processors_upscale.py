@@ -229,7 +229,7 @@ def test_gpu_request_falls_back_to_cpu_with_a_warning(tmp_path) -> None:
         runner,
     )
 
-    assert runner.flag("-g") == "-1"
+    assert runner.flag("-g") == "auto"
     codes = [warning["code"] for warning in result["metadata"]["warnings"]]
     assert "gpu-requested-cpu-fallback" in codes
 

@@ -16,5 +16,11 @@ export PRINTSHEET_WORKER_ID="${PRINTSHEET_WORKER_ID:-worker-native}"
 export PRINTSHEET_GPU_ENABLED="${PRINTSHEET_GPU_ENABLED:-false}"
 export PRINTSHEET_RUN_JOBS="${PRINTSHEET_RUN_JOBS:-true}"
 
+ENGINE_DIR="$ROOT/.tools/realesrgan-v0.2.5.0"
+if [[ -x "$ENGINE_DIR/realesrgan-ncnn-vulkan" ]]; then
+  export PRINTSHEET_REALESRGAN_BINARY="${PRINTSHEET_REALESRGAN_BINARY:-$ENGINE_DIR/realesrgan-ncnn-vulkan}"
+  export PRINTSHEET_REALESRGAN_MODEL_DIR="${PRINTSHEET_REALESRGAN_MODEL_DIR:-$ENGINE_DIR/models}"
+fi
+
 mkdir -p "$PRINTSHEET_STORAGE_ROOT"
 exec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port "${WORKER_PORT:-8000}"
