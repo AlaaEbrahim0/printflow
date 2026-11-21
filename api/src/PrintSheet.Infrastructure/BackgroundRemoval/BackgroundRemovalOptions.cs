@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace PrintSheet.Infrastructure.BackgroundRemoval;
 
 /// <summary>What every outbound adapter's HTTP client needs from its option set.</summary>
-public interface IHttpClientEndpointOptions
+internal interface IHttpClientEndpointOptions
 {
     string BaseUrl { get; }
 }
