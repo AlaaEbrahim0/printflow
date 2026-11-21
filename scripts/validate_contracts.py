@@ -11,6 +11,7 @@ Run from anywhere:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -22,6 +23,35 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = ROOT / "contracts" / "jsonschema"
 EXAMPLE_DIR = ROOT / "contracts" / "examples"
 OPENAPI = ROOT / "contracts" / "openapi" / "printsheet-api.yaml"
+CHANGELOG = ROOT / "contracts" / "CHANGELOG.md"
+API_CONTRACT_VERSION_FILE = ROOT / "api" / "src" / "PrintSheet.Api" / "ContractVersion.cs"
+API_CONTRACT_VERSION = re.compile(r'Current\s*=\s*"([^"]+)"')
+
+
+def changelog_versions() -> set[str]:
+    """Every version heading in the contract changelog, newest first."""
+    versions: set[str] = set()
+    for line in CHANGELOG.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            heading = line[3:].strip()
+            version = heading.split(" ")[0]
+            if version and version[0].isdigit():
+                versions.add(version)
+    return versions
+
+
+def current_contract_version() -> str:
+    """The newest documented version, i.e. the first numeric heading."""
+    for line in CHANGELOG.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            version = line[3:].strip().split(" ")[0]
+            if version and version[0].isdigit():
+                return version
+    raise RuntimeError("contracts/CHANGELOG.md has no version heading")
+
+
+CONTRACT_VERSIONS = changelog_versions()
+CONTRACT_VERSION = current_contract_version()
 
 
 def load_schemas() -> dict[str, dict]:
@@ -106,8 +136,31 @@ def validate_openapi() -> list[str]:
     if duplicates:
         errors.append(f"duplicate operationIds: {', '.join(sorted(duplicates))}")
 
-    if spec.get("info", {}).get("version") != "3.0.0":
-        errors.append("OpenAPI info.version must be 3.0.0 for the current contract")
+    # The contract version lives in the spec and the changelog; asserting a
+    # literal here only meant every release had to edit this file too.
+    version = spec.get("info", {}).get("version")
+    if not isinstance(version, str) or not version.strip():
+        errors.append("OpenAPI info.version is required")
+    elif version not in CONTRACT_VERSIONS:
+        errors.append(
+            f"OpenAPI info.version {version!r} is not documented in contracts/CHANGELOG.md"
+        )
+    elif version != CONTRACT_VERSION:
+        errors.append(
+            f"OpenAPI info.version {version!r} is not the newest changelog version "
+            f"{CONTRACT_VERSION!r}"
+        )
+
+    # The API reports the version it implements; it must not drift from the spec.
+    reported = API_CONTRACT_VERSION.search(
+        API_CONTRACT_VERSION_FILE.read_text(encoding="utf-8")
+    )
+    if reported is None:
+        errors.append(f"could not read ContractVersion.Current from {API_CONTRACT_VERSION_FILE}")
+    elif reported.group(1) != version:
+        errors.append(
+            f"ContractVersion.Current is {reported.group(1)!r} but OpenAPI says {version!r}"
+        )
 
     return errors
 
@@ -128,7 +181,7 @@ def main() -> int:
     example_count = len(list(EXAMPLE_DIR.glob("*.json")))
     print(
         f"Contracts valid: {len(schemas)} JSON Schemas, {example_count} examples, "
-        f"1 OpenAPI spec (v3.0.0)."
+        f"1 OpenAPI spec (v{CONTRACT_VERSION})."
     )
     return 0
 

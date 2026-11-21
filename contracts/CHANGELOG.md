@@ -1,5 +1,25 @@
 # Contract Changelog
 
+## 3.1.0 — 2026-11-21
+
+Additive: background removal returns as a first-class step, but on a different
+execution model than the 2.x cutout it replaces. The API runs the job itself
+through the pluggable provider adapters (Poof or self-hosted withoutBG); the
+worker is not involved and `background-removal` is **not** a worker job type.
+
+- New `POST /api/v1/designs/{designId}/steps/background-removal` returning `202`
+  with a `background-removal` job. The request body is optional and only carries
+  a `provider` override.
+- `JobType`/`StepType` `background-removal` are produced again. `StepType` already
+  kept the value for historical readability, so no enum removal is reversed.
+- New job capability `cutout`, which no worker may claim: the claim endpoint
+  ignores it and never leases an in-process job to an image worker. This keeps
+  the 3.0.0 promise that the worker has no cutout processor.
+- `worker-job.schema.json` is unchanged; `background-removal` stays absent from
+  the worker job type enum on purpose.
+- The 20 MB provider upload cap is enforced on the cropped image that is actually
+  uploaded, not on the untouched original.
+
 ## 3.0.0 — 2026-11-20
 
 Breaking API change: removed background-removal and manual-edit proposal endpoints

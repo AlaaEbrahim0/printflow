@@ -56,14 +56,14 @@ app.MapGet("/", () => Results.Ok(new
 {
     service = "PrintSheet API",
     status = "Phase 2",
-    contractVersion = "2.0.0",
+    contractVersion = ContractVersion.Current,
 }));
 
 app.MapGet("/api/v1/info", () => Results.Ok(new
 {
     service = "printsheet-api",
     version = typeof(ApplicationAssemblyMarker).Assembly.GetName().Version?.ToString() ?? "0.1.0",
-    contractVersion = "2.0.0",
+    contractVersion = ContractVersion.Current,
     phase = 2,
 }));
 

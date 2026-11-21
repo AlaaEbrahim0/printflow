@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PrintSheet Workbench API
-  version: 3.0.0
+  version: 3.1.0
   description: |
     Contract for the PrintSheet Workbench HTTP API.
 
@@ -814,6 +814,45 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
+  /api/v1/designs/{designId}/steps/background-removal:
+    parameters:
+      - $ref: '#/components/parameters/DesignId'
+    post:
+      tags: [Designs]
+      operationId: proposeBackgroundRemoval
+      summary: Propose a background-removal (cutout) version
+      description: |
+        Queues a cutout and returns immediately with a `background-removal` job.
+        The API executes this job itself — the provider adapters and the crop,
+        upscale and matte-refining stages live behind application ports, so no
+        external worker is involved and the job is never offered on the worker
+        claim protocol.
+
+        The pipeline crops first, removes the background from the cropped image,
+        upscales the original cropped colours, upscales and refines the matte, and
+        recombines. Expect tens of seconds: poll the job rather than the response.
+
+        `provider` is an optional override of `BackgroundRemoval:DefaultProvider`.
+        Fallback to `BackgroundRemoval:FallbackProvider` happens only for
+        availability failures; an input the provider cannot decode fails outright.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BackgroundRemovalStepRequest' }
+      responses:
+        '202':
+          description: Cutout job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
   /api/v1/jobs:
     get:
       tags: [Jobs]
@@ -1445,6 +1484,18 @@ components:
         targetHeightCm: { type: number, minimum: 0.01 }
         fitMode: { type: string, enum: [width, height, contain], default: contain }
         dpi: { type: integer, nullable: true, minimum: 72, maximum: 1200 }
+
+    BackgroundRemovalStepRequest:
+      type: object
+      description: |
+        Optional provider override for one cutout. Omit the body to use the
+        configured default. Alpha feather and threshold are deployment settings,
+        not per-request knobs.
+      properties:
+        provider:
+          type: string
+          enum: [withoutbg, poof]
+          nullable: true
 
     RejectVersionRequest:
       type: object
