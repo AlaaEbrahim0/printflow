@@ -26,13 +26,49 @@ public sealed class BackgroundRemovalCompositionTests
                 ["BackgroundRemoval:PrepareWorker:BaseUrl"] = "http://worker:8000",
             });
 
-        Assert.NotNull(provider.GetRequiredService<BackgroundRemovalPipeline>());
+        Assert.IsType<BackgroundRemovalPipeline>(
+            provider.GetRequiredService<IBackgroundRemovalPipeline>());
         Assert.IsType<BackgroundRemovalProviderSelector>(
             provider.GetRequiredService<IBackgroundRemovalService>());
         Assert.IsType<PrepareWorkerCropper>(provider.GetRequiredService<IImageCropper>());
         Assert.IsType<PrepareWorkerUpscaler>(provider.GetRequiredService<IImageUpscaler>());
         Assert.IsType<SkiaAlphaRefiner>(provider.GetRequiredService<IAlphaRefiner>());
         Assert.IsType<SkiaAlphaCompositor>(provider.GetRequiredService<IAlphaCompositor>());
+    }
+
+    [Fact]
+    public async Task ThePrepareWorkerPortsAreWiredToAClientWithABaseAddress()
+    {
+        using var provider = Build(
+            new Dictionary<string, string?>
+            {
+                ["BackgroundRemoval:DefaultProvider"] = "withoutbg",
+                ["BackgroundRemoval:PrepareWorker:BaseUrl"] = "http://worker:8000",
+            });
+
+        // Regression: these ports were registered with a bare AddTransient, so the
+        // injected HttpClient had no BaseAddress and every crop/upscale call threw
+        // "An invalid request URI was provided" — but only once a real job ran, so
+        // composition tests passed while the feature was dead. Calling the port is
+        // the only assertion that actually catches it.
+        var cropper = provider.GetRequiredService<IImageCropper>();
+        var upscaler = provider.GetRequiredService<IImageUpscaler>();
+
+        var cropError = await Assert.ThrowsAsync<BackgroundRemovalException>(
+            () => cropper.CropAsync(
+                new ImageInput([1, 2, 3], "image/png", "a.png"),
+                CancellationToken.None));
+        var upscaleError = await Assert.ThrowsAsync<BackgroundRemovalException>(
+            () => upscaler.UpscaleAsync(
+                new ImageInput([1, 2, 3], "image/png", "a.png"),
+                CancellationToken.None));
+
+        // No worker is listening, so the call must fail as a *connection* fault
+        // against http://worker:8000 — not as a malformed request URI.
+        Assert.Equal(BackgroundRemovalFailureReason.ProviderUnavailable, cropError.Reason);
+        Assert.Equal(BackgroundRemovalFailureReason.ProviderUnavailable, upscaleError.Reason);
+        Assert.DoesNotContain("request URI", cropError.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("request URI", upscaleError.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

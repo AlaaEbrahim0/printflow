@@ -86,15 +86,32 @@ public sealed class BackgroundRemovalPipelineTests
     }
 
     [Fact]
-    public async Task RejectsAnImageOverTheByteLimit()
+    public async Task RejectsACroppedImageOverTheProviderLimitAfterCropping()
     {
+        // The limit is the provider's upload cap, so it is checked on the bytes that
+        // are actually uploaded. Cropping still has to happen first.
         var harness = Harness.Create(maxBytes: 2);
 
         var error = await Assert.ThrowsAsync<BackgroundRemovalException>(
             () => Create(harness).RunAsync(Input(), CancellationToken.None));
 
         Assert.Equal(BackgroundRemovalFailureReason.InvalidImage, error.Reason);
-        Assert.False(harness.Cropper.Called);
+        Assert.True(harness.Cropper.Called);
+        Assert.False(harness.Remover.Called);
+    }
+
+    [Fact]
+    public async Task AcceptsAnOriginalOverTheLimitWhenCroppingFitsUnderIt()
+    {
+        // A 30 MB upload that crops down to 3 bytes is a normal case, not an error.
+        var harness = Harness.Create(maxBytes: 4);
+
+        var result = await Create(harness).RunAsync(
+            new ImageInput(new byte[30], "image/png", "huge.png"),
+            CancellationToken.None);
+
+        Assert.Equal(FinalPng, result.PngBytes);
+        Assert.True(harness.Remover.Called);
     }
 
     [Fact]
@@ -192,6 +209,8 @@ public sealed class BackgroundRemovalPipelineTests
     private sealed class FakeRemover(List<string> calls) : IBackgroundRemovalService
     {
         public ImageInput? LastImage { get; private set; }
+
+        public bool Called => LastImage is not null;
 
         public string Provider => "fake";
 
