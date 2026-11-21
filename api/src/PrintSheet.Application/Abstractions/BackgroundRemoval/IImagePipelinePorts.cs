@@ -23,8 +23,8 @@ public sealed record AlphaMask(byte[] Pixels, int WidthPx, int HeightPx);
 
 /// <summary>
 /// Upscales and refines a low-resolution matte to the sharp colour layer's size.
-/// Phase 1 is a Lanczos resample with optional feather/threshold; a guided
-/// filter can replace it behind this same port.
+/// Phase 1 is a bicubic (Mitchell) resample with optional feather/threshold; a
+/// guided filter can replace it behind this same port.
 /// </summary>
 public interface IAlphaRefiner
 {
