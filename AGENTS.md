@@ -652,6 +652,16 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 - Git repo initialized (`main`); skeleton commit `d0d44b9`; Phase 0 deliverable
   commit `9f52d0b`.
+- **Background-removal adapters (2026-11-21).** A pluggable pipeline in the
+  Application layer (`crop → remove background on the cropped low-res image →
+  upscale cropped RGB → refine matte → recombine`) depends only on ports; Poof
+  (verified contract, no retry because the POST is billed) and self-hosted
+  withoutBG v4 are Infrastructure adapters, and the crop/upscale steps reuse the
+  worker through new `POST /v1/crop` and `POST /v1/upscale` routes rather than
+  duplicating auto-trim or Real-ESRGAN. Fallback fires only for availability
+  faults, never for input faults. Verified live end to end against the pinned
+  withoutBG container plus the native GPU worker. No production HTTP route yet:
+  a synchronous 30–90 s request does not fit the current job architecture.
 - API Clean Architecture implementation builds; 11 domain tests and 5
   infrastructure tests pass. The live fixture-flow script covers the API job
   lifecycle.
