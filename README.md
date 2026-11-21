@@ -184,7 +184,11 @@ after reviewing the release notes; a re-tagged `latest` must not silently change
 the model behind an approved cutout.
 
 Native development can point at the same container: `WithoutBg:BaseUrl` in
-`appsettings.Development.json` is `http://localhost:8002`.
+`appsettings.Development.json` is `http://localhost:8002`. The development
+settings point the prepare routes at the plain worker on `:8000`; Real-ESRGAN is
+only installed for the GPU worker, so to exercise the upscale step natively run
+`make worker-gpu` and set `BackgroundRemoval:PrepareWorker:BaseUrl` to
+`http://localhost:8001` with `UseGpu: true`.
 
 The API health check for withoutBG is tagged `dependency`, and `/healthz` skips
 dependency checks, so the workbench stays up when the cutout service is down.
