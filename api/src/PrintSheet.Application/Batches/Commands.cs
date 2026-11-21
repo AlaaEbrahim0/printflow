@@ -49,6 +49,12 @@ public sealed record BackgroundSampleCommand(
 
 public sealed record CropStepCommand(CropRect Rect);
 
+/// <summary>
+/// Background removal has no mask-shaping knobs: the provider produces the
+/// matte, and the alpha refiner (feather/threshold) is configured, not per job.
+/// </summary>
+public sealed record BackgroundRemovalStepCommand(string? Provider);
+
 public sealed record UpscaleStepCommand(
     string Model,
     int Scale,

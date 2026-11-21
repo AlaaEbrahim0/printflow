@@ -169,6 +169,7 @@ public static class EnumText
         "gpu" => JobCapability.Gpu,
         "packer" => JobCapability.Packer,
         "export" => JobCapability.Export,
+        "cutout" => JobCapability.Cutout,
         _ => throw new InvalidOperationException($"Unknown job capability '{text}'."),
     };
 }

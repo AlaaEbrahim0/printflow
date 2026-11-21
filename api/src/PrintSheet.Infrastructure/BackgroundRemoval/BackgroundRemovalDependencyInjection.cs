@@ -4,6 +4,7 @@ using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 using PrintSheet.Application.Abstractions;
 using PrintSheet.Application.BackgroundRemoval;
+using PrintSheet.Application.Services;
 
 namespace PrintSheet.Infrastructure.BackgroundRemoval;
 
@@ -77,11 +78,21 @@ public static class BackgroundRemovalDependencyInjection
             provider.GetRequiredService<WithoutBgBackgroundRemover>());
 
         services.AddTransient<IBackgroundRemovalService, BackgroundRemovalProviderSelector>();
-        services.AddTransient<IImageCropper, PrepareWorkerCropper>();
-        services.AddTransient<IImageUpscaler, PrepareWorkerUpscaler>();
+        // Resolved through their typed clients, like the providers: a plain
+        // AddTransient would inject a bare HttpClient with no base address and
+        // every call would fail at runtime.
+        services.AddTransient<IImageCropper>(provider =>
+            provider.GetRequiredService<PrepareWorkerCropper>());
+        services.AddTransient<IImageUpscaler>(provider =>
+            provider.GetRequiredService<PrepareWorkerUpscaler>());
         services.AddTransient<IAlphaRefiner, SkiaAlphaRefiner>();
         services.AddTransient<IAlphaCompositor, SkiaAlphaCompositor>();
-        services.AddTransient<BackgroundRemovalPipeline>();
+        services.AddTransient<IBackgroundRemovalPipeline, BackgroundRemovalPipeline>();
+
+        // The runner is scoped because it reads repositories; the hosted service
+        // opens a scope per pass so each job gets a fresh unit of work.
+        services.AddScoped<BackgroundRemovalJobRunner>();
+        services.AddScoped<IJobCompletionPort, JobCompletionAdapter>();
 
         return services;
     }

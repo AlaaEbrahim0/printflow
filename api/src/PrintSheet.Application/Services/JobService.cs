@@ -114,6 +114,8 @@ public sealed class JobService
                 "gpu" => JobCapability.Gpu,
                 "packer" => JobCapability.Packer,
                 "export" => JobCapability.Export,
+                // "cutout" is deliberately unclaimable: the API runs those jobs
+                // itself, so no external worker may lease one.
                 _ => (JobCapability?)null,
             };
 

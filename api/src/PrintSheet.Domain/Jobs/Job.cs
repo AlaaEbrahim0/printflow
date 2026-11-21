@@ -146,10 +146,18 @@ public sealed class Job
 
     public bool IsWorkerJob => Type is JobType.Classify
         or JobType.Trim
-        or JobType.BackgroundRemoval
         or JobType.Upscale
         or JobType.Vectorize
         or JobType.Resize;
+
+    /// <summary>
+    /// True for jobs the API executes itself. <see cref="Type"/> is
+    /// <see cref="JobType.BackgroundRemoval"/>, whose inference lives behind an
+    /// application port rather than in a worker processor, so it must never be
+    /// handed to a claiming worker. The claim boundary enforces this through
+    /// <see cref="JobCapability.Cutout"/>, which no worker may request.
+    /// </summary>
+    public bool IsInProcessJob => Type is JobType.BackgroundRemoval;
 
     public Result TryClaim(string workerId, string leaseToken, int leaseSeconds, DateTimeOffset now)
     {

@@ -107,7 +107,10 @@ public sealed class JobCompletionService
 
         var applied = job switch
         {
-            _ when job.IsWorkerJob => await ApplyImageResultAsync(job, result, metadata, now, cancellationToken),
+            // In-process cutouts produce a version exactly like a worker image job;
+            // only the executor differs, so they share the same apply path.
+            _ when job.IsWorkerJob || job.IsInProcessJob
+                => await ApplyImageResultAsync(job, result, metadata, now, cancellationToken),
             _ when job.Type == JobType.PackSheet => await ApplyPackResultAsync(job, metadata, now, cancellationToken),
             _ when job.Type == JobType.IntegrityCheck => await ApplyIntegrityResultAsync(job, metadata, now, cancellationToken),
             _ when job.Type == JobType.Export => await ApplyExportResultAsync(job, result, metadata, now, cancellationToken),
@@ -903,6 +906,7 @@ public sealed class JobCompletionService
         {
             JobType.Classify => StepType.Original,
             JobType.Trim => StepType.Trim,
+            JobType.BackgroundRemoval => StepType.BackgroundRemoval,
             JobType.Upscale => StepType.Upscale,
             JobType.Vectorize => StepType.Vectorize,
             JobType.Resize => StepType.Resize,

@@ -89,6 +89,14 @@ public enum JobCapability
     Gpu,
     Packer,
     Export,
+
+    /// <summary>
+    /// In-process cutout that calls a background-removal provider. Kept apart
+    /// from <see cref="Image"/> because no external worker can execute it: the
+    /// claim protocol is a promise, and an image worker that took this job
+    /// would have to fail it.
+    /// </summary>
+    Cutout,
 }
 
 public enum GarmentColorKind
@@ -198,6 +206,7 @@ public static class BatchEnumNames
         JobCapability.Gpu => "gpu",
         JobCapability.Packer => "packer",
         JobCapability.Export => "export",
+        JobCapability.Cutout => "cutout",
         _ => throw new ArgumentOutOfRangeException(nameof(value)),
     };
 

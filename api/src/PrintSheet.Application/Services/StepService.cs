@@ -1,5 +1,6 @@
 using System.Text.Json;
 using PrintSheet.Application.Abstractions;
+using PrintSheet.Application.BackgroundRemoval;
 using PrintSheet.Application.Batches;
 using PrintSheet.Application.Common;
 using PrintSheet.Application.Jobs;
@@ -119,7 +120,8 @@ public sealed class StepService
         Guid designId,
         ResizeStepCommand command,
         CancellationToken cancellationToken)
-    {        if (command.TargetWidthCm <= 0
+    {
+        if (command.TargetWidthCm <= 0
             || command.TargetHeightCm <= 0
             || command.TargetWidthCm > 500m
             || command.TargetHeightCm > 500m)
@@ -165,6 +167,36 @@ public sealed class StepService
 
                 return update;
             });
+    }
+
+    /// <summary>
+    /// Queues a cutout. Unlike the worker steps this job is executed in-process by
+    /// <see cref="BackgroundRemovalJobRunner"/>: the provider adapters live in
+    /// this API, and the claim protocol only ever hands out jobs a worker can run.
+    /// </summary>
+    public async Task<Result<JobAccepted>> ProposeBackgroundRemovalAsync(
+        Guid designId,
+        BackgroundRemovalStepCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (command.Provider is { Length: > 0 } requested
+            && !BackgroundRemovalProviders.All.Contains(
+                requested,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            return Result<JobAccepted>.Failure(
+                ErrorCodes.InvalidRequest,
+                $"Unknown background-removal provider '{requested}'.");
+        }
+
+        return await EnqueueStepAsync(
+            designId,
+            JobType.BackgroundRemoval,
+            StepType.BackgroundRemoval,
+            command,
+            JobCapability.Cutout,
+            validateParent: null,
+            cancellationToken);
     }
 
     private async Task<Result<JobAccepted>> EnqueueStepAsync(

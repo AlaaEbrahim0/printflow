@@ -24,7 +24,7 @@ public sealed record BackgroundRemovalPipelineResult(
 /// decoded). One design at a time is the documented ceiling; streaming belongs with
 /// the future job runner, not this use case.
 /// </summary>
-public sealed class BackgroundRemovalPipeline
+public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
 {
     private readonly IBackgroundRemovalService _remover;
     private readonly IImageCropper _cropper;
@@ -63,6 +63,7 @@ public sealed class BackgroundRemovalPipeline
         var total = Stopwatch.StartNew();
 
         var croppedPng = await _cropper.CropAsync(input, cancellationToken);
+        EnsureProviderPayload(croppedPng);
         var cropped = await InspectAsync(croppedPng, cancellationToken);
 
         var removal = await _remover.RemoveAsync(
@@ -121,20 +122,30 @@ public sealed class BackgroundRemovalPipeline
                 "The image is empty.");
         }
 
-        if (input.Bytes.Length > _options.MaxInputBytes)
-        {
-            throw new BackgroundRemovalException(
-                BackgroundRemovalFailureReason.InvalidImage,
-                _remover.Provider,
-                $"The image is {input.Bytes.Length} bytes; the limit is {_options.MaxInputBytes}.");
-        }
-
         if (!_options.IsAllowedContentType(input.ContentType))
         {
             throw new BackgroundRemovalException(
                 BackgroundRemovalFailureReason.InvalidImage,
                 _remover.Provider,
                 $"Content type '{input.ContentType}' is not allowed.");
+        }
+    }
+
+    /// <summary>
+    /// The size limit belongs to the provider, so it is enforced on the bytes that
+    /// are actually uploaded — the cropped image, which is what the matte runs on.
+    /// Applying it to the untouched original would reject a large upload that
+    /// cropping already brings comfortably under the cap.
+    /// </summary>
+    private void EnsureProviderPayload(byte[] croppedPng)
+    {
+        if (croppedPng.Length > _options.MaxInputBytes)
+        {
+            throw new BackgroundRemovalException(
+                BackgroundRemovalFailureReason.InvalidImage,
+                _remover.Provider,
+                $"The cropped image is {croppedPng.Length} bytes; the provider limit is "
+                + $"{_options.MaxInputBytes}. Crop tighter before removing the background.");
         }
     }
 

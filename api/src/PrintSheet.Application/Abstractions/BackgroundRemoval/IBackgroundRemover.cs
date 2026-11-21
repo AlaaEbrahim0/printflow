@@ -27,3 +27,16 @@ public interface IBackgroundRemovalService
 
     Task<BackgroundRemovalResult> RemoveAsync(ImageInput image, CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// The whole crop → cutout → upscale → refine → recombine use case. Declared as a
+/// port so the job runner can be exercised without the real providers, worker or
+/// Skia; <see cref="BackgroundRemoval.BackgroundRemovalPipeline"/> is the only
+/// implementation.
+/// </summary>
+public interface IBackgroundRemovalPipeline
+{
+    Task<BackgroundRemoval.BackgroundRemovalPipelineResult> RunAsync(
+        ImageInput input,
+        CancellationToken cancellationToken);
+}

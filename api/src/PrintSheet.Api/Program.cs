@@ -32,6 +32,14 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddPrintSheetInfrastructure(builder.Configuration);
+
+// Cutout jobs are executed in-process (the provider adapters live here), so the
+// API itself is the runner. Disable it for tooling or for a read-only instance;
+// jobs then simply stay queued.
+if (builder.Configuration.GetValue("BackgroundRemoval:RunJobs", true))
+{
+    builder.Services.AddHostedService<BackgroundRemovalWorker>();
+}
 builder.Services
     .AddHealthChecks()
     .AddDbContextCheck<PrintSheetDbContext>("database", tags: ["ready"])
