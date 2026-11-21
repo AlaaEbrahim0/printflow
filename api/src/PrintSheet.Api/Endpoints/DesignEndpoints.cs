@@ -36,6 +36,7 @@ public static class DesignEndpoints
         group.MapPost("/{designId:guid}/steps/crop", CropAsync);
         group.MapPost("/{designId:guid}/steps/upscale", UpscaleAsync);
         group.MapPost("/{designId:guid}/steps/resize", ResizeAsync);
+        group.MapPost("/{designId:guid}/steps/background-removal", BackgroundRemovalAsync);
     }
 
     private static async Task<IResult> GetAsync(
@@ -368,6 +369,21 @@ public static class DesignEndpoints
                 request.TargetHeightCm,
                 request.FitMode,
                 request.Dpi),
+            cancellationToken);
+        return result.IsSuccess
+            ? Accepted(result.Value!)
+            : ApiResults.Problem(result.Error!);
+    }
+
+    private static async Task<IResult> BackgroundRemovalAsync(
+        Guid designId,
+        BackgroundRemovalStepRequest? request,
+        StepService steps,
+        CancellationToken cancellationToken)
+    {
+        var result = await steps.ProposeBackgroundRemovalAsync(
+            designId,
+            new BackgroundRemovalStepCommand(request?.Provider),
             cancellationToken);
         return result.IsSuccess
             ? Accepted(result.Value!)

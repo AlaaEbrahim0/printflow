@@ -258,6 +258,12 @@ public sealed record ResizeStepRequest(
     string? FitMode,
     int? Dpi);
 
+/// <summary>
+/// Optional provider override. Omitted means the configured default; the alpha
+/// refiner is configured, not per request.
+/// </summary>
+public sealed record BackgroundRemovalStepRequest(string? Provider);
+
 /// <summary>Photoshop-style levels for the mask ramp or the cut-out colours (historical).</summary>
 public sealed record LevelsAdjustmentRequest(
     int? BlackPoint,
