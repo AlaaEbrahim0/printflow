@@ -615,6 +615,19 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 - Git repo initialized (`main`); skeleton commit `d0d44b9`; Phase 0 deliverable
   commit `9f52d0b`.
+- **Alpha contract (2026-11-22).** The approved cutout carried a 1–2 px pure-white
+  rim because Real-ESRGAN blends the original background into the outermost RGB
+  pixels and the provider matte, computed at cropped source size, upscales into a
+  low-alpha haze. `BackgroundRemoval:AlphaContractPx` (default 2, range 0–8)
+  applies Photoshop's Select > Modify > Contract: threshold the upscaled matte at
+  the selection edge (128, or `AlphaThreshold` when set), erode with a Euclidean
+  disk, then feather, which rebuilds the anti-aliased border. The erosion clamps
+  at the frame, so a subject bleeding to the crop edge is not eaten inward.
+  Measured on one live 468×468 cutout: contract 0 → 1266 white edge pixels,
+  1 → 427, 2 → 46, 3 → 0; the live API run with the shipped default reproduced
+  46 (alpha-weighted 5.1 vs 13.7) with no continuous band. Erosion cost
+  3500×4834 r=2 ≈ 1.4 s, 6850×6850 r=2 ≈ 3.3 s. Compose seam
+  `BACKGROUND_REMOVAL_ALPHA_CONTRACT_PX` defaults to 2.
 - **Background-removal adapters (2026-11-21).** A pluggable pipeline in the
   Application layer (`crop → remove background on the cropped low-res image →
   upscale cropped RGB → refine matte → recombine`) depends only on ports; Poof
@@ -909,6 +922,36 @@ reference data, not immediate work.
 ---
 
 ## 16. Handoff log
+
+### 2026-11-22 — alpha contract removes the upscaler's white rim
+
+- Symptom: a background-removed design kept a 1–2 px pure-white fringe that
+  prints as a halo on a dark garment. Measured on the approved 468×468 cutout:
+  the outermost band was 1266 pixels with mean luminance 254.8.
+- Two causes: Real-ESRGAN blends the old background into the outermost RGB
+  pixels, and withoutBG's matte (computed at cropped source size, here 117 px)
+  upscales 4× into a 2–14 alpha haze outside the true edge.
+- `BackgroundRemoval:AlphaContractPx` (default 2, range 0–8) is Photoshop's
+  Select > Modify > Contract. Order is fixed: threshold the upscaled matte at
+  the selection edge (128, or `AlphaThreshold` when set) → erode with a
+  Euclidean disk → feather. The disk matters: a square kernel pulls a diagonal
+  edge `r × sqrt(2)`, so a 2 px contract would shave 2.8 px off a curve. The
+  feather runs after the erosion so the new border is anti-aliased; running it
+  first only spreads alpha back over the pixels the contract removed.
+- Rejected alternatives, measured on the same live data: eroding the soft ramp
+  instead of the selection leaves the sub-threshold haze (contract 2 → 1171
+  white px); a low-cut + 3 px min filter looked smoother (155 px) but needs a
+  magic low-cut value and 3 px of contraction.
+- Live verification through the real API on a fresh copy of the small sample:
+  crop 117 → cutout → 4× upscale 468 → refine, job `succeeded` in ~90 s,
+  result 468×468 with 46 residual white pixels (weighted 5.1) and no white
+  band at 2 or 3 px depth. Baseline with the same input: 1266 (weighted 13.7).
+- Gates: `dotnet build` 0 warnings / 0 errors; API 13 + 35 + 63 tests (3 live
+  skipped); `docker compose config --quiet` valid. Compose API recreated with
+  the default `BackgroundRemoval__AlphaContractPx=2`.
+- Not fixed: the CPU worker needs ~73 s for a 4× upscale of a 117 px crop, so
+  realistic designs still time out at 300 s; use the native GPU worker for
+  large artwork.
 
 ### 2026-11-22 — Compose worker Real-ESRGAN support and -g auto fix
 

@@ -8,7 +8,8 @@ namespace PrintSheet.Infrastructure.BackgroundRemoval;
 
 /// <summary>
 /// Phase 1 matte refinement: bicubic (Mitchell) upscale of the provider's matte,
-/// followed by optional feather and threshold. Deliberately no guided filter yet;
+/// followed by an optional contraction of the selection border, an optional
+/// feather and an optional hard threshold. Deliberately no guided filter yet;
 /// that would replace this class behind <see cref="IAlphaRefiner"/>.
 /// </summary>
 public sealed class SkiaAlphaRefiner(IOptions<BackgroundRemovalOptions> options) : IAlphaRefiner
@@ -47,6 +48,25 @@ public sealed class SkiaAlphaRefiner(IOptions<BackgroundRemovalOptions> options)
         cancellationToken.ThrowIfCancellationRequested();
 
         var featherRadius = (int)Math.Round(_options.AlphaFeatherPx, MidpointRounding.AwayFromZero);
+        if (_options.AlphaContractPx > 0)
+        {
+            // Photoshop's Select > Modify > Contract moves the *selection border*
+            // inward, and the border is where the matte is at least half visible.
+            // The provider matte is computed at the cropped source size and then
+            // upscaled several times, so its "soft" edge is often eight or more
+            // pixels of near-transparent haze. Eroding the soft ramp itself only
+            // shifts it; eroding the selection cuts the haze, and the feather
+            // below rebuilds the anti-aliased ramp on the new border.
+            var edge = (byte)(_options.AlphaThreshold ?? 128);
+            for (var i = 0; i < alpha.Length; i++)
+            {
+                alpha[i] = alpha[i] >= edge ? byte.MaxValue : byte.MinValue;
+            }
+
+            Erode(alpha, refinement.TargetWidthPx, refinement.TargetHeightPx, _options.AlphaContractPx);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+
         if (featherRadius > 0)
         {
             BoxBlur(alpha, refinement.TargetWidthPx, refinement.TargetHeightPx, featherRadius);
@@ -161,5 +181,81 @@ public sealed class SkiaAlphaRefiner(IOptions<BackgroundRemovalOptions> options)
                 sum += entering - leaving;
             }
         }
+    }
+
+    /// <summary>
+    /// Contract a binary selection by <paramref name="radius"/> pixels: a pixel
+    /// stays selected only when its whole circular neighbourhood is selected.
+    ///
+    /// The neighbourhood is a Euclidean disk, not a square. A square (Chebyshev)
+    /// kernel pulls a diagonal edge by <c>radius × sqrt(2)</c>, so a 2 px
+    /// contract would shave 2.8 px off a circle; the disk keeps the offset the
+    /// same in every direction. Edge pixels clamp, so a subject that bleeds to
+    /// the crop border is not eaten inward from the frame.
+    /// </summary>
+    private static void Erode(byte[] pixels, int width, int height, int radius)
+    {
+        var offsets = DiskOffsets(radius);
+
+        // The clamp never changes across a row, so resolve each column once
+        // instead of twice per pixel; an upscaled print layer is tens of
+        // millions of pixels.
+        var columns = new int[offsets.Length][];
+        for (var i = 0; i < offsets.Length; i++)
+        {
+            var columnsForOffset = new int[width];
+            for (var x = 0; x < width; x++)
+            {
+                columnsForOffset[x] = Math.Clamp(x + offsets[i].Dx, 0, width - 1);
+            }
+
+            columns[i] = columnsForOffset;
+        }
+
+        var rows = new int[offsets.Length];
+        var eroded = new byte[pixels.Length];
+        for (var y = 0; y < height; y++)
+        {
+            for (var i = 0; i < offsets.Length; i++)
+            {
+                rows[i] = Math.Clamp(y + offsets[i].Dy, 0, height - 1) * width;
+            }
+
+            var row = y * width;
+            for (var x = 0; x < width; x++)
+            {
+                var minimum = byte.MaxValue;
+                for (var i = 0; i < offsets.Length; i++)
+                {
+                    var value = pixels[rows[i] + columns[i][x]];
+                    if (value < minimum)
+                    {
+                        minimum = value;
+                    }
+                }
+
+                eroded[row + x] = minimum;
+            }
+        }
+
+        Array.Copy(eroded, pixels, pixels.Length);
+    }
+
+    private static (int Dx, int Dy)[] DiskOffsets(int radius)
+    {
+        var squared = radius * radius;
+        var offsets = new List<(int Dx, int Dy)>((radius * 2 + 1) * (radius * 2 + 1));
+        for (var dy = -radius; dy <= radius; dy++)
+        {
+            for (var dx = -radius; dx <= radius; dx++)
+            {
+                if ((dx * dx) + (dy * dy) <= squared)
+                {
+                    offsets.Add((dx, dy));
+                }
+            }
+        }
+
+        return offsets.ToArray();
     }
 }

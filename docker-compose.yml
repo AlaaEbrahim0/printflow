@@ -38,6 +38,7 @@ services:
       BackgroundRemoval__DefaultProvider: ${BACKGROUND_REMOVAL_PROVIDER:-withoutbg}
       BackgroundRemoval__FallbackProvider: ${BACKGROUND_REMOVAL_FALLBACK:-}
       BackgroundRemoval__RunJobs: ${BACKGROUND_REMOVAL_RUN_JOBS:-true}
+      BackgroundRemoval__AlphaContractPx: ${BACKGROUND_REMOVAL_ALPHA_CONTRACT_PX:-2}
       BackgroundRemoval__Poof__ApiKey: ${POOF_API_KEY:-}
       BackgroundRemoval__PrepareWorker__BaseUrl: ${BACKGROUND_REMOVAL_PREPARE_WORKER_BASE_URL:-http://worker:8000}
       BackgroundRemoval__PrepareWorker__UseGpu: ${WORKER_GPU_ENABLED:-false}

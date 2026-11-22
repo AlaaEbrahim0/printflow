@@ -103,6 +103,116 @@ public sealed class SkiaAlphaTests
     }
 
     [Fact]
+    public async Task ContractPullsAHardMatteEdgeInwardByWholePixels()
+    {
+        // 9x1: an opaque bar on a transparent strip.
+        var cutout = CreateRgbaPng(9, 1, ToRgba([0, 0, 255, 255, 255, 255, 255, 0, 0]));
+
+        var mask = await CreateRefiner(feather: 0, threshold: null, contract: 1).RefineAsync(
+            new AlphaRefinement(cutout, 9, 1),
+            CancellationToken.None);
+
+        Assert.Equal([0, 0, 0, 255, 255, 255, 0, 0, 0], mask.Pixels);
+    }
+
+    [Fact]
+    public async Task ContractTrimsTheBleedingEdgeBeforeItIsComposited()
+    {
+        // 9x5 subject spanning columns 2..6, but the pixels nearest each side
+        // still carry the white the upscaler blended in; only the middle is red.
+        const int width = 9;
+        const int height = 5;
+        var rgba = new byte[width * height * 4];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 2; x <= 6; x++)
+            {
+                var offset = ((y * width) + x) * 4;
+                var bleached = x is 2 or 3 or 6;
+                rgba[offset] = bleached ? (byte)255 : (byte)200;
+                rgba[offset + 1] = bleached ? (byte)255 : (byte)30;
+                rgba[offset + 2] = bleached ? (byte)255 : (byte)30;
+                rgba[offset + 3] = 255;
+            }
+        }
+
+        var cutout = CreateRgbaPng(width, height, rgba);
+        var mask = await CreateRefiner(feather: 0, threshold: null, contract: 2).RefineAsync(
+            new AlphaRefinement(cutout, width, height),
+            CancellationToken.None);
+        var composited = await new SkiaAlphaCompositor().ApplyAlphaAsync(
+            cutout,
+            mask,
+            CancellationToken.None);
+
+        var pixels = DecodePixels(composited);
+        var visible = Enumerable.Range(0, width * height)
+            .Where(pixel => pixels[(pixel * 4) + 3] > 0)
+            .ToArray();
+
+        // A 5 px wide subject contracted by 2 leaves the clean middle column, so
+        // every bleached pixel is fully transparent in the result.
+        Assert.Equal(
+            Enumerable.Range(0, height).Select(y => (y * width) + 4),
+            visible);
+        Assert.Equal([200, 30, 30, 255], pixels[(visible[0] * 4)..((visible[0] * 4) + 4)]);
+    }
+
+    [Fact]
+    public async Task ContractCutsTheSubThresholdHazeOutsideTheSelection()
+    {
+        // The upscaled provider matte: a faint tail (20, 60) outside the
+        // half-visible border at 128, then the subject. The tail is what prints
+        // as a pale rim on a dark garment.
+        var cutout = CreateRgbaPng(8, 1, ToRgba([0, 20, 60, 128, 255, 255, 255, 0]));
+
+        var mask = await CreateRefiner(feather: 0, threshold: null, contract: 1).RefineAsync(
+            new AlphaRefinement(cutout, 8, 1),
+            CancellationToken.None);
+
+        Assert.Equal([0, 0, 0, 0, 255, 255, 0, 0], mask.Pixels);
+    }
+
+    [Fact]
+    public async Task WithoutContractTheSoftMatteIsKept()
+    {
+        var cutout = CreateRgbaPng(8, 1, ToRgba([0, 20, 60, 128, 255, 255, 255, 0]));
+
+        var mask = await CreateRefiner(feather: 0, threshold: null).RefineAsync(
+            new AlphaRefinement(cutout, 8, 1),
+            CancellationToken.None);
+
+        Assert.Equal([0, 20, 60, 128, 255, 255, 255, 0], mask.Pixels);
+    }
+
+    [Fact]
+    public async Task ContractIsAppliedBeforeTheFeatherSoTheNewEdgeIsAntiAliased()
+    {
+        var cutout = CreateRgbaPng(5, 1, ToRgba([255, 255, 0, 0, 0]));
+
+        // The selection [255, 255, 0, 0, 0] contracts to [255, 0, 0, 0, 0] and
+        // the feather then rebuilds the ramp on that border. Feathering first
+        // would spread alpha back over the pixels the contraction removed.
+        var mask = await CreateRefiner(feather: 1, threshold: null, contract: 1).RefineAsync(
+            new AlphaRefinement(cutout, 5, 1),
+            CancellationToken.None);
+
+        Assert.Equal([170, 85, 0, 0, 0], mask.Pixels);
+    }
+
+    [Fact]
+    public async Task ContractZeroLeavesTheFeatheredMatteAlone()
+    {
+        var cutout = CreateRgbaPng(5, 1, ToRgba([255, 255, 0, 0, 0]));
+
+        var mask = await CreateRefiner(feather: 1, threshold: null).RefineAsync(
+            new AlphaRefinement(cutout, 5, 1),
+            CancellationToken.None);
+
+        Assert.Equal([255, 170, 85, 0, 0], mask.Pixels);
+    }
+
+    [Fact]
     public async Task RefinerRejectsBytesThatAreNotAnImage()
     {
         var error = await Assert.ThrowsAsync<BackgroundRemovalException>(
@@ -113,9 +223,17 @@ public sealed class SkiaAlphaTests
         Assert.Equal(BackgroundRemovalFailureReason.InvalidImage, error.Reason);
     }
 
-    private static SkiaAlphaRefiner CreateRefiner(double feather, int? threshold)
+    private static SkiaAlphaRefiner CreateRefiner(
+        double feather,
+        int? threshold,
+        int contract = 0)
         => new(Options.Create(
-            new BackgroundRemovalOptions { AlphaFeatherPx = feather, AlphaThreshold = threshold }));
+            new BackgroundRemovalOptions
+            {
+                AlphaFeatherPx = feather,
+                AlphaThreshold = threshold,
+                AlphaContractPx = contract,
+            }));
 
     private static byte[] ToRgba(byte[] alpha)
     {

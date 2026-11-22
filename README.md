@@ -158,6 +158,7 @@ Providers are chosen by configuration only:
 | `BackgroundRemoval:PrepareWorker:UpscaleScale` | 2 or 4 (Real-ESRGAN's only ratios) |
 | `BackgroundRemoval:PrepareWorker:UseGpu` | false for the CPU worker |
 | `BackgroundRemoval:AlphaFeatherPx` | matte feather radius, default 0.5; 0 disables |
+| `BackgroundRemoval:AlphaContractPx` | matte contraction in pixels, default 2; 0 disables |
 | `BackgroundRemoval:AlphaThreshold` | optional hard cutoff (0–255); off by default |
 | `BackgroundRemoval:MaxInputBytes` | 20 MB, Poof's hard cap (applied to the cropped upload) |
 

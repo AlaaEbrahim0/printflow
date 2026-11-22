@@ -34,6 +34,15 @@ public sealed class BackgroundRemovalOptions
     [Range(0d, 8d)]
     public double AlphaFeatherPx { get; init; } = 0.5;
 
+    /// <summary>
+    /// Pixels the finished matte is pulled inward, Photoshop's
+    /// <c>Select &gt; Modify &gt; Contract</c>. The upscaler blends the original
+    /// background into the outermost pixels of the subject, so an uncontracted
+    /// matte keeps a pale rim that prints as a halo on a dark garment.
+    /// </summary>
+    [Range(0, 8)]
+    public int AlphaContractPx { get; init; } = 2;
+
     /// <summary>Optional hard alpha cutoff (0..255). Off by default to keep soft edges.</summary>
     [Range(0, 255)]
     public int? AlphaThreshold { get; init; }
