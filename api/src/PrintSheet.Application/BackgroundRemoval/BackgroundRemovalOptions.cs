@@ -47,16 +47,6 @@ public sealed class BackgroundRemovalOptions
     [Range(0, 255)]
     public int? AlphaThreshold { get; init; }
 
-    /// <summary>
-    /// Largest image sent to a provider, in pixels; larger crops are downscaled
-    /// first and the returned matte is scaled back up. Both models compute the
-    /// matte at their own low internal resolution, so a print-size upload only
-    /// costs time: a 16.9 MP crop took ~6x longer than a 2.7 MP one and blew
-    /// through the provider timeout, which surfaced as a cutout stuck retrying.
-    /// </summary>
-    [Range(1, int.MaxValue)]
-    public int ProviderMaxInputPixels { get; init; } = 1_000_000;
-
     public bool IsAllowedContentType(string? contentType)
         => contentType is not null
             && AllowedContentTypes.Any(

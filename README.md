@@ -156,6 +156,8 @@ and sends `provider` only for an explicit override. `Server default` follows
 | `BackgroundRemoval:Poof:ApiKey` | Poof key; never logged |
 | `BackgroundRemoval:Poof:BaseUrl` | defaults to `https://api.poof.bg/v1/` |
 | `BackgroundRemoval:WithoutBg:BaseUrl` | defaults to `http://localhost:8002` |
+| `BackgroundRemoval:WithoutBg:MaxInputPixels` | largest image sent to the CPU provider, default 1,000,000; larger crops are downscaled first and the matte is scaled back up |
+| `BackgroundRemoval:Poof:MaxInputPixels` | largest image sent to Poof, default 24,000,000; Poof returns a full-resolution matte, so this only bounds the upload |
 | `BackgroundRemoval:PrepareWorker:BaseUrl` | worker base URL |
 | `BackgroundRemoval:PrepareWorker:WorkerKey` | falls back to `Worker:Key` |
 | `BackgroundRemoval:PrepareWorker:UpscaleScale` | 2 or 4 (Real-ESRGAN's only ratios) |
@@ -165,8 +167,7 @@ and sends `provider` only for an explicit override. `Server default` follows
 | `BackgroundRemoval:AlphaFeatherPx` | matte feather radius, default 0.5; 0 disables |
 | `BackgroundRemoval:AlphaContractPx` | matte contraction in pixels, default 2; 0 disables |
 | `BackgroundRemoval:AlphaThreshold` | optional hard cutoff (0–255); off by default |
-| `BackgroundRemoval:ProviderMaxInputPixels` | largest image sent to a provider, default 1,000,000; larger crops are downscaled first and the matte is scaled back up |
-| `BackgroundRemoval:MaxInputBytes` | 20 MB, Poof's hard cap (applied to the cropped upload) |
+| `BackgroundRemoval:MaxInputBytes` | 20 MB, Poof's hard cap (applied to the bytes actually uploaded) |
 
 `RunJobs: false` leaves queued cutouts untouched, which is what a read-only or
 migration instance wants. The single-job-at-a-time limit is deliberate: the
@@ -186,11 +187,19 @@ curl -X POST http://localhost:8080/api/v1/designs/$DESIGN_ID/steps/background-re
 # 202 {"jobId": "...", "status": "queued", ...}
 ```
 
-The 20 MB cap is the provider's upload limit, so it is enforced on the cropped
-image that is actually sent — not on the untouched original, which cropping
-usually brings well under the cap. A crop above
-`BackgroundRemoval:ProviderMaxInputPixels` is exempt from that check because it
-is downscaled before upload, so its size on disk is not the request size.
+The 20 MB cap is the provider's upload limit, so it is enforced on the bytes that
+are actually sent — the downscaled image when a pixel budget applied, not the
+untouched original, which cropping usually brings well under the cap.
+
+The pixel budget is per provider because the two engines are not alike. The
+self-hosted model runs on the workstation CPU at roughly 1 MP per 30 s and
+mattes at its own low internal resolution anyway, so `WithoutBg:MaxInputPixels`
+defaults to 1,000,000: a print-size crop would only time out. Poof answered
+6.2 MP in 5.5 s and 24 MP in 6.7 s and returns a matte at the input resolution,
+so `Poof:MaxInputPixels` defaults to 24,000,000 — downscaling it would soften
+the anti-aliased edge (measured mean 17/255 alpha error against the native
+matte). When a fallback provider is configured, the tighter of the two budgets
+applies, because the selector may switch after the image has been resized.
 
 Fallback is deliberately narrow. It fires for availability faults (401, 402,
 403, 429, 5xx, timeouts, circuit open) and never for input faults (400, 413,
@@ -224,7 +233,9 @@ POOF_API_KEY=sk_... BACKGROUND_REMOVAL_PROVIDER=poof docker compose up -d
 `BackgroundRemoval__Poof__ApiKey` is read from `POOF_API_KEY`;
 `BackgroundRemoval__DefaultProvider` from `BACKGROUND_REMOVAL_PROVIDER`; and
 `BackgroundRemoval__FallbackProvider` from `BACKGROUND_REMOVAL_FALLBACK` (empty
-by default, so a missing key never produces a surprise billed call).
+by default, so a missing key never produces a surprise billed call). The
+simplest local setup is a gitignored `.env` (copy `.env.example`) holding
+`POOF_API_KEY=...`; Compose picks it up automatically.
 
 ### Running withoutBG
 

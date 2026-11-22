@@ -304,23 +304,86 @@ public sealed class BackgroundRemovalAdapterTests
     {
         var inner = new CapturingService();
 
-        await new BoundedMatteProvider(
-                inner,
-                Options.Create(new BackgroundRemovalOptions { ProviderMaxInputPixels = 2_500 }),
-                NullLogger<BoundedMatteProvider>.Instance)
+        await Bound(inner, withoutBgPixels: 2_500)
             .RemoveAsync(Input, CancellationToken.None);
 
         // 8x8 = 64 px is under the budget, so the bytes are forwarded untouched.
         Assert.Same(Input.Bytes, inner.LastImage!.Bytes);
 
-        await new BoundedMatteProvider(
-                inner,
-                Options.Create(new BackgroundRemovalOptions { ProviderMaxInputPixels = 16 }),
-                NullLogger<BoundedMatteProvider>.Instance)
+        await Bound(inner, withoutBgPixels: 16)
             .RemoveAsync(Input, CancellationToken.None);
 
         Assert.Equal((4, 4), SizeOf(inner.LastImage!.Bytes));
     }
+
+    [Fact]
+    public async Task BoundedMatteLeavesPoofAtFullResolution()
+    {
+        // Poof answers 6.2 MP in 5.5 s and returns a full-resolution matte, so its
+        // generous budget must not be tightened by the CPU provider's 1 MP default.
+        var inner = new CapturingService();
+        var input = new ImageInput(CreatePng(1200, 1200), "image/png", "art.png");
+
+        await Bound(inner, withoutBgPixels: 1_000_000, poofPixels: 24_000_000)
+            .RemoveAsync(input, CancellationToken.None, BackgroundRemovalProviders.Poof);
+
+        Assert.Same(input.Bytes, inner.LastImage!.Bytes);
+    }
+
+    [Fact]
+    public async Task BoundedMatteUsesTheTightestBudgetAmongReachableProviders()
+    {
+        // The selector can still fall back to withoutBG after this decorator has
+        // resized the bytes, so a Poof job must respect the CPU provider's budget
+        // when that provider is configured as the fallback.
+        var inner = new CapturingService();
+        var input = new ImageInput(CreatePng(1200, 1200), "image/png", "art.png");
+
+        await Bound(
+                inner,
+                withoutBgPixels: 10_000,
+                poofPixels: 24_000_000,
+                fallback: BackgroundRemovalProviders.WithoutBg)
+            .RemoveAsync(input, CancellationToken.None, BackgroundRemovalProviders.Poof);
+
+        Assert.True(SizeOf(inner.LastImage!.Bytes).Width <= 100);
+    }
+
+    [Fact]
+    public async Task BoundedMatteRejectsAnUploadOverTheByteCapAfterDownscaling()
+    {
+        var inner = new CapturingService();
+        var input = new ImageInput(CreatePng(400, 400), "image/png", "art.png");
+
+        // 400x400 is well over the 100 px budget, so it is downscaled; the 1-byte
+        // cap is then checked against the bytes that would actually be sent.
+        var error = await Assert.ThrowsAsync<BackgroundRemovalException>(
+            () => Bound(inner, withoutBgPixels: 100, maxBytes: 1)
+                .RemoveAsync(input, CancellationToken.None));
+
+        Assert.Equal(BackgroundRemovalFailureReason.InvalidImage, error.Reason);
+        Assert.Contains("provider limit", error.Message, StringComparison.Ordinal);
+        Assert.Null(inner.LastImage);
+    }
+
+    private static BoundedMatteProvider Bound(
+        IBackgroundRemovalService inner,
+        int withoutBgPixels,
+        int poofPixels = 24_000_000,
+        int maxBytes = 20 * 1024 * 1024,
+        string? fallback = null)
+        => new(
+            inner,
+            Options.Create(
+                new BackgroundRemovalOptions
+                {
+                    DefaultProvider = BackgroundRemovalProviders.WithoutBg,
+                    FallbackProvider = fallback,
+                    MaxInputBytes = maxBytes,
+                }),
+            Options.Create(new WithoutBgOptions { MaxInputPixels = withoutBgPixels }),
+            Options.Create(new PoofOptions { MaxInputPixels = poofPixels }),
+            NullLogger<BoundedMatteProvider>.Instance);
 
     private sealed class CapturingService : IBackgroundRemovalService
     {

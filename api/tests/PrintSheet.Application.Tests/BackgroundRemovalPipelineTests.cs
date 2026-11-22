@@ -114,49 +114,6 @@ public sealed class BackgroundRemovalPipelineTests
     }
 
     [Fact]
-    public async Task RejectsACroppedImageOverTheProviderLimitAfterCropping()
-    {
-        // The limit is the provider's upload cap, so it is checked on the bytes that
-        // are actually uploaded. Cropping still has to happen first.
-        var harness = Harness.Create(maxBytes: 2);
-
-        var error = await Assert.ThrowsAsync<BackgroundRemovalException>(
-            () => Create(harness).RunAsync(Input(), CancellationToken.None));
-
-        Assert.Equal(BackgroundRemovalFailureReason.InvalidImage, error.Reason);
-        Assert.True(harness.Cropper.Called);
-        Assert.False(harness.Remover.Called);
-    }
-
-    [Fact]
-    public async Task AcceptsAnOriginalOverTheLimitWhenCroppingFitsUnderIt()
-    {
-        // A 30 MB upload that crops down to 3 bytes is a normal case, not an error.
-        var harness = Harness.Create(maxBytes: 4);
-
-        var result = await Create(harness).RunAsync(
-            new ImageInput(new byte[30], "image/png", "huge.png"),
-            CancellationToken.None);
-
-        Assert.Equal(FinalPng, result.PngBytes);
-        Assert.True(harness.Remover.Called);
-    }
-
-    [Fact]
-    public async Task AcceptsABigCropOverTheByteLimitWhenTheProviderInputIsDownscaled()
-    {
-        // The upload cap applies to what the provider receives. A crop above the
-        // pixel budget is downscaled by the provider decorator first, so its PNG
-        // size here is not the request size and must not reject the job.
-        var harness = Harness.Create(maxBytes: 2, providerMaxInputPixels: 1_000);
-
-        var result = await Create(harness).RunAsync(Input(), CancellationToken.None);
-
-        Assert.Equal(FinalPng, result.PngBytes);
-        Assert.True(harness.Remover.Called);
-    }
-
-    [Fact]
     public async Task RejectsAContentTypeOutsideTheAllowList()
     {
         var harness = Harness.Create();
@@ -186,8 +143,6 @@ public sealed class BackgroundRemovalPipelineTests
             Options.Create(
                 new BackgroundRemovalOptions
                 {
-                    MaxInputBytes = harness.MaxBytes,
-                    ProviderMaxInputPixels = harness.ProviderMaxInputPixels,
                     AlphaFeatherPx = 0,
                 }),
             NullLogger<BackgroundRemovalPipeline>.Instance);
@@ -196,10 +151,6 @@ public sealed class BackgroundRemovalPipelineTests
     private sealed class Harness
     {
         public List<string> Calls { get; private init; } = [];
-
-        public int MaxBytes { get; private init; } = 20 * 1024 * 1024;
-
-        public int ProviderMaxInputPixels { get; private init; } = 1_000_000;
 
         public FakeCropper Cropper { get; private init; } = null!;
 
@@ -216,16 +167,12 @@ public sealed class BackgroundRemovalPipelineTests
         public static Harness Create(
             int cutoutWidth = 100,
             int cutoutHeight = 50,
-            int maxBytes = 20 * 1024 * 1024,
-            int providerMaxInputPixels = 1_000_000,
             List<string>? calls = null)
         {
             var log = calls ?? [];
             return new Harness
             {
                 Calls = log,
-                MaxBytes = maxBytes,
-                ProviderMaxInputPixels = providerMaxInputPixels,
                 Cropper = new FakeCropper(log),
                 Remover = new FakeRemover(log),
                 Upscaler = new FakeUpscaler(log),

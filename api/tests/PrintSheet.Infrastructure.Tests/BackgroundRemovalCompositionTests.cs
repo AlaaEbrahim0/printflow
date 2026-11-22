@@ -74,6 +74,30 @@ public sealed class BackgroundRemovalCompositionTests
     }
 
     [Fact]
+    public void BindsAPerProviderPixelBudget()
+    {
+        using var provider = Build(
+            new Dictionary<string, string?>
+            {
+                ["BackgroundRemoval:DefaultProvider"] = "poof",
+                ["BackgroundRemoval:Poof:ApiKey"] = "secret",
+                ["BackgroundRemoval:Poof:MaxInputPixels"] = "24000000",
+                ["BackgroundRemoval:WithoutBg:MaxInputPixels"] = "500000",
+            });
+
+        // Both option sets must be bound for the decorator to pick a budget; a
+        // missing registration would only surface at the first real job.
+        Assert.IsType<BoundedMatteProvider>(
+            provider.GetRequiredService<IBackgroundRemovalService>());
+        Assert.Equal(
+            24_000_000,
+            provider.GetRequiredService<IOptions<PoofOptions>>().Value.MaxInputPixels);
+        Assert.Equal(
+            500_000,
+            provider.GetRequiredService<IOptions<WithoutBgOptions>>().Value.MaxInputPixels);
+    }
+
+    [Fact]
     public void CreatesEveryProviderClientWithoutAKey()
     {
         using var provider = Build(

@@ -15,6 +15,15 @@ public sealed class WithoutBgOptions : IHttpClientEndpointOptions
 
     [Required, Url]
     public string BaseUrl { get; init; } = "http://localhost:8002";
+
+    /// <summary>
+    /// Largest image this provider is asked to matte. The self-hosted model runs on
+    /// the workstation CPU at roughly 1 MP per 30 s, so a print-size crop blows the
+    /// request budget and every attempt times out. It mattes at its own low internal
+    /// resolution anyway, so a bigger upload buys no edge detail.
+    /// </summary>
+    [Range(1, int.MaxValue)]
+    public int MaxInputPixels { get; init; } = 1_000_000;
 }
 
 /// <summary>Poof API. Bound from <c>BackgroundRemoval:Poof</c>; the key is never logged.</summary>
@@ -31,6 +40,15 @@ public sealed class PoofOptions : IHttpClientEndpointOptions
     /// reports Unauthorized and the selector may fall back.
     /// </summary>
     public string? ApiKey { get; init; }
+
+    /// <summary>
+    /// Poof returns a matte at the input resolution, and measured 5.5 s for 6.2 MP
+    /// and 6.7 s for 24 MP, so there is no reason to downscale first: doing so
+    /// measurably softened the anti-aliased edge (mean 17/255 alpha error against
+    /// the native matte). This ceiling only bounds the upload.
+    /// </summary>
+    [Range(1, int.MaxValue)]
+    public int MaxInputPixels { get; init; } = 24_000_000;
 }
 
 /// <summary>The existing crop/upscale worker endpoints. Bound from <c>BackgroundRemoval:PrepareWorker</c>.</summary>

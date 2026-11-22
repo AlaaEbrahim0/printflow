@@ -83,6 +83,8 @@ public static class BackgroundRemovalDependencyInjection
             new BoundedMatteProvider(
                 provider.GetRequiredService<BackgroundRemovalProviderSelector>(),
                 provider.GetRequiredService<IOptions<BackgroundRemovalOptions>>(),
+                provider.GetRequiredService<IOptions<WithoutBgOptions>>(),
+                provider.GetRequiredService<IOptions<PoofOptions>>(),
                 provider.GetRequiredService<ILogger<BoundedMatteProvider>>()));
         // Resolved through their typed clients, like the providers: a plain
         // AddTransient would inject a bare HttpClient with no base address and

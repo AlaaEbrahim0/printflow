@@ -616,18 +616,19 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 - Git repo initialized (`main`); skeleton commit `d0d44b9`; Phase 0 deliverable
   commit `9f52d0b`.
 - **Cutouts no longer time out (2026-11-22).** The "runs forever" symptom was two
-  unbounded steps, not a broken worker. withoutBG/Poof matte at their own
-  internal resolution, so a 16.9 MP crop ran ~6x past the provider timeout;
-  `BackgroundRemoval:ProviderMaxInputPixels` (default 1,000,000) now downscales
-  the cropped image before upload (`BoundedMatteProvider` decorator) and the
-  refiner scales the matte back up, so the pipeline's size guard is "never
-  larger than the crop, same aspect ratio". The Real-ESRGAN call is bounded too:
-  above `PrepareWorker:MaxAiOutputPixels` (default 1,000,000) and on any
+  unbounded steps, not a broken worker. The self-hosted model mattes at its own
+  low internal resolution and takes ~30 s per MP, so a 16.9 MP crop ran far past
+  the provider timeout; `WithoutBg:MaxInputPixels` (default 1,000,000) makes
+  `BoundedMatteProvider` downscale before upload and the refiner scales the matte
+  back up, so the pipeline's size guard is "never larger than the crop, same
+  aspect ratio". Poof is verified live and keeps its full 24 MP budget because it
+  returns a native-resolution matte in seconds. The Real-ESRGAN call is bounded
+  too: above `PrepareWorker:MaxAiOutputPixels` (default 1,000,000) and on any
   retryable worker fault the upscaler resamples in-process with Mitchell, and
   `MaxOutputPixels` (default 24,000,000) halves the scale until the layer fits.
   Live through Compose on the three designs that used to fail: 2856×3820 in
   37.0 s, 3998×1562 in 47.3 s, 2428×3968 in 41.3 s, `succeeded` on 1 attempt
-  each. Poof remains unverified (no `POOF_API_KEY`).
+  each; Poof on the 3998×1562 design in 15.4 s.
 - **Alpha contract (2026-11-22).** The approved cutout carried a 1–2 px pure-white
   rim because Real-ESRGAN blends the original background into the outermost RGB
   pixels and the provider matte, computed at cropped source size, upscales into a
@@ -661,8 +662,8 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
   forwarded to the selector; it is not silently discarded. Measured live: a
   cutout produced a 1268x1068 RGBA proposal in 64.9 s with transparent corners
   and the subject at its source colour.
-- API Clean Architecture implementation builds; 13 domain, 38 application and
-  68 infrastructure tests pass (3 live-only tests skip without the worker and
+- API Clean Architecture implementation builds; 13 domain, 35 application and
+  72 infrastructure tests pass (3 live-only tests skip without the worker and
   withoutBG URLs). The live fixture-flow script covers the API job lifecycle.
 - Worker processing covers classify, trim/crop, upscale, resize; 200 tests pass.
   `background-removal` is not a worker job type at all (the API runs it), so it
@@ -935,6 +936,39 @@ reference data, not immediate work.
 ---
 
 ## 16. Handoff log
+
+### 2026-11-22 — Poof verified live; pixel budget split per provider
+
+- Poof is now verified end to end, not just mocked. The key lives only in the
+  gitignored `.env` (`POOF_API_KEY`), never in a tracked file; `git grep` for it
+  in tracked content is empty.
+- Direct probes: 400×300 in 2.9 s, 6.2 MP in 5.9 s, 24 MP in 6.7 s, all HTTP 200
+  with an RGBA matte at the *input* resolution.
+- **The 1 MP budget was wrong for Poof.** Comparing Poof's native matte on the
+  3998×1562 crop against the same image downscaled to 1 MP and re-expanded gives
+  mean 26.8/255 alpha error on the anti-aliased edge band (0.45 overall) — i.e.
+  the downscale reintroduced exactly the soft-edge error the alpha contract
+  exists to remove. So the budget moved into each provider's options:
+  `WithoutBg:MaxInputPixels` (default 1,000,000, CPU-bound) and
+  `Poof:MaxInputPixels` (default 24,000,000, upload bound only). The
+  `BackgroundRemoval:ProviderMaxInputPixels` key added earlier the same day is
+  gone; it was never released.
+- `BoundedMatteProvider` now takes the *tightest* budget among providers the call
+  could reach, including the configured fallback: the selector can switch after
+  the bytes were resized, so a Poof-only budget would hand withoutBG an image it
+  cannot finish.
+- The 20 MB upload cap moved out of `BackgroundRemovalPipeline` into the
+  decorator, because only the decorator knows the bytes that are actually sent.
+  Three pipeline tests that asserted the old placement were removed; the
+  decorator has its own test for the post-downscale cap.
+- Live through the Compose API on the 3998×1562 design, same design both ways:
+  Poof `succeeded` 1 attempt, 15.4 s total / 5.8 s removal, **no downscale log**;
+  withoutBG `succeeded` 1 attempt, 41.5 s total / 30.9 s removal, downscale log
+  present. Both outputs: 0 white-rim px, corners alpha 0, 73,350 soft-edge px.
+- Tests: API 13 + 35 + 72 (3 live skipped). New: Poof kept at full resolution,
+  tightest-budget-with-fallback, post-downscale byte cap, per-provider binding.
+- Still not exercised: the native GPU worker path
+  (`host.docker.internal:8001`); Compose runs the CPU worker.
 
 ### 2026-11-22 — cutouts stop timing out ("runs forever" fixed)
 
