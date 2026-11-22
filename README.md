@@ -140,10 +140,13 @@ Order of operations, in `BackgroundRemovalPipeline`:
 3. upscale the **cropped original colours** with Real-ESRGAN (worker
    `/v1/upscale`), never the provider's cutout;
 4. upscale the provider's matte to the colour size and refine it
-   (bicubic/Mitchell, optional feather, optional threshold);
+   (bicubic/Mitchell, optional contraction, optional feather, optional threshold);
 5. recombine: the upscaled RGB with the refined alpha.
 
-Providers are chosen by configuration only:
+Providers are chosen by the server configuration; the design review's "Remove
+background" step offers `Server default` / `Local · withoutBG` / `Poof · cloud`
+and sends `provider` only for an explicit override. `Server default` follows
+`BackgroundRemoval:DefaultProvider`.
 
 | Setting | Meaning |
 | --- | --- |

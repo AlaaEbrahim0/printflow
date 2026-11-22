@@ -417,4 +417,66 @@ describe('core workbench routes', () => {
     await user.click(screen.getByTestId('proposal-modal-approve'))
     await waitFor(() => expect(screen.getByText('Proposal approved and made current.')).toBeInTheDocument())
   })
+
+  it('sends the chosen cutout provider with the remove-background step', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Cutout provider',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Cutout sample',
+        chain: [],
+      }],
+    }])
+    const batch = batchNamed(mock, 'Cutout provider')
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+
+    const serverDefault = screen.getByRole('button', { name: 'Server default' })
+    const local = screen.getByRole('button', { name: 'Local · withoutBG' })
+    const poof = screen.getByRole('button', { name: 'Poof · cloud' })
+    expect(serverDefault).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(poof)
+    expect(poof).toHaveAttribute('aria-pressed', 'true')
+    expect(local).toHaveAttribute('aria-pressed', 'false')
+    expect(serverDefault).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(screen.getByRole('button', { name: 'Remove background' }))
+
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'background-removal',
+      )
+      expect(job?.parameters).toMatchObject({ provider: 'poof' })
+    })
+  })
+
+  it('leaves the provider to the server when the default is chosen', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Cutout server default',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Cutout default',
+        chain: [],
+      }],
+    }])
+    const batch = batchNamed(mock, 'Cutout server default')
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+    await user.click(screen.getByRole('button', { name: 'Remove background' }))
+
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'background-removal',
+      )
+      expect(job).toBeDefined()
+      expect(job?.parameters).not.toHaveProperty('provider')
+    })
+  })
 })

@@ -923,6 +923,21 @@ reference data, not immediate work.
 
 ## 16. Handoff log
 
+### 2026-11-22 — design review chooses the cutout provider
+
+- The review page always called `api.steps.backgroundRemoval(designId)` with no
+  body, so only `BackgroundRemoval:DefaultProvider` ever ran and Poof was
+  unreachable from the workbench even when configured.
+- The "Remove background" step now offers `Server default` / `Local · withoutBG` /
+  `Poof · cloud` (`CUTOUT_PROVIDERS` in `DesignReviewPage.tsx`). Only an explicit
+  override is sent: `Server default` sends `{}` so a deployment that sets
+  `DefaultProvider=poof` is not overridden by the UI.
+- Poof still needs `POOF_API_KEY`; without it the adapter refuses to call and the
+  job fails with "not configured", not retryable. The hint says so.
+- Tests: two route tests assert the pressed state and that the job carries
+  `{ provider: 'poof' }`, or omits `provider` for the default. Web 248 tests /
+  20 files, build and lint clean (0 errors).
+
 ### 2026-11-22 — alpha contract removes the upscaler's white rim
 
 - Symptom: a background-removed design kept a 1–2 px pure-white fringe that

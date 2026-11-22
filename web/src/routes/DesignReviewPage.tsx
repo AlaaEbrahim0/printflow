@@ -40,6 +40,12 @@ const UPSCALE_MODELS = [
   { value: 'realesrgan-x4plus-anime', label: 'Real-ESRGAN · anime-style artwork' },
 ] as const
 
+const CUTOUT_PROVIDERS = [
+  { provider: null, label: 'Server default' },
+  { provider: 'withoutbg', label: 'Local · withoutBG' },
+  { provider: 'poof', label: 'Poof · cloud' },
+] as const
+
 /**
  * Processing profiles are operator presets. Each one applies a sane default for
  * the machines' steps so a designer can choose a job type without configuring
@@ -207,6 +213,9 @@ export default function DesignReviewPage() {
     'realesrgan-x4plus',
   )
   const [upscaleScale, setUpscaleScale] = useState<2 | 4>(4)
+  // Null means "whatever BackgroundRemoval:DefaultProvider says"; only an
+  // explicit choice is sent as a per-job override.
+  const [cutoutProvider, setCutoutProvider] = useState<'withoutbg' | 'poof' | null>(null)
   const [targetWidthCm, setTargetWidthCm] = useState<number | null>(null)
   const [targetHeightCm, setTargetHeightCm] = useState<number | null>(null)
   const [aspectLinked, setAspectLinked] = useState(true)
@@ -1225,17 +1234,38 @@ export default function DesignReviewPage() {
                     rebuilds the alpha at full size. Expect up to a minute; the job keeps
                     running if you leave this page.
                   </p>
+                  <div className="segmented" role="group" aria-label="Cutout provider">
+                    {CUTOUT_PROVIDERS.map((option) => (
+                      <button
+                        key={option.label}
+                        type="button"
+                        className={`segment${cutoutProvider === option.provider ? ' active' : ''}`}
+                        aria-pressed={cutoutProvider === option.provider}
+                        onClick={() => setCutoutProvider(option.provider)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                   <button
                     type="button"
                     className="btn primary"
                     disabled={!canPropose}
-                    onClick={() => void submitJob(() => api.steps.backgroundRemoval(designId))}
+                    onClick={() =>
+                      void submitJob(() =>
+                        api.steps.backgroundRemoval(
+                          designId,
+                          cutoutProvider === null ? {} : { provider: cutoutProvider },
+                        ),
+                      )}
                   >
                     Remove background
                   </button>
                   <p className="hint">
-                    The provider is chosen by the server configuration. Transparent
-                    uploads cannot be cut out again — crop first if the edge is wrong.
+                    Server default follows the API provider configuration. Local runs the
+                    self-hosted withoutBG model; Poof sends the cropped image to api.poof.bg
+                    and needs a server API key. Transparent uploads cannot be cut out again
+                    — crop first if the edge is wrong.
                   </p>
                 </div>
               </details>
