@@ -189,10 +189,87 @@ public sealed class BackgroundRemovalAdapterTests
         var options = Options.Create(
             new PrepareWorkerOptions { WorkerKey = "worker-key", UseGpu = true });
 
-        var png = await new PrepareWorkerUpscaler(Client("http://worker.test/", handler), options)
+        var png = await new PrepareWorkerUpscaler(
+                Client("http://worker.test/", handler),
+                options,
+                NullLogger<PrepareWorkerUpscaler>.Instance)
             .UpscaleAsync(Input, CancellationToken.None);
 
         Assert.NotEmpty(png);
+    }
+
+    [Fact]
+    public async Task UpscalerResamplesLocallyWhenTheWorkerIsUnavailable()
+    {
+        var handler = new StubHandler(
+            (_, _) => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+
+        var png = await new PrepareWorkerUpscaler(
+                Client("http://worker.test/", handler),
+                Options.Create(new PrepareWorkerOptions()),
+                NullLogger<PrepareWorkerUpscaler>.Instance)
+            .UpscaleAsync(Input, CancellationToken.None);
+
+        // A cutout must not fail because the engine is busy; 8x8 at the default
+        // 4x scale becomes 32x32.
+        Assert.Equal((32, 32), SizeOf(png));
+    }
+
+    [Fact]
+    public async Task UpscalerSkipsTheWorkerAboveTheAiOutputBudget()
+    {
+        var handler = new StubHandler((_, _) => throw new InvalidOperationException("must not call"));
+        var input = new ImageInput(CreatePng(40, 40), "image/png", "art.png");
+
+        var png = await new PrepareWorkerUpscaler(
+                Client("http://worker.test/", handler),
+                Options.Create(new PrepareWorkerOptions { MaxAiOutputPixels = 1_000 }),
+                NullLogger<PrepareWorkerUpscaler>.Instance)
+            .UpscaleAsync(input, CancellationToken.None);
+
+        // 40x40 at 4x is 25,600 px, over the 1,000 px budget, so it is resampled.
+        Assert.Equal((160, 160), SizeOf(png));
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task UpscalerCapsTheRequestedScaleToTheOutputCeiling()
+    {
+        var handler = new StubHandler((request, _) =>
+        {
+            Assert.Contains("scale=2", request.RequestUri!.Query, StringComparison.Ordinal);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(CreatePng(200, 200)),
+            };
+        });
+        var input = new ImageInput(CreatePng(100, 100), "image/png", "art.png");
+
+        var png = await new PrepareWorkerUpscaler(
+                Client("http://worker.test/", handler),
+                Options.Create(new PrepareWorkerOptions { UpscaleScale = 4, MaxOutputPixels = 50_000 }),
+                NullLogger<PrepareWorkerUpscaler>.Instance)
+            .UpscaleAsync(input, CancellationToken.None);
+
+        // 100x100 at 4x is 160,000 px, over the 50,000 px ceiling; 2x fits.
+        Assert.Equal((200, 200), SizeOf(png));
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task UpscalerReturnsTheInputWhenTheLayerAlreadyExceedsTheCeiling()
+    {
+        var handler = new StubHandler((_, _) => throw new InvalidOperationException("must not call"));
+        var input = new ImageInput(CreatePng(20, 20), "image/png", "art.png");
+
+        var png = await new PrepareWorkerUpscaler(
+                Client("http://worker.test/", handler),
+                Options.Create(new PrepareWorkerOptions { MaxOutputPixels = 100 }),
+                NullLogger<PrepareWorkerUpscaler>.Instance)
+            .UpscaleAsync(input, CancellationToken.None);
+
+        Assert.Equal(input.Bytes, png);
+        Assert.Equal(0, handler.Calls);
     }
 
     [Fact]
@@ -221,6 +298,55 @@ public sealed class BackgroundRemovalAdapterTests
 
     private static HttpClient Client(string baseUrl, StubHandler handler)
         => new(handler, disposeHandler: false) { BaseAddress = new Uri(baseUrl) };
+
+    [Fact]
+    public async Task BoundedMatteDownscalesTheProviderInputAboveTheBudget()
+    {
+        var inner = new CapturingService();
+
+        await new BoundedMatteProvider(
+                inner,
+                Options.Create(new BackgroundRemovalOptions { ProviderMaxInputPixels = 2_500 }),
+                NullLogger<BoundedMatteProvider>.Instance)
+            .RemoveAsync(Input, CancellationToken.None);
+
+        // 8x8 = 64 px is under the budget, so the bytes are forwarded untouched.
+        Assert.Same(Input.Bytes, inner.LastImage!.Bytes);
+
+        await new BoundedMatteProvider(
+                inner,
+                Options.Create(new BackgroundRemovalOptions { ProviderMaxInputPixels = 16 }),
+                NullLogger<BoundedMatteProvider>.Instance)
+            .RemoveAsync(Input, CancellationToken.None);
+
+        Assert.Equal((4, 4), SizeOf(inner.LastImage!.Bytes));
+    }
+
+    private sealed class CapturingService : IBackgroundRemovalService
+    {
+        public ImageInput? LastImage { get; private set; }
+
+        public string Provider => "capture";
+
+        public IReadOnlyList<IBackgroundRemover> Providers => [];
+
+        public Task<BackgroundRemovalResult> RemoveAsync(
+            ImageInput image,
+            CancellationToken cancellationToken,
+            string? preferredProvider = null)
+        {
+            LastImage = image;
+            return Task.FromResult(
+                new BackgroundRemovalResult(CreatePng(1, 1), Provider, TimeSpan.Zero));
+        }
+    }
+
+    private static (int Width, int Height) SizeOf(byte[] png)
+    {
+        using var bitmap = SKBitmap.Decode(png);
+        Assert.NotNull(bitmap);
+        return (bitmap.Width, bitmap.Height);
+    }
 
     private static byte[] CreatePng(int width, int height, byte alpha = 255)
     {

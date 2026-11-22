@@ -609,12 +609,25 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 ## 15. Live status
 
-**Last updated:** 2026-11-22 (background removal restored as an in-process cutout; v3.1.0)
+**Last updated:** 2026-11-22 (cutout timeouts fixed by bounding provider input and AI upscale)
 
 **Done and verified:**
 
 - Git repo initialized (`main`); skeleton commit `d0d44b9`; Phase 0 deliverable
   commit `9f52d0b`.
+- **Cutouts no longer time out (2026-11-22).** The "runs forever" symptom was two
+  unbounded steps, not a broken worker. withoutBG/Poof matte at their own
+  internal resolution, so a 16.9 MP crop ran ~6x past the provider timeout;
+  `BackgroundRemoval:ProviderMaxInputPixels` (default 1,000,000) now downscales
+  the cropped image before upload (`BoundedMatteProvider` decorator) and the
+  refiner scales the matte back up, so the pipeline's size guard is "never
+  larger than the crop, same aspect ratio". The Real-ESRGAN call is bounded too:
+  above `PrepareWorker:MaxAiOutputPixels` (default 1,000,000) and on any
+  retryable worker fault the upscaler resamples in-process with Mitchell, and
+  `MaxOutputPixels` (default 24,000,000) halves the scale until the layer fits.
+  Live through Compose on the three designs that used to fail: 2856×3820 in
+  37.0 s, 3998×1562 in 47.3 s, 2428×3968 in 41.3 s, `succeeded` on 1 attempt
+  each. Poof remains unverified (no `POOF_API_KEY`).
 - **Alpha contract (2026-11-22).** The approved cutout carried a 1–2 px pure-white
   rim because Real-ESRGAN blends the original background into the outermost RGB
   pixels and the provider matte, computed at cropped source size, upscales into a
@@ -648,8 +661,8 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
   forwarded to the selector; it is not silently discarded. Measured live: a
   cutout produced a 1268x1068 RGBA proposal in 64.9 s with transparent corners
   and the subject at its source colour.
-- API Clean Architecture implementation builds; 13 domain, 35 application and
-  57 infrastructure tests pass (3 live-only tests skip without the worker and
+- API Clean Architecture implementation builds; 13 domain, 38 application and
+  68 infrastructure tests pass (3 live-only tests skip without the worker and
   withoutBG URLs). The live fixture-flow script covers the API job lifecycle.
 - Worker processing covers classify, trim/crop, upscale, resize; 200 tests pass.
   `background-removal` is not a worker job type at all (the API runs it), so it
@@ -922,6 +935,48 @@ reference data, not immediate work.
 ---
 
 ## 16. Handoff log
+
+### 2026-11-22 — cutouts stop timing out ("runs forever" fixed)
+
+- Symptom: every background-removal job ended in `failed`/`running` after
+  repeated attempts, with `prepare-worker upscale timed out.` or
+  `prepare-worker crop could not be reached.` Compose jobs of that type:
+  `b8024a45`, `b2b455c1`, `35007e69`, `bee2531a`. Nothing was wrong with the
+  worker: the Compose CPU worker and the native GPU worker were both healthy.
+  The job was simply too big for the budgets.
+- Two unbounded steps, both now capped by configuration:
+  - **Provider.** withoutBG/Poof compute the matte at their own internal
+    resolution, so a print-size crop buys no edge detail and costs minutes.
+    `BackgroundRemoval:ProviderMaxInputPixels` (default 1,000,000) downscales the
+    cropped image before it is sent (`BoundedMatteProvider`, a decorator around
+    the provider selector) and the refiner scales the matte back up. The
+    pipeline's exact-size guard was relaxed to "never larger than the crop, same
+    aspect ratio", since a smaller matte is normal.
+  - **Upscale.** `PrepareWorkerUpscaler` only calls Real-ESRGAN when the output
+    fits `MaxAiOutputPixels` (default 1,000,000); above it, and on any retryable
+    worker fault, it resamples in-process with Skia Mitchell. `MaxOutputPixels`
+    (default 24,000,000) halves the configured scale until the colour layer
+    fits, and returns the input unchanged when even 1x is over.
+- Live verification through the Compose API (page 3 designs, all previously
+  failing): 2856x3820 in 37.0 s, 3998x1562 in 47.3 s, 2428x3968 in 41.3 s —
+  `succeeded`, 1 attempt each. The 3998x1562 run logged
+  `Downscaling the cutout input from 3998x1562 to 1599x625 for the provider`;
+  its upscale resolved to 1x. Alpha rim still clean (0 border-adjacent pure
+  white pixels after the 2 px contract). Test proposals rejected afterwards.
+- Compose seams added: `BACKGROUND_REMOVAL_PROVIDER_MAX_INPUT_PIXELS`,
+  `BACKGROUND_REMOVAL_PREPARE_WORKER_MAX_AI_OUTPUT_PIXELS`,
+  `BACKGROUND_REMOVAL_PREPARE_WORKER_MAX_OUTPUT_PIXELS`, and
+  `extra_hosts: host.docker.internal:host-gateway` on the API so an operator can
+  point `PrepareWorker:BaseUrl` at the native GPU worker
+  (`http://host.docker.internal:8001` + `WORKER_GPU_ENABLED=true`).
+- Tests: 4 upscaler/budget tests in `BackgroundRemovalAdapterTests` (worker
+  unavailable -> local resample, AI budget skipped, scale capped, input returned
+  over ceiling), 1 downscale test for the provider decorator, and
+  `AcceptsAProviderMatteSmallerThanTheCrop` in the pipeline tests. API 13 + 36 +
+  68 (3 live skipped), `dotnet build` clean.
+- Not verified: Poof end to end (still no `POOF_API_KEY`); mocked contract tests
+  only. The GPU path through `host.docker.internal:8001` is configured but not
+  exercised — Compose runs the CPU worker.
 
 ### 2026-11-22 — design review chooses the cutout provider
 

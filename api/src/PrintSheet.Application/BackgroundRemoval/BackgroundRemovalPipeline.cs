@@ -64,8 +64,8 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
         var total = Stopwatch.StartNew();
 
         var croppedPng = await _cropper.CropAsync(input, cancellationToken);
-        EnsureProviderPayload(croppedPng);
         var cropped = await InspectAsync(croppedPng, cancellationToken);
+        EnsureProviderPayload(croppedPng, cropped);
 
         var removal = await _remover.RemoveAsync(
             new ImageInput(croppedPng, "image/png", "cropped.png"),
@@ -73,7 +73,14 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
             preferredProvider);
 
         var cutout = await InspectAsync(removal.PngBytes, cancellationToken);
-        if (cutout.WidthPx != cropped.WidthPx || cutout.HeightPx != cropped.HeightPx)
+        // A provider matte may be smaller than the crop (the providers compute it
+        // at their own internal resolution); the refiner scales it up. It may not
+        // be larger, and the aspect ratio must survive, so a mangled result is
+        // still rejected rather than smeared over the artwork.
+        if (cutout.WidthPx > cropped.WidthPx
+            || cutout.HeightPx > cropped.HeightPx
+            || Math.Abs((double)cutout.WidthPx / cutout.HeightPx
+                - (double)cropped.WidthPx / cropped.HeightPx) > 0.01)
         {
             throw new BackgroundRemovalException(
                 BackgroundRemovalFailureReason.InvalidImage,
@@ -137,10 +144,19 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
     /// The size limit belongs to the provider, so it is enforced on the bytes that
     /// are actually uploaded — the cropped image, which is what the matte runs on.
     /// Applying it to the untouched original would reject a large upload that
-    /// cropping already brings comfortably under the cap.
+    /// cropping already brings comfortably under the cap. A crop above
+    /// <see cref="BackgroundRemovalOptions.ProviderMaxInputPixels"/> is exempt:
+    /// <c>BoundedMatteProvider</c> downscales it before upload, so its PNG size
+    /// here says nothing about the request the provider receives.
     /// </summary>
-    private void EnsureProviderPayload(byte[] croppedPng)
+    private void EnsureProviderPayload(byte[] croppedPng, ImageInspection cropped)
     {
+        var pixels = (long)cropped.WidthPx * cropped.HeightPx;
+        if (pixels > _options.ProviderMaxInputPixels)
+        {
+            return;
+        }
+
         if (croppedPng.Length > _options.MaxInputBytes)
         {
             throw new BackgroundRemovalException(

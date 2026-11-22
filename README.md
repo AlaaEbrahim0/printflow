@@ -160,14 +160,23 @@ and sends `provider` only for an explicit override. `Server default` follows
 | `BackgroundRemoval:PrepareWorker:WorkerKey` | falls back to `Worker:Key` |
 | `BackgroundRemoval:PrepareWorker:UpscaleScale` | 2 or 4 (Real-ESRGAN's only ratios) |
 | `BackgroundRemoval:PrepareWorker:UseGpu` | false for the CPU worker |
+| `BackgroundRemoval:PrepareWorker:MaxAiOutputPixels` | largest output sent to Real-ESRGAN, default 1,000,000; above it the crop is resampled in-process |
+| `BackgroundRemoval:PrepareWorker:MaxOutputPixels` | ceiling for the upscaled colour layer, default 24,000,000; the requested scale is halved until it fits |
 | `BackgroundRemoval:AlphaFeatherPx` | matte feather radius, default 0.5; 0 disables |
 | `BackgroundRemoval:AlphaContractPx` | matte contraction in pixels, default 2; 0 disables |
 | `BackgroundRemoval:AlphaThreshold` | optional hard cutoff (0–255); off by default |
+| `BackgroundRemoval:ProviderMaxInputPixels` | largest image sent to a provider, default 1,000,000; larger crops are downscaled first and the matte is scaled back up |
 | `BackgroundRemoval:MaxInputBytes` | 20 MB, Poof's hard cap (applied to the cropped upload) |
 
 `RunJobs: false` leaves queued cutouts untouched, which is what a read-only or
 migration instance wants. The single-job-at-a-time limit is deliberate: the
 pipeline holds several full-size PNGs in memory and the upscaler owns the GPU.
+
+The Compose API talks to the CPU worker (`http://worker:8000`, `UseGpu=false`).
+To hand the upscale to the native GPU worker on the host, set
+`BACKGROUND_REMOVAL_PREPARE_WORKER_BASE_URL=http://host.docker.internal:8001`
+and `WORKER_GPU_ENABLED=true`; the API service already maps
+`host.docker.internal` to the host gateway.
 
 The request body is optional and only overrides the provider for one job:
 
@@ -179,7 +188,9 @@ curl -X POST http://localhost:8080/api/v1/designs/$DESIGN_ID/steps/background-re
 
 The 20 MB cap is the provider's upload limit, so it is enforced on the cropped
 image that is actually sent — not on the untouched original, which cropping
-usually brings well under the cap.
+usually brings well under the cap. A crop above
+`BackgroundRemoval:ProviderMaxInputPixels` is exempt from that check because it
+is downscaled before upload, so its size on disk is not the request size.
 
 Fallback is deliberately narrow. It fires for availability faults (401, 402,
 403, 429, 5xx, timeouts, circuit open) and never for input faults (400, 413,

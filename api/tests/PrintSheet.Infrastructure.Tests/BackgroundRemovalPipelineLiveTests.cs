@@ -53,7 +53,8 @@ public sealed class BackgroundRemovalPipelineLiveTests
             pipelineCropper,
             new PrepareWorkerUpscaler(
                 new HttpClient { BaseAddress = worker, Timeout = TimeSpan.FromMinutes(5) },
-                workerOptions),
+                workerOptions,
+                NullLogger<PrepareWorkerUpscaler>.Instance),
             new SkiaAlphaRefiner(Options.Create(new BackgroundRemovalOptions { AlphaFeatherPx = 0.5 })),
             new SkiaAlphaCompositor(),
             new SkiaImageInspector(),

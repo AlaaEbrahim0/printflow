@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http.Resilience;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PrintSheet.Application.Abstractions;
 using PrintSheet.Application.BackgroundRemoval;
@@ -77,7 +78,12 @@ public static class BackgroundRemovalDependencyInjection
         services.AddTransient<IBackgroundRemover>(provider =>
             provider.GetRequiredService<WithoutBgBackgroundRemover>());
 
-        services.AddTransient<IBackgroundRemovalService, BackgroundRemovalProviderSelector>();
+        services.AddTransient<BackgroundRemovalProviderSelector>();
+        services.AddTransient<IBackgroundRemovalService>(provider =>
+            new BoundedMatteProvider(
+                provider.GetRequiredService<BackgroundRemovalProviderSelector>(),
+                provider.GetRequiredService<IOptions<BackgroundRemovalOptions>>(),
+                provider.GetRequiredService<ILogger<BoundedMatteProvider>>()));
         // Resolved through their typed clients, like the providers: a plain
         // AddTransient would inject a bare HttpClient with no base address and
         // every call would fail at runtime.

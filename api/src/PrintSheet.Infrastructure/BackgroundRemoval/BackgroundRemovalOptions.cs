@@ -61,4 +61,21 @@ public sealed class PrepareWorkerOptions : IHttpClientEndpointOptions
     public int UpscaleTileSize { get; init; }
 
     public bool UseGpu { get; init; } = true;
+
+    /// <summary>
+    /// Largest Real-ESRGAN output the prepare step will ask for. Above it the
+    /// crop is resampled in-process instead: CPU inference past this point runs
+    /// longer than the request budget, and a timed-out attempt only burns 300 s
+    /// before the job is retried. GPU deployments can raise it.
+    /// </summary>
+    [Range(0, int.MaxValue)]
+    public int MaxAiOutputPixels { get; init; } = 1_000_000;
+
+    /// <summary>
+    /// Ceiling for the upscaled colour layer. The configured scale is halved
+    /// until the output fits; a design wider than the 58 cm roll at 300 DPI
+    /// (6850 px) cannot be printed anyway.
+    /// </summary>
+    [Range(1, int.MaxValue)]
+    public int MaxOutputPixels { get; init; } = 24_000_000;
 }

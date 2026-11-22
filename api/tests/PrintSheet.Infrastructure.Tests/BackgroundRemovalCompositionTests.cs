@@ -28,8 +28,10 @@ public sealed class BackgroundRemovalCompositionTests
 
         Assert.IsType<BackgroundRemovalPipeline>(
             provider.GetRequiredService<IBackgroundRemovalPipeline>());
-        Assert.IsType<BackgroundRemovalProviderSelector>(
+        Assert.IsType<BoundedMatteProvider>(
             provider.GetRequiredService<IBackgroundRemovalService>());
+        Assert.IsType<BackgroundRemovalProviderSelector>(
+            provider.GetRequiredService<BackgroundRemovalProviderSelector>());
         Assert.IsType<PrepareWorkerCropper>(provider.GetRequiredService<IImageCropper>());
         Assert.IsType<PrepareWorkerUpscaler>(provider.GetRequiredService<IImageUpscaler>());
         Assert.IsType<SkiaAlphaRefiner>(provider.GetRequiredService<IAlphaRefiner>());

@@ -59,8 +59,10 @@ public sealed class BackgroundRemovalPipelineTests
     }
 
     [Fact]
-    public async Task RejectsAProviderResultWithTheWrongSize()
+    public async Task RejectsAProviderResultWithTheWrongAspectRatio()
     {
+        // 99x50 against a 100x50 crop: smaller, but 2% off the crop's aspect, so
+        // it would smear the subject when the refiner scales it.
         var harness = Harness.Create(cutoutWidth: 99);
 
         var error = await Assert.ThrowsAsync<BackgroundRemovalException>(
@@ -69,6 +71,32 @@ public sealed class BackgroundRemovalPipelineTests
         Assert.Equal(BackgroundRemovalFailureReason.InvalidImage, error.Reason);
         Assert.Equal("fake", error.Provider);
         Assert.False(harness.Upscaler.Called);
+    }
+
+    [Fact]
+    public async Task RejectsAProviderResultLargerThanTheCrop()
+    {
+        var harness = Harness.Create(cutoutWidth: 200, cutoutHeight: 100);
+
+        var error = await Assert.ThrowsAsync<BackgroundRemovalException>(
+            () => Create(harness).RunAsync(Input(), CancellationToken.None));
+
+        Assert.Equal(BackgroundRemovalFailureReason.InvalidImage, error.Reason);
+        Assert.False(harness.Upscaler.Called);
+    }
+
+    [Fact]
+    public async Task AcceptsAProviderMatteSmallerThanTheCrop()
+    {
+        // The providers matte at their own internal resolution, so a half-size
+        // result is normal; the refiner scales it to the print size.
+        var harness = Harness.Create(cutoutWidth: 50, cutoutHeight: 25);
+
+        var result = await Create(harness).RunAsync(Input(), CancellationToken.None);
+
+        Assert.Equal(FinalPng, result.PngBytes);
+        Assert.NotNull(harness.Refiner.LastRequest);
+        Assert.Equal(400, harness.Refiner.LastRequest!.TargetWidthPx);
     }
 
     [Fact]
@@ -115,6 +143,20 @@ public sealed class BackgroundRemovalPipelineTests
     }
 
     [Fact]
+    public async Task AcceptsABigCropOverTheByteLimitWhenTheProviderInputIsDownscaled()
+    {
+        // The upload cap applies to what the provider receives. A crop above the
+        // pixel budget is downscaled by the provider decorator first, so its PNG
+        // size here is not the request size and must not reject the job.
+        var harness = Harness.Create(maxBytes: 2, providerMaxInputPixels: 1_000);
+
+        var result = await Create(harness).RunAsync(Input(), CancellationToken.None);
+
+        Assert.Equal(FinalPng, result.PngBytes);
+        Assert.True(harness.Remover.Called);
+    }
+
+    [Fact]
     public async Task RejectsAContentTypeOutsideTheAllowList()
     {
         var harness = Harness.Create();
@@ -145,6 +187,7 @@ public sealed class BackgroundRemovalPipelineTests
                 new BackgroundRemovalOptions
                 {
                     MaxInputBytes = harness.MaxBytes,
+                    ProviderMaxInputPixels = harness.ProviderMaxInputPixels,
                     AlphaFeatherPx = 0,
                 }),
             NullLogger<BackgroundRemovalPipeline>.Instance);
@@ -155,6 +198,8 @@ public sealed class BackgroundRemovalPipelineTests
         public List<string> Calls { get; private init; } = [];
 
         public int MaxBytes { get; private init; } = 20 * 1024 * 1024;
+
+        public int ProviderMaxInputPixels { get; private init; } = 1_000_000;
 
         public FakeCropper Cropper { get; private init; } = null!;
 
@@ -170,7 +215,9 @@ public sealed class BackgroundRemovalPipelineTests
 
         public static Harness Create(
             int cutoutWidth = 100,
+            int cutoutHeight = 50,
             int maxBytes = 20 * 1024 * 1024,
+            int providerMaxInputPixels = 1_000_000,
             List<string>? calls = null)
         {
             var log = calls ?? [];
@@ -178,6 +225,7 @@ public sealed class BackgroundRemovalPipelineTests
             {
                 Calls = log,
                 MaxBytes = maxBytes,
+                ProviderMaxInputPixels = providerMaxInputPixels,
                 Cropper = new FakeCropper(log),
                 Remover = new FakeRemover(log),
                 Upscaler = new FakeUpscaler(log),
@@ -187,7 +235,7 @@ public sealed class BackgroundRemovalPipelineTests
                 Inspector = new FakeInspector(
                     [
                         new ImageInspection(100, 50, false, "png", "image/png", ".png"),
-                        new ImageInspection(cutoutWidth, 50, true, "png", "image/png", ".png"),
+                        new ImageInspection(cutoutWidth, cutoutHeight, true, "png", "image/png", ".png"),
                         new ImageInspection(400, 200, false, "png", "image/png", ".png"),
                     ]),
             };
