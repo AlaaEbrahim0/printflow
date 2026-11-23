@@ -609,7 +609,7 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 ## 15. Live status
 
-**Last updated:** 2026-11-23 (GPU path verified; AI upscale budget now per engine)
+**Last updated:** 2026-11-23 (step order is crop → enhance → print size → remove background)
 
 **Done and verified:**
 
@@ -668,7 +668,7 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
   forwarded to the selector; it is not silently discarded. Measured live: a
   cutout produced a 1268x1068 RGBA proposal in 64.9 s with transparent corners
   and the subject at its source colour.
-- API Clean Architecture implementation builds; 13 domain, 35 application and
+- API Clean Architecture implementation builds; 17 domain, 38 application and
   73 infrastructure tests pass (3 live-only tests skip without the worker and
   withoutBG URLs; with both URLs set the live pipeline test passes in 45 s). The
   live fixture-flow script covers the API job lifecycle.
@@ -943,6 +943,39 @@ reference data, not immediate work.
 ---
 
 ## 16. Handoff log
+
+### 2026-11-23 — Step order is now crop → enhance → print size → remove background
+
+- **The review page's four tools are numbered in the shop's real order.** Remove
+  background moved from an unnumbered optional "+" to step 4; the summary now
+  says "Final step · cut out at the print size" and explains, when no print size
+  is set yet, that the cut-out will crop and enlarge instead.
+- **Two blockers had to be fixed first — a UI reorder alone would not have
+  worked.** Both were verified by driving the live API, not by inspection:
+  1. `Design.RecomputeStatus` only returned `Ready` for `StepType.Resize`, so a
+     cut-out as the last version left the design `in-progress` forever and the
+     packer refused it. It now accepts `IsTerminalStep` = resize **or**
+     background-removal, still gated by `MatchesTarget`, so a cut-out that
+     changed the pixel size is still correctly not ready. Upscale/trim/crop stay
+     non-terminal, locked by `TerminalStepTests.UpscaleAtTheTargetPixels_IsStillNotTerminal`.
+  2. `BackgroundRemovalPipeline` always auto-cropped and upscaled internally,
+     which changes the dimensions. It now takes `preserveSize` and skips both.
+     The flag is decided **when the job is queued** (`StepService` compares the
+     parent's pixels to the target) and recorded in `parameters.preserveSize`,
+     so the runner never re-derives it from state that may have changed.
+- Live proof on design `66c51a2c`: set 10×10 cm → resize proposal 1181×1181 →
+  approve → design `ready`; cut-out job recorded `{"preserveSize":true}` and
+  logged `preserveSize=True widthPx=1181 heightPx=1181`; approved cut-out →
+  design still `ready`, current version `background-removal` 1181×1181,
+  effective 299.97 DPI. Output quality: 0 border-adjacent white px, all four
+  corners alpha 0, 11,178 soft-edge px. A pack of that batch refused on *other*
+  designs only — this one was absent from the `batch-not-ready` list.
+- Mirrored in `web/src/mocks/store.ts` (status derivation + approve guard), so
+  the mock cannot drift from the domain. The approve guard only enforces target
+  pixels on a cut-out when a target exists, because a cut-out *before* print
+  size is still legal and is followed by the resize.
+- Tests: 17 domain (+4), 38 application (+3), 73 infrastructure (3 live
+  skipped), 250 web (+2). README, ARCHITECTURE §7.2 updated.
 
 ### 2026-11-23 — GPU path verified; two of yesterday's claims were wrong
 

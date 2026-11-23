@@ -116,7 +116,12 @@ public sealed class BackgroundRemovalJobRunner
         {
             // The override was validated when the job was queued; the runner only
             // needs to forward it so the job runs on the provider the operator chose.
-            result = await _pipeline.RunAsync(input, cancellationToken, ReadProviderOverride(job));
+            // preserveSize was decided at queue time from the parent's pixel size.
+            result = await _pipeline.RunAsync(
+                input,
+                cancellationToken,
+                ReadProviderOverride(job),
+                ReadPreserveSize(job));
         }
         catch (BackgroundRemovalException exception)
         {
@@ -282,5 +287,19 @@ public sealed class BackgroundRemovalJobRunner
             && provider.ValueKind == JsonValueKind.String
             ? provider.GetString()
             : null;
+    }
+
+    /// <summary>
+    /// Whether the cut-out must keep the parent's exact pixel dimensions. Absent
+    /// means false: an older job, or one queued before print size was set, takes
+    /// the crop-then-upscale path.
+    /// </summary>
+    private static bool ReadPreserveSize(Job job)
+    {
+        using var parameters = JsonDocument.Parse(job.ParametersJson);
+        return parameters.RootElement.ValueKind == JsonValueKind.Object
+            && parameters.RootElement.TryGetProperty("preserveSize", out var preserve)
+            && preserve.ValueKind is JsonValueKind.True or JsonValueKind.False
+            && preserve.GetBoolean();
     }
 }

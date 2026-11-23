@@ -1,8 +1,9 @@
 # PrintSheet Workbench
 
 Internal, review-driven DTF print preparation. Staff upload a batch of customer
-designs, the system proposes trim, crop, background removal, Real-ESRGAN
-enhancement and final print sizing, and a human approves every step. Background
+designs, the system proposes trim, crop, Real-ESRGAN enhancement, final print
+sizing and background removal — in the shop's order, crop → enhance → set print
+size → remove background — and a human approves every step. Background
 removal keys out a flat colour and exposes mask shaping — grow/contract the
 selection, feather the edge, and apply separate levels to the mask and the image
 — so logos, text and line art cut cleanly; busy artwork is still cut in Photoshop
@@ -131,7 +132,12 @@ a background remover, a cropper, an upscaler, an alpha refiner and an alpha
 compositor. Infrastructure supplies the adapters, so the business logic contains
 no provider names, URLs or HTTP status codes.
 
-Order of operations, in `BackgroundRemovalPipeline`:
+Order of operations, in `BackgroundRemovalPipeline`. There are two modes,
+because the shop's step order is crop → enhance → set print size → remove
+background, so the cut-out usually runs on a version that is already at its
+final print pixels:
+
+*Default (no print size yet)* — the cut-out also prepares the artwork:
 
 1. auto-crop the upload (worker `/v1/crop`, the same rules as the trim job);
 2. remove the background on the **cropped, low-resolution** image — the open
@@ -142,6 +148,18 @@ Order of operations, in `BackgroundRemovalPipeline`:
 4. upscale the provider's matte to the colour size and refine it
    (bicubic/Mitchell, optional contraction, optional feather, optional threshold);
 5. recombine: the upscaled RGB with the refined alpha.
+
+*`preserveSize` (parent is already the approved print size)* — steps 1 and 3 are
+skipped. The packer requires the final version to be exactly the target pixels,
+so a cut-out that re-cropped or re-upscaled would stop matching and the design
+could never be packed. The provider still gets the same bytes and the matte is
+refined to the input's own size. The decision is made once when the job is
+queued and recorded in the job's `parameters.preserveSize`, so the runner never
+re-derives it from state that may have changed.
+
+A design is `ready` when the current version is a resize **or a cut-out** whose
+pixels equal the target at the working DPI (`Design.RecomputeStatus`). Any other
+step is not terminal, because nothing would then guarantee the printed size.
 
 Providers are chosen by the server configuration; the design review's "Remove
 background" step offers `Server default` / `Local · withoutBG` / `Poof · cloud`

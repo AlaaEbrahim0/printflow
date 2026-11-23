@@ -252,6 +252,15 @@ The canonical request/response envelopes and per-type parameters are
 | Classify | Heuristic features: flat-color ratio, edge density, unique-color count, sampled background, full-bleed detection. Suggests trim and upscale settings. Suggestions are always overridable. |
 | Background removal | `color-to-alpha` (unmultiplied GIMP formulation: `keyColor` + `tolerance`) or `none` (re-apply brush edits and shaping to an earlier mask). Produces an 8-bit mask artifact; the stored image is `source alpha × mask / 255`. Optional `maskGrowPx` (circular Euclidean grow/contract), `edgeSoftness` (feather), `maskLevels` and `imageLevels` (Photoshop-style ramps) shape the result. |
 
+The operator-facing order is **crop → enhance → set print size → remove
+background**, and the review page numbers the four tools in that order. The
+cut-out is therefore normally the *terminal* version: `Design.RecomputeStatus`
+treats a `resize` or a `background-removal` as final when its pixels equal the
+target at the working DPI, and `BackgroundRemovalPipeline` takes a
+`preserveSize` flag so the API-side cut-out skips its internal auto-crop and
+upscale in that position. Without both, a cut-out after print size would leave
+the design `in-progress` forever and the packer would refuse it.
+
 The mask is built in one fixed pass so a proposal is reproducible: mode mask →
 `min` with the reused mask → brush strokes in source pixels → grow/contract
 (`maskGrowPx`) → feather (`edgeSoftness`) → mask levels (`maskLevels`). The image

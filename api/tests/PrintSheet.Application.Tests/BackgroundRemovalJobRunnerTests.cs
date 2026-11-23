@@ -327,13 +327,17 @@ public sealed class BackgroundRemovalJobRunnerTests
 
         public string? LastPreferredProvider { get; private set; }
 
+        public bool LastPreserveSize { get; private set; }
+
         public Task<BackgroundRemovalPipelineResult> RunAsync(
             ImageInput input,
             CancellationToken cancellationToken,
-            string? preferredProvider = null)
+            string? preferredProvider = null,
+            bool preserveSize = false)
         {
             Calls++;
             LastPreferredProvider = preferredProvider;
+            LastPreserveSize = preserveSize;
             if (Throws is not null)
             {
                 throw Throws;

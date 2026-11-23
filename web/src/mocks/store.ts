@@ -387,8 +387,13 @@ export class MockStore {
       design.targetWidthCm && design.targetHeightCm
         ? { widthCm: design.targetWidthCm, heightCm: design.targetHeightCm }
         : null
+    // Mirrors `Design.RecomputeStatus`: a resize or a cut-out that preserved the
+    // resize's pixels is the terminal step, because the shop runs crop → enhance
+    // → set print size → remove background.
+    const isTerminal =
+      current.stepType === 'resize' || current.stepType === 'background-removal'
     if (
-      current.stepType === 'resize' &&
+      isTerminal &&
       current.status === 'approved' &&
       target &&
       matchesTargetPixels(current, target, batch.workingDpi)
@@ -819,18 +824,23 @@ export class MockStore {
       throw new MockProblem(409, 'invalid-transition', 'Only a proposed version can be approved')
     }
     const batch = this.batches.get(design.batchId)!
-    if (version.stepType === 'resize') {
-      const target =
-        design.targetWidthCm && design.targetHeightCm
-          ? { widthCm: design.targetWidthCm, heightCm: design.targetHeightCm }
-          : null
-      if (!target || !matchesTargetPixels(version, target, batch.workingDpi)) {
-        throw new MockProblem(
-          422,
-          'invalid-target-size',
-          'The resized pixels do not match the target size at the working DPI',
-        )
-      }
+    // A resize always has to match the target. A cut-out only has to when a
+    // target is already set — in the shop's order it is the last step and must
+    // preserve those pixels, but a cut-out made before print size is set is
+    // still legal and is followed by the resize.
+    const target =
+      design.targetWidthCm && design.targetHeightCm
+        ? { widthCm: design.targetWidthCm, heightCm: design.targetHeightCm }
+        : null
+    const mustMatchTarget =
+      version.stepType === 'resize' ||
+      (version.stepType === 'background-removal' && target !== null)
+    if (mustMatchTarget && (!target || !matchesTargetPixels(version, target, batch.workingDpi))) {
+      throw new MockProblem(
+        422,
+        'invalid-target-size',
+        'The resized pixels do not match the target size at the working DPI',
+      )
     }
     version.status = 'approved'
     version.approvedAt = isoNow()

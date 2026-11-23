@@ -55,6 +55,13 @@ public sealed record CropStepCommand(CropRect Rect);
 /// </summary>
 public sealed record BackgroundRemovalStepCommand(string? Provider);
 
+/// <summary>
+/// What the cut-out job records for the runner. <paramref name="PreserveSize"/>
+/// is decided when the job is queued: true means the parent was already at the
+/// approved print pixels, so the pipeline must not crop or upscale.
+/// </summary>
+public sealed record BackgroundRemovalJobParameters(string? Provider, bool PreserveSize);
+
 public sealed record UpscaleStepCommand(
     string Model,
     int Scale,

@@ -168,7 +168,7 @@ const JOB_LABELS: Record<string, string> = {
   trim: 'Auto crop',
   crop: 'Manual crop',
   upscale: 'Image enhancement',
-  resize: 'Final resize',
+  resize: 'Print size',
   'background-removal': 'Background removal',
   vectorize: 'Vectorize (retired)',
   'pack-sheet': 'Packing sheet',
@@ -191,8 +191,8 @@ const PROPOSAL_EFFECTS: Record<string, string> = {
   trim: 'Removes the cropped edge from the printable artwork. The original stays available in version history.',
   crop: 'Replaces the printable area with the rectangle you drew. The original stays available in version history.',
   upscale: 'Replaces the current image with the enlarged one. AI enlargement adds pixels, not original detail, so compare it with the original first.',
-  resize: 'Sets the final pixel size that the packer will place. This is the version that gets printed.',
-  'background-removal': 'Replaces the current image with the cut-out. The transparent version becomes what the packer places, so check the mask before approving.',
+  resize: 'Sets the pixel size the packer will place. Removing the background after this keeps those exact pixels.',
+  'background-removal': 'Replaces the current image with the cut-out at the print size. This is usually the last step, so check the mask before approving — it becomes what the packer places.',
   vectorize: 'Retired step. This historical version stays readable but cannot be produced again.',
 }
 
@@ -526,9 +526,11 @@ export default function DesignReviewPage() {
           .find((version) => !hiddenLayerIds.includes(version.id)) ?? null)
   const activeHidden = hiddenLayerIds.includes(activeLayer.id)
   const showCompare = compareChoice[activeLayer.id] ?? activeLayer.status === 'proposed'
-  // Cutout is optional, so it is never *suggested*: auto-opening it would imply
-  // every design needs a background removed. It opens only when clicked, but it
-  // still reports "done" once a cutout is on the current lineage.
+  // The shop runs crop → enhance → set print size → remove background, so the
+  // cut-out is the fourth and final step. It is still never *suggested*: not
+  // every design needs a background removed, and auto-opening it would imply
+  // they all do. It opens only when clicked, but reports "done" once a cut-out
+  // is on the current lineage.
   const suggestedTool: ToolId = !pipeline.prepared
     ? 'prepare'
     : !pipeline.enhanced
@@ -537,9 +539,9 @@ export default function DesignReviewPage() {
   const shownTool = openTool ?? suggestedTool
   const toolDone: Record<ToolId, boolean> = {
     prepare: pipeline.prepared,
-    cutout: pipeline.cutout,
     enhance: pipeline.enhanced,
     size: pipeline.sized,
+    cutout: pipeline.cutout,
   }
 
   function toggleCompare() {
@@ -1217,22 +1219,22 @@ export default function DesignReviewPage() {
                 }
               >
                 <summary>
-                  <span className="tool-index" aria-hidden="true">+</span>
+                  <span className="tool-index">4</span>
                   <span className="tool-text">
                     <strong>Remove background</strong>
                     <small>
                       {toolDone.cutout
                         ? 'Cut out in this stack — check the mask before approving'
-                        : 'Optional · crop, cut out, then enlarge'}
+                        : 'Final step · cut out at the print size'}
                     </small>
                   </span>
                   {toolDone.cutout ? <Chip tone="good">done</Chip> : null}
                 </summary>
                 <div className="tool-body stack-sm">
                   <p className="hint">
-                    Runs on the cropped image, then enlarges the original colours and
-                    rebuilds the alpha at full size. Expect up to a minute; the job keeps
-                    running if you leave this page.
+                    {pipeline.sized
+                      ? 'Runs on the final print-size layer and keeps its exact pixel dimensions, so the sheet places it unchanged. Expect up to a minute; the job keeps running if you leave this page.'
+                      : 'No print size is set yet, so this crops and enlarges the artwork as it cuts it out. Set the print size first to cut out at the final pixels instead — that is the order the shop uses.'}
                   </p>
                   <div className="segmented" role="group" aria-label="Cutout provider">
                     {CUTOUT_PROVIDERS.map((option) => (

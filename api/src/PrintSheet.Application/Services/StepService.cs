@@ -189,14 +189,45 @@ public sealed class StepService
                 $"Unknown background-removal provider '{requested}'.");
         }
 
+        // The shop runs crop → enhance → set print size → remove background, so
+        // by the time a cut-out is proposed the parent is usually the approved
+        // resize at the final print pixels. In that position the pipeline must not
+        // auto-crop or upscale, or the version would stop matching the target and
+        // the packer would refuse it. Decided here, once, and recorded on the job
+        // so the runner never has to re-derive it from possibly-changed state.
+        var preserveSize = false;
+        var batch = await _batches.FindByDesignAsync(designId, cancellationToken);
+        var parent = batch?.FindDesign(designId)?.CurrentVersion;
+        if (batch is not null && parent is not null)
+        {
+            preserveSize = ParentIsFinalPrintSize(batch, parent);
+        }
+
         return await EnqueueStepAsync(
             designId,
             JobType.BackgroundRemoval,
             StepType.BackgroundRemoval,
-            command,
+            new BackgroundRemovalJobParameters(command.Provider, preserveSize),
             JobCapability.Cutout,
             validateParent: null,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// True when the version already sits at the design's approved print pixels,
+    /// so a cut-out must keep them rather than resize the artwork again.
+    /// </summary>
+    private static bool ParentIsFinalPrintSize(Batch batch, DesignVersion parent)
+    {
+        var design = batch.FindDesign(parent.DesignId);
+        if (design?.TargetWidthCm is not { } widthCm
+            || design.TargetHeightCm is not { } heightCm)
+        {
+            return false;
+        }
+
+        return parent.WidthPx == PrintUnits.PixelsForCentimeters(widthCm, batch.Geometry.WorkingDpi)
+            && parent.HeightPx == PrintUnits.PixelsForCentimeters(heightCm, batch.Geometry.WorkingDpi);
     }
 
     private async Task<Result<JobAccepted>> EnqueueStepAsync(

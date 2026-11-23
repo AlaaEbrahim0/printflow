@@ -44,6 +44,55 @@ describe('reviewReadiness', () => {
     expect(readiness.steps.every((step) => step.done)).toBe(true)
   })
 
+  it('is packable when the cut-out is the final version at the target pixels', () => {
+    // The shop's order is crop → enhance → set print size → remove background,
+    // so the last version is normally a cut-out. It is packable as long as it
+    // kept the resize's exact pixels.
+    const readiness = reviewReadiness(
+      design({
+        currentVersion: {
+          id: 'v4',
+          designId: '00000000-0000-0000-0000-0000000000aa',
+          stepType: 'background-removal',
+          status: 'approved',
+          widthPx: 3543,
+          heightPx: 1417,
+          hasAlpha: true,
+          createdAt: '2026-01-01T00:00:00Z',
+          fileUrl: '/v4.png',
+        },
+      }),
+      300,
+    )
+    expect(readiness.packable).toBe(true)
+    expect(readiness.steps.every((step) => step.done)).toBe(true)
+  })
+
+  it('blocks a cut-out that resampled the artwork off the target pixels', () => {
+    // If the cut-out changed the dimensions, the packer would have to resample,
+    // so this must not claim the design is packable.
+    const readiness = reviewReadiness(
+      design({
+        currentVersion: {
+          id: 'v4',
+          designId: '00000000-0000-0000-0000-0000000000aa',
+          stepType: 'background-removal',
+          status: 'approved',
+          widthPx: 4000,
+          heightPx: 1600,
+          hasAlpha: true,
+          createdAt: '2026-01-01T00:00:00Z',
+          fileUrl: '/v4.png',
+        },
+      }),
+      300,
+    )
+    expect(readiness.packable).toBe(false)
+    const resize = readiness.steps.find((step) => step.id === 'resize')
+    expect(resize?.done).toBe(false)
+    expect(resize?.blockedBy).toContain('no longer matches')
+  })
+
   it('blocks when there is no target size and says which step to fix first', () => {
     const readiness = reviewReadiness(design({ targetWidthCm: null, targetHeightCm: null }), 300)
     expect(readiness.packable).toBe(false)
@@ -74,7 +123,7 @@ describe('reviewReadiness', () => {
     expect(readiness.packable).toBe(false)
     const resize = readiness.steps.find((step) => step.id === 'resize')
     expect(resize?.done).toBe(false)
-    expect(resize?.blockedBy).toContain('Create a resize proposal')
+    expect(resize?.blockedBy).toContain('Set the print size and approve that version')
   })
 
   it('blocks while a proposal is awaiting review', () => {

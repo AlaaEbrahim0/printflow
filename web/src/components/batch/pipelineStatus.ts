@@ -3,11 +3,11 @@ import type { DesignVersion } from '../../api/client'
 /**
  * Which pipeline steps this design has already been through.
  *
- * The review page shows three numbered steps (prepare, enhance, set size) as
- * plain expandable rows, so an operator returning to a half-finished design has
- * no way to tell "I already cropped this" from "I never touched it". Version
- * history already records every step, so this is a pure derivation with no
- * extra request.
+ * The shop's order is crop → enhance → set print size → remove background, and
+ * the review page shows those four as numbered rows, so an operator returning to
+ * a half-finished design has no way to tell "I already cropped this" from "I
+ * never touched it". Version history already records every step, so this is a
+ * pure derivation with no extra request.
  *
  * A step counts as done when the current version's lineage contains it — not
  * merely when such a version exists somewhere, because a rejected or abandoned
@@ -15,9 +15,9 @@ import type { DesignVersion } from '../../api/client'
  */
 export interface PipelineStatus {
   prepared: boolean
-  cutout: boolean
   enhanced: boolean
   sized: boolean
+  cutout: boolean
 }
 
 export function pipelineStatus(
@@ -37,8 +37,8 @@ export function pipelineStatus(
 
   return {
     prepared: lineage.some((version) => version.stepType === 'trim' || version.stepType === 'crop'),
-    cutout: lineage.some((version) => version.stepType === 'background-removal'),
     enhanced: lineage.some((version) => version.stepType === 'upscale'),
     sized: lineage.some((version) => version.stepType === 'resize'),
+    cutout: lineage.some((version) => version.stepType === 'background-removal'),
   }
 }

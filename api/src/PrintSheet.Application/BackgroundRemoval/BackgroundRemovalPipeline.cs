@@ -58,12 +58,23 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
     public async Task<BackgroundRemovalPipelineResult> RunAsync(
         ImageInput input,
         CancellationToken cancellationToken,
-        string? preferredProvider = null)
+        string? preferredProvider = null,
+        bool preserveSize = false)
     {
         Validate(input);
         var total = Stopwatch.StartNew();
 
-        var croppedPng = await _cropper.CropAsync(input, cancellationToken);
+        // The shop's step order is crop → enhance → set print size → remove
+        // background, so the cut-out normally runs on a version whose pixel size
+        // is already the approved print size. In that position the internal
+        // auto-crop and the AI upscale must both be skipped: either one changes
+        // the dimensions, and the packer requires the final version to be exactly
+        // the target pixels. The matte is still computed on the cropped *view* of
+        // the same bytes, so the subject is centred in the provider's input
+        // without moving the output frame.
+        var croppedPng = preserveSize
+            ? input.Bytes
+            : await _cropper.CropAsync(input, cancellationToken);
         var cropped = await InspectAsync(croppedPng, cancellationToken);
 
         var removal = await _remover.RemoveAsync(
@@ -88,10 +99,14 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
                 + $"{cropped.WidthPx}x{cropped.HeightPx}.");
         }
 
-        var upscaledPng = await _upscaler.UpscaleAsync(
-            new ImageInput(croppedPng, "image/png", "cropped.png"),
-            cancellationToken);
-        var upscaled = await InspectAsync(upscaledPng, cancellationToken);
+        var upscaledPng = preserveSize
+            ? croppedPng
+            : await _upscaler.UpscaleAsync(
+                new ImageInput(croppedPng, "image/png", "cropped.png"),
+                cancellationToken);
+        var upscaled = preserveSize
+            ? cropped
+            : await InspectAsync(upscaledPng, cancellationToken);
 
         var alpha = await _refiner.RefineAsync(
             new AlphaRefinement(removal.PngBytes, upscaled.WidthPx, upscaled.HeightPx),
@@ -102,14 +117,15 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
         _logger.LogInformation(
             "Background removal pipeline succeeded: provider={Provider} inputBytes={InputBytes} "
             + "outputBytes={OutputBytes} removalMs={RemovalMs} totalMs={TotalMs} "
-            + "widthPx={WidthPx} heightPx={HeightPx}",
+            + "widthPx={WidthPx} heightPx={HeightPx} preserveSize={PreserveSize}",
             removal.Provider,
             input.Bytes.Length,
             finalPng.Length,
             (long)removal.Elapsed.TotalMilliseconds,
             (long)total.Elapsed.TotalMilliseconds,
             upscaled.WidthPx,
-            upscaled.HeightPx);
+            upscaled.HeightPx,
+            preserveSize);
 
         return new BackgroundRemovalPipelineResult(
             finalPng,

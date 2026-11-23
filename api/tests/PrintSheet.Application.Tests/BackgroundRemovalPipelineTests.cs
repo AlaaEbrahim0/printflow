@@ -127,6 +127,61 @@ public sealed class BackgroundRemovalPipelineTests
         Assert.False(harness.Cropper.Called);
     }
 
+    [Fact]
+    public async Task PreserveSizeSkipsTheCropAndTheUpscale()
+    {
+        // The shop runs crop → enhance → set print size → remove background, so a
+        // cut-out proposed at the final print size must not change the dimensions:
+        // the packer requires the final version to be exactly the target pixels.
+        var calls = new List<string>();
+        var harness = Harness.Create(calls: calls);
+
+        var result = await Create(harness).RunAsync(
+            Input(),
+            CancellationToken.None,
+            preferredProvider: null,
+            preserveSize: true);
+
+        Assert.Equal(["remove", "refine", "composite"], calls);
+        Assert.False(harness.Cropper.Called);
+        Assert.False(harness.Upscaler.Called);
+        // The provider still sees the input bytes, and the matte is refined
+        // straight to the input's own size — not the upscaler's 4x size.
+        Assert.Equal(Input().Bytes, harness.Remover.LastImage!.Bytes);
+        Assert.Equal(100, harness.Refiner.LastRequest!.TargetWidthPx);
+        Assert.Equal(50, harness.Refiner.LastRequest.TargetHeightPx);
+        Assert.Equal(FinalPng, result.PngBytes);
+    }
+
+    [Fact]
+    public async Task PreserveSizeStillForwardsTheProviderOverride()
+    {
+        var harness = Harness.Create();
+
+        await Create(harness).RunAsync(
+            Input(),
+            CancellationToken.None,
+            preferredProvider: "poof",
+            preserveSize: true);
+
+        Assert.Equal("poof", harness.Remover.LastPreferredProvider);
+    }
+
+    [Fact]
+    public async Task PreserveSizeStillRejectsAMatteLargerThanTheInput()
+    {
+        var harness = Harness.Create(cutoutWidth: 200, cutoutHeight: 100);
+
+        var error = await Assert.ThrowsAsync<BackgroundRemovalException>(
+            () => Create(harness).RunAsync(
+                Input(),
+                CancellationToken.None,
+                preferredProvider: null,
+                preserveSize: true));
+
+        Assert.Equal(BackgroundRemovalFailureReason.InvalidImage, error.Reason);
+    }
+
     private static ImageInput Input() => new([1, 2, 3], "image/png", "art.png");
 
     private static BackgroundRemovalPipeline Create(List<string> calls)

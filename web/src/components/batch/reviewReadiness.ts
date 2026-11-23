@@ -45,13 +45,18 @@ export function reviewReadiness(design: DesignDetail, workingDpi: number): Revie
     design.targetHeightCm !== null &&
     design.targetHeightCm !== undefined
   const current = design.currentVersion
-  const isFinalResize = current?.stepType === 'resize'
-  // Mirror `Design.RecomputeStatus`: a resize only counts while its pixels still
-  // equal the target at the batch's working DPI.
+  // The shop's order is crop → enhance → set print size → remove background, so
+  // the last version is normally a cut-out, not a resize. Both are terminal when
+  // their pixels match the target; any other step means the print size is not
+  // established yet.
+  const isFinalStep =
+    current?.stepType === 'resize' || current?.stepType === 'background-removal'
+  // Mirror `Design.RecomputeStatus`: a final step only counts while its pixels
+  // still equal the target at the batch's working DPI.
   const resizeMatchesTarget =
     current !== null &&
     current !== undefined &&
-    isFinalResize &&
+    isFinalStep &&
     hasTarget &&
     matchesTargetPixels(
       { widthPx: current.widthPx, heightPx: current.heightPx },
@@ -73,15 +78,15 @@ export function reviewReadiness(design: DesignDetail, workingDpi: number): Revie
     },
     {
       id: 'resize',
-      label: 'Final resize is current',
+      label: 'Final size is current',
       done: resizeMatchesTarget,
       blockedBy: resizeMatchesTarget
         ? null
-        : isFinalResize
-          ? 'The print size changed after this resize was made, so it no longer matches. Create a new resize at the current target and approve it.'
+        : isFinalStep
+          ? 'The print size changed after this version was made, so it no longer matches. Create a new version at the current target and approve it.'
           : hasTarget
-            ? 'Create a resize proposal at the target size and approve it.'
-            : 'Set the print size first, then create the resize.',
+            ? 'Set the print size and approve that version, then remove the background at that size.'
+            : 'Set the print size first, then create the final version.',
     },
     {
       id: 'approved',

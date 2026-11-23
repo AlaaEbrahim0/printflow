@@ -47,8 +47,15 @@ public interface IBackgroundRemovalPipeline
     /// <param name="preferredProvider">
     /// Optional per-job provider override; null uses the configured default.
     /// </param>
+    /// <param name="preserveSize">
+    /// When true the pipeline keeps the input's exact pixel dimensions: no
+    /// internal auto-crop and no AI upscale. Used when the cut-out runs after
+    /// print size is set, because the packer requires the final version to be
+    /// exactly the target pixels.
+    /// </param>
     Task<BackgroundRemoval.BackgroundRemovalPipelineResult> RunAsync(
         ImageInput input,
         CancellationToken cancellationToken,
-        string? preferredProvider = null);
+        string? preferredProvider = null,
+        bool preserveSize = false);
 }

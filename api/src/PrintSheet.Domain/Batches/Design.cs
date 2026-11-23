@@ -593,7 +593,7 @@ public sealed class Design
             return;
         }
 
-        if (current.StepType == StepType.Resize && MatchesTarget(current))
+        if (IsTerminalStep(current.StepType) && MatchesTarget(current))
         {
             Status = DesignStatus.Ready;
             return;
@@ -603,6 +603,21 @@ public sealed class Design
             ? DesignStatus.Received
             : DesignStatus.InProgress;
     }
+
+    /// <summary>
+    /// Steps that may legitimately be the last one before packing.
+    /// </summary>
+    /// <remarks>
+    /// The shop runs crop → enhance → set print size → remove background, so the
+    /// cut-out is normally the final version and a resize is not. Both qualify:
+    /// a cut-out that preserves the resize's exact pixels is just as packable as
+    /// the resize itself, and <see cref="MatchesTarget"/> is what actually decides.
+    /// Any other step (trim, crop, upscale, manual edit) changes pixels or scale
+    /// and can never be final, because nothing would then guarantee the printed
+    /// size.
+    /// </remarks>
+    private static bool IsTerminalStep(StepType stepType)
+        => stepType is StepType.Resize or StepType.BackgroundRemoval;
 
     private bool MatchesTarget(DesignVersion version)
     {
