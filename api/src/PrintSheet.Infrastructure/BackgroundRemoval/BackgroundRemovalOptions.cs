@@ -81,13 +81,22 @@ public sealed class PrepareWorkerOptions : IHttpClientEndpointOptions
     public bool UseGpu { get; init; } = true;
 
     /// <summary>
-    /// Largest Real-ESRGAN output the prepare step will ask for. Above it the
-    /// crop is resampled in-process instead: CPU inference past this point runs
-    /// longer than the request budget, and a timed-out attempt only burns 300 s
-    /// before the job is retried. GPU deployments can raise it.
+    /// Largest Real-ESRGAN output the prepare step will ask for; above it the crop
+    /// is resampled in-process instead. Unset derives it from <see cref="UseGpu"/>:
+    /// a timed-out attempt only burns the 300 s budget before falling back, so
+    /// asking a CPU worker for a print-size pass wastes five minutes per attempt
+    /// for an image it cannot finish.
     /// </summary>
     [Range(0, int.MaxValue)]
-    public int MaxAiOutputPixels { get; init; } = 1_000_000;
+    public int? MaxAiOutputPixels { get; init; }
+
+    /// <summary>
+    /// The pixel budget actually applied. Measured on the reference workstation:
+    /// the CPU worker produces ~970 px/s (154k px in 159 s) and the GPU ~25k px/s
+    /// (480k px in 19.5 s). Against the 300 s attempt timeout that is ~290k and
+    /// ~7.4M px; the defaults keep a wide margin for a busier machine.
+    /// </summary>
+    public int AiOutputPixelBudget => MaxAiOutputPixels ?? (UseGpu ? 4_000_000 : 150_000);
 
     /// <summary>
     /// Ceiling for the upscaled colour layer. The configured scale is halved

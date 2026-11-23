@@ -609,12 +609,17 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 ## 15. Live status
 
-**Last updated:** 2026-11-22 (cutout timeouts fixed by bounding provider input and AI upscale)
+**Last updated:** 2026-11-23 (GPU path verified; AI upscale budget now per engine)
 
 **Done and verified:**
 
 - Git repo initialized (`main`); skeleton commit `d0d44b9`; Phase 0 deliverable
   commit `9f52d0b`.
+- **GPU upscale verified (2026-11-23).** Real-ESRGAN on the GTX 1650 Ti via
+  `make worker-gpu` (`:8001`) drives the GPU to 97% and the live pipeline test
+  passes in 45 s. Measured throughput: CPU worker ~970 output px/s, GPU ~25k px/s.
+  The AI upscale budget is therefore derived from `UseGpu` (4M / 150k) instead of
+  a flat 1M, which on CPU would have needed ~17 min against a 300 s timeout.
 - **Cutouts no longer time out (2026-11-22).** The "runs forever" symptom was two
   unbounded steps, not a broken worker. The self-hosted model mattes at its own
   low internal resolution and takes ~30 s per MP, so a 16.9 MP crop ran far past
@@ -623,7 +628,8 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
   back up, so the pipeline's size guard is "never larger than the crop, same
   aspect ratio". Poof is verified live and keeps its full 24 MP budget because it
   returns a native-resolution matte in seconds. The Real-ESRGAN call is bounded
-  too: above `PrepareWorker:MaxAiOutputPixels` (default 1,000,000) and on any
+  too: above `PrepareWorker:MaxAiOutputPixels` (unset derives 4M on GPU / 150k on
+  CPU from the measured ~25k / ~970 output px/s) and on any
   retryable worker fault the upscaler resamples in-process with Mitchell, and
   `MaxOutputPixels` (default 24,000,000) halves the scale until the layer fits.
   Live through Compose on the three designs that used to fail: 2856×3820 in
@@ -663,8 +669,9 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
   cutout produced a 1268x1068 RGBA proposal in 64.9 s with transparent corners
   and the subject at its source colour.
 - API Clean Architecture implementation builds; 13 domain, 35 application and
-  72 infrastructure tests pass (3 live-only tests skip without the worker and
-  withoutBG URLs). The live fixture-flow script covers the API job lifecycle.
+  73 infrastructure tests pass (3 live-only tests skip without the worker and
+  withoutBG URLs; with both URLs set the live pipeline test passes in 45 s). The
+  live fixture-flow script covers the API job lifecycle.
 - Worker processing covers classify, trim/crop, upscale, resize; 200 tests pass.
   `background-removal` is not a worker job type at all (the API runs it), so it
   is absent from `JOB_TYPES` and the worker-job schema. `vectorize` and
@@ -936,6 +943,39 @@ reference data, not immediate work.
 ---
 
 ## 16. Handoff log
+
+### 2026-11-23 — GPU path verified; two of yesterday's claims were wrong
+
+- **GPU upscale verified end to end.** `make worker-gpu` on `:8001`, Real-ESRGAN
+  enumerated the GTX 1650 Ti as Vulkan device 1 and drove it to 97% utilisation.
+  The live pipeline test (`PRINTSHEET_TEST_WORKER_URL=http://localhost:8001/`)
+  passes in 45 s: crop → withoutBG → GPU upscale → refine → recombine.
+- **Throughput measured, and it invalidated the AI budget default.** Output px/s:
+  CPU worker ~970 (154k px in 159 s, via the Compose worker's own `/v1/upscale`),
+  GPU ~25k (480k px in 19.5 s) — 25× apart. The previous flat
+  `MaxAiOutputPixels = 1_000_000` would need ~17 min on CPU against a 300 s
+  attempt timeout, so every CPU deployment would burn 5 min and fall back. It is
+  now `int?`: unset derives from `UseGpu` (4M GPU / 150k CPU) via
+  `AiOutputPixelBudget`, and an explicit value still wins. Compose seam removed
+  because the default is now correct per engine; `AiOutputBudgetFollowsTheEngineThatWillRun`
+  locks it in.
+- **Correction: the Compose worker does ship Real-ESRGAN.** README claimed it had
+  no engine binary and "cannot finish the pipeline". It has the binary and models
+  at `/tools` and serves `/v1/upscale` on llvmpipe (software Vulkan, no
+  `/dev/dri` in the container). Measured, not assumed. README fixed.
+- **Correction: the `host.docker.internal:8001` recipe does not work here.**
+  Containers on this workstation cannot reach *any* host port — `docker0` and the
+  Compose bridge gateway both time out, while container-to-container is fine — so
+  the API container can never call the native GPU worker. It is a host firewall
+  (sudo-gated, not inspected). README and the compose comment now say to verify
+  with `docker compose exec api curl -sf http://host.docker.internal:8001/health`
+  and to run the API natively or accept the CPU worker if it fails. The
+  `extra_hosts` mapping stays; it is necessary but not sufficient.
+- Live after the budget change: the 3998×1562 design via Compose CPU worker
+  `succeeded` in 1 attempt, 59.6 s (withoutBG removal 40.6 s), and the upscale
+  resolved locally as intended rather than timing out.
+- Tests: API 13 + 35 + 73 (3 live skipped), plus the live pipeline test green
+  against the GPU worker.
 
 ### 2026-11-22 — Poof verified live; pixel budget split per provider
 

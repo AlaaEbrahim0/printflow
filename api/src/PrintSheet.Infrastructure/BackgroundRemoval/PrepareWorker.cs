@@ -55,7 +55,7 @@ public sealed class PrepareWorkerUpscaler(
             return image.Bytes;
         }
 
-        if ((long)width * height * scale * scale <= settings.MaxAiOutputPixels)
+        if ((long)width * height * scale * scale <= settings.AiOutputPixelBudget)
         {
             try
             {

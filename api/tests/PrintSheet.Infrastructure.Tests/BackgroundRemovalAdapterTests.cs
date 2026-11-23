@@ -216,6 +216,22 @@ public sealed class BackgroundRemovalAdapterTests
     }
 
     [Fact]
+    public void AiOutputBudgetFollowsTheEngineThatWillRun()
+    {
+        // The CPU engine measured ~970 px/s against a 300 s attempt timeout, so a
+        // budget sized for the GPU would spend five minutes per attempt timing out
+        // on an image the CPU cannot finish.
+        Assert.Equal(4_000_000, new PrepareWorkerOptions { UseGpu = true }.AiOutputPixelBudget);
+        Assert.Equal(150_000, new PrepareWorkerOptions { UseGpu = false }.AiOutputPixelBudget);
+
+        // An explicit setting always wins, so a faster machine can raise it.
+        Assert.Equal(
+            9_000_000,
+            new PrepareWorkerOptions { UseGpu = false, MaxAiOutputPixels = 9_000_000 }
+                .AiOutputPixelBudget);
+    }
+
+    [Fact]
     public async Task UpscalerSkipsTheWorkerAboveTheAiOutputBudget()
     {
         var handler = new StubHandler((_, _) => throw new InvalidOperationException("must not call"));

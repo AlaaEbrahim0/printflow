@@ -42,14 +42,17 @@ services:
       BackgroundRemoval__Poof__ApiKey: ${POOF_API_KEY:-}
       BackgroundRemoval__PrepareWorker__BaseUrl: ${BACKGROUND_REMOVAL_PREPARE_WORKER_BASE_URL:-http://worker:8000}
       BackgroundRemoval__PrepareWorker__UseGpu: ${WORKER_GPU_ENABLED:-false}
-      BackgroundRemoval__PrepareWorker__MaxAiOutputPixels: ${BACKGROUND_REMOVAL_PREPARE_WORKER_MAX_AI_OUTPUT_PIXELS:-1000000}
       BackgroundRemoval__PrepareWorker__MaxOutputPixels: ${BACKGROUND_REMOVAL_PREPARE_WORKER_MAX_OUTPUT_PIXELS:-24000000}
       BackgroundRemoval__WithoutBg__BaseUrl: http://withoutbg:8000
       BackgroundRemoval__WithoutBg__MaxInputPixels: ${BACKGROUND_REMOVAL_WITHOUTBG_MAX_INPUT_PIXELS:-1000000}
       BackgroundRemoval__Poof__MaxInputPixels: ${BACKGROUND_REMOVAL_POOF_MAX_INPUT_PIXELS:-24000000}
-    # The native GPU worker runs on the host (:8001) because the image is
-    # CPU-only. Point BackgroundRemoval__PrepareWorker__BaseUrl at
-    # http://host.docker.internal:8001 with WORKER_GPU_ENABLED=true to use it.
+    # Lets a container reach a host port. Point
+    # BackgroundRemoval__PrepareWorker__BaseUrl at http://host.docker.internal:8001
+    # with WORKER_GPU_ENABLED=true to use the native GPU worker, but confirm the
+    # host firewall allows it first:
+    #   docker compose exec api curl -sf http://host.docker.internal:8001/health
+    # On the reference workstation host ports time out from inside the container,
+    # so that path is documented but not usable there.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:

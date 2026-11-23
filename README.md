@@ -162,7 +162,7 @@ and sends `provider` only for an explicit override. `Server default` follows
 | `BackgroundRemoval:PrepareWorker:WorkerKey` | falls back to `Worker:Key` |
 | `BackgroundRemoval:PrepareWorker:UpscaleScale` | 2 or 4 (Real-ESRGAN's only ratios) |
 | `BackgroundRemoval:PrepareWorker:UseGpu` | false for the CPU worker |
-| `BackgroundRemoval:PrepareWorker:MaxAiOutputPixels` | largest output sent to Real-ESRGAN, default 1,000,000; above it the crop is resampled in-process |
+| `BackgroundRemoval:PrepareWorker:MaxAiOutputPixels` | largest output sent to Real-ESRGAN; unset derives it from `UseGpu` (4M on GPU, 150k on CPU — the CPU engine manages ~970 px/s against a 300 s attempt timeout). Above it the crop is resampled in-process |
 | `BackgroundRemoval:PrepareWorker:MaxOutputPixels` | ceiling for the upscaled colour layer, default 24,000,000; the requested scale is halved until it fits |
 | `BackgroundRemoval:AlphaFeatherPx` | matte feather radius, default 0.5; 0 disables |
 | `BackgroundRemoval:AlphaContractPx` | matte contraction in pixels, default 2; 0 disables |
@@ -174,10 +174,27 @@ migration instance wants. The single-job-at-a-time limit is deliberate: the
 pipeline holds several full-size PNGs in memory and the upscaler owns the GPU.
 
 The Compose API talks to the CPU worker (`http://worker:8000`, `UseGpu=false`).
-To hand the upscale to the native GPU worker on the host, set
-`BACKGROUND_REMOVAL_PREPARE_WORKER_BASE_URL=http://host.docker.internal:8001`
-and `WORKER_GPU_ENABLED=true`; the API service already maps
-`host.docker.internal` to the host gateway.
+Handing the upscale to the native GPU worker on the host needs the container to
+reach a host port. The API service maps `host.docker.internal` to the host
+gateway for that, so:
+
+```bash
+BACKGROUND_REMOVAL_PREPARE_WORKER_BASE_URL=http://host.docker.internal:8001 \
+WORKER_GPU_ENABLED=true docker compose up -d api
+```
+
+That only works if the host firewall accepts traffic from the Docker bridge.
+On the reference workstation it does not: every host port, on both the
+`docker0` and the Compose bridge gateway, times out from inside the container
+while container-to-container traffic is fine. Verify before relying on it:
+
+```bash
+docker compose exec api curl -sf http://host.docker.internal:8001/health
+```
+
+If that fails, run the API natively (`make api`) so it can use `localhost:8001`,
+or leave Compose on the CPU worker — the pixel budget keeps that path bounded
+and it finishes, just without the AI detail.
 
 The request body is optional and only overrides the provider for one job:
 
@@ -251,17 +268,20 @@ the model behind an approved cutout.
 
 Native development can point at the same container: `WithoutBg:BaseUrl` in
 `appsettings.Development.json` is `http://localhost:8002`. The development
-settings point the prepare routes at the plain worker on `:8000`; Real-ESRGAN is
-only installed for the GPU worker, so to exercise the upscale step natively run
+settings point the prepare routes at the plain worker on `:8000`, which runs
+Real-ESRGAN on the CPU. To exercise the upscale step on the GPU run
 `make worker-gpu` and set `BackgroundRemoval:PrepareWorker:BaseUrl` to
 `http://localhost:8001` with `UseGpu: true`.
 
-Step 3 needs a worker with Real-ESRGAN installed. The Compose worker ships
-without the engine binary, so a Compose-only deployment can remove backgrounds
-but cannot finish the pipeline; run the native GPU worker (`make worker-gpu`)
-and point `BackgroundRemoval:PrepareWorker:BaseUrl` at it. That is deliberate:
-print-size upscaling on CPU takes minutes per layer even with the engine present,
-and the pipeline's timeouts are sized for a GPU.
+Step 3 needs a worker with Real-ESRGAN installed. The Compose worker ships the
+engine at `/tools` and will run it on llvmpipe (software Vulkan) because the
+container has no GPU device; that works but is slow — measured ~970 px/s of
+output, so a 300 s attempt covers roughly 150k px. The pipeline's default CPU
+budget is sized to that, and anything larger is resampled in-process instead of
+timing out. For print-size upscaling run the native GPU worker (`make worker-gpu`)
+and point `BackgroundRemoval:PrepareWorker:BaseUrl` at it with `UseGpu: true`:
+the same engine on the GTX 1650 Ti managed ~25k px/s (480k px in 19.5 s), about
+25x faster.
 
 The API health check for withoutBG is tagged `dependency`, and `/healthz` skips
 dependency checks, so the workbench stays up when the cutout service is down.
