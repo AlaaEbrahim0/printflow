@@ -201,6 +201,71 @@ describe('jobs, proposals and step semantics', () => {
     expect(pending.hasMask).toBe(false)
   })
 
+  it('a mono refinement proposes a two-state version at the parent pixels', () => {
+    // The refinement cuts at the print pixels, so the version must keep its
+    // parent's exact dimensions: that is what keeps the design packable.
+    const acme = batchByName('ACME summer drop 01')
+    const banner = designByName(acme.id, 'Side-seam banner')
+    const parent = store().versions.get(banner.currentVersionId)!
+    const job = store().proposeStep(banner.id, 'refine-mono', { preset: 'text' })
+    expect(store().jobs.get(job.jobId)!.type).toBe('refine-mono')
+    store().settleJob(job.jobId)
+
+    const pending = store().versions.get(store().designs.get(banner.id)!.pendingVersionId!)!
+    expect(pending.stepType).toBe('refine-mono')
+    expect(pending.status).toBe('proposed')
+    expect(pending.hasAlpha).toBe(true)
+    expect(pending.widthPx).toBe(parent.widthPx)
+    expect(pending.heightPx).toBe(parent.heightPx)
+  })
+
+  it('projects a mono refinement exactly like the API does', () => {
+    // The API writes a fixed set of camelCase keys and drops every null one, so
+    // the stored job must not simply echo the request body. `binarizeFlatColour`
+    // in particular is omitted unless true: the worker reads its presence as
+    // consent to destroy colour.
+    const acme = batchByName('ACME summer drop 01')
+    const banner = designByName(acme.id, 'Side-seam banner')
+    const job = store().proposeStep(banner.id, 'refine-mono', {
+      preset: 'logo',
+      binarizeFlatColour: false,
+      denoiseKernel: 5,
+      despeckleMaxPx: null,
+    })
+    const stored = store().jobs.get(job.jobId)!.parameters
+
+    expect(stored).toMatchObject({ preset: 'logo', denoiseKernel: 5 })
+    expect(stored).not.toHaveProperty('binarizeFlatColour')
+    expect(stored).not.toHaveProperty('despeckleMaxPx')
+  })
+
+  it('refuses clean-only combined with binarize consent', () => {
+    // Mirrors the API: the two instructions contradict, so the request is
+    // rejected rather than one of them being silently honoured.
+    const acme = batchByName('ACME summer drop 01')
+    const banner = designByName(acme.id, 'Side-seam banner')
+    const refused = problem(() =>
+      store().proposeStep(banner.id, 'refine-mono', {
+        preset: 'clean-only',
+        binarizeFlatColour: true,
+      }),
+    )
+    expect(refused.status).toBe(422)
+    expect(refused.code).toBe('invalid-request')
+  })
+
+  it('refuses to refine ink before the print size is set', () => {
+    // A refinement is a finishing pass: cutting before the resize would let the
+    // resize resample the hard plate back into greys.
+    const acme = batchByName('ACME summer drop 01')
+    const logo = designByName(acme.id, 'APEX logo')
+    const refused = problem(() =>
+      store().proposeStep(logo.id, 'refine-mono', { preset: 'text' }),
+    )
+    expect(refused.status).toBe(422)
+    expect(refused.code).toBe('invalid-target-size')
+  })
+
   it('a manual crop through the trim endpoint records a crop version', () => {
     const acme = batchByName('ACME summer drop 01')
     const logo = designByName(acme.id, 'APEX logo')

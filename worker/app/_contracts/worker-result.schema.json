@@ -31,6 +31,7 @@
         "durationMs": { "type": "integer", "minimum": 0 },
         "engine": { "type": "string" },
         "model": { "type": "string" },
+        "mono": { "$ref": "#/$defs/monoMetadata" },
         "warnings": {
           "type": "array",
           "items": {
@@ -92,6 +93,61 @@
         "message": { "type": "string", "minLength": 1 },
         "retryable": { "type": "boolean" },
         "details": { "type": "object" }
+      }
+    },
+    "monoMetadata": {
+      "description": "What the mono refinement decided and did. Present only on refine-mono results.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "binarized"],
+      "properties": {
+        "classification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "eta",
+            "neutralInkShare",
+            "distinctColours",
+            "eligible",
+            "mayBinarize",
+            "reason"
+          ],
+          "properties": {
+            "kind": { "enum": ["mono-ink", "flat-colour", "photo"] },
+            "eta": { "type": "number", "minimum": 0, "maximum": 1 },
+            "neutralInkShare": { "type": "number", "minimum": 0, "maximum": 1 },
+            "distinctColours": { "type": "integer", "minimum": 0 },
+            "eligible": { "type": "boolean" },
+            "mayBinarize": { "type": "boolean" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        },
+        "preset": { "type": "string" },
+        "binarized": { "type": "boolean" },
+        "skipped": { "type": "boolean" },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["stage", "changedPx"],
+            "properties": {
+              "stage": { "type": "string", "minLength": 1 },
+              "changedPx": { "type": "integer", "minimum": 0 },
+              "detail": { "type": "object" }
+            }
+          }
+        },
+        "twoState": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["inkPx", "paperPx"],
+          "properties": {
+            "inkPx": { "type": "integer", "minimum": 0 },
+            "paperPx": { "type": "integer", "minimum": 0 }
+          }
+        }
       }
     },
     "classifierSuggestions": {

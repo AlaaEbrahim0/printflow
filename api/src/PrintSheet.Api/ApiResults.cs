@@ -106,6 +106,7 @@ public static class ApiResults
             ["upscale"] = JobType.Upscale,
             ["vectorize"] = JobType.Vectorize,
             ["resize"] = JobType.Resize,
+            ["refine-mono"] = JobType.RefineMono,
             ["pack-sheet"] = JobType.PackSheet,
             ["integrity-check"] = JobType.IntegrityCheck,
             ["export"] = JobType.Export,

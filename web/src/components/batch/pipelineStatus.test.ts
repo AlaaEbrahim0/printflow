@@ -30,6 +30,7 @@ describe('pipelineStatus', () => {
       cutout: false,
       enhanced: false,
       sized: false,
+      refined: false,
     })
   })
 
@@ -45,6 +46,7 @@ describe('pipelineStatus', () => {
       cutout: false,
       enhanced: true,
       sized: true,
+      refined: false,
     })
   })
 
@@ -62,6 +64,7 @@ describe('pipelineStatus', () => {
       cutout: false,
       enhanced: false,
       sized: true,
+      refined: false,
     })
   })
 
@@ -99,6 +102,7 @@ describe('pipelineStatus', () => {
       cutout: false,
       enhanced: false,
       sized: false,
+      refined: false,
     })
   })
 
@@ -109,7 +113,30 @@ describe('pipelineStatus', () => {
       cutout: false,
       enhanced: false,
       sized: true,
+      refined: false,
     })
+  })
+
+  it('counts a mono refinement on the lineage as refined', () => {
+    const versions = [
+      version('v1', 'original'),
+      version('v2', 'resize', 'v1'),
+      version('v3', 'refine-mono', 'v2'),
+    ]
+    const status = pipelineStatus(versions, 'v3')
+    expect(status.refined).toBe(true)
+    // Refining is a finishing pass, not one of the four numbered steps.
+    expect(status.sized).toBe(true)
+    expect(status.cutout).toBe(false)
+  })
+
+  it('does not count a refinement that is off the current lineage', () => {
+    const versions = [
+      version('v1', 'original'),
+      version('v2', 'refine-mono', 'v1'),
+      version('v3', 'resize', 'v1'),
+    ]
+    expect(pipelineStatus(versions, 'v3').refined).toBe(false)
   })
 
   it('terminates on a cyclic parent chain instead of looping forever', () => {

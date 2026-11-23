@@ -34,6 +34,12 @@ public enum StepType
     BackgroundRemoval,
     ManualEdit,
     Resize,
+
+    /// <summary>
+    /// Mono refinement: reduce a text/logo scan to hard ink at print resolution.
+    /// Sits after the resize, because the cut must be made at the final pixels.
+    /// </summary>
+    RefineMono,
 }
 
 public enum SheetState
@@ -78,6 +84,7 @@ public enum JobType
     Upscale,
     Vectorize,
     Resize,
+    RefineMono,
     PackSheet,
     IntegrityCheck,
     Export,
@@ -145,6 +152,7 @@ public static class BatchEnumNames
         StepType.BackgroundRemoval => "background-removal",
         StepType.ManualEdit => "manual-edit",
         StepType.Resize => "resize",
+        StepType.RefineMono => "refine-mono",
         _ => throw new ArgumentOutOfRangeException(nameof(value)),
     };
 
@@ -194,6 +202,7 @@ public static class BatchEnumNames
         JobType.Upscale => "upscale",
         JobType.Vectorize => "vectorize",
         JobType.Resize => "resize",
+        JobType.RefineMono => "refine-mono",
         JobType.PackSheet => "pack-sheet",
         JobType.IntegrityCheck => "integrity-check",
         JobType.Export => "export",

@@ -81,6 +81,35 @@ public sealed class TerminalStepTests
         Assert.NotEqual(DesignStatus.Ready, design.Status);
     }
 
+    [Fact]
+    public void MonoRefinementAtTheTargetPixels_MakesTheDesignReady()
+    {
+        // The refinement runs on the finished plate, so it keeps the resize's
+        // exact pixels and the design stays packable.
+        var design = CreateDesign();
+        ApproveResize(design, TargetWidthPx, TargetHeightPx);
+
+        var refined = ApproveProposal(
+            design, StepType.RefineMono, TargetWidthPx, TargetHeightPx);
+
+        Assert.True(refined, "the mono proposal should have been accepted");
+        Assert.Equal(DesignStatus.Ready, design.Status);
+        Assert.Equal(StepType.RefineMono, design.CurrentVersion!.StepType);
+    }
+
+    [Fact]
+    public void MonoRefinementThatChangesTheSize_LeavesTheDesignInProgress()
+    {
+        // A refinement that resampled the plate no longer matches the target, so
+        // the packer would refuse it and the design must not claim to be ready.
+        var design = CreateDesign();
+        ApproveResize(design, TargetWidthPx, TargetHeightPx);
+
+        ApproveProposal(design, StepType.RefineMono, TargetWidthPx + 10, TargetHeightPx);
+
+        Assert.Equal(DesignStatus.InProgress, design.Status);
+    }
+
     private static Design CreateDesign(decimal? targetWidthCm = 20m, decimal? targetHeightCm = 25m)
     {
         var batchId = Guid.NewGuid();
@@ -131,13 +160,24 @@ public sealed class TerminalStepTests
     }
 
     private static bool ApproveCutout(Design design, int widthPx, int heightPx)
+        => ApproveProposal(design, StepType.BackgroundRemoval, widthPx, heightPx);
+
+    /// <summary>
+    /// Propose and approve a step of <paramref name="stepType"/> at the given
+    /// pixel size. Returns false when the domain refused the proposal.
+    /// </summary>
+    private static bool ApproveProposal(
+        Design design,
+        StepType stepType,
+        int widthPx,
+        int heightPx)
     {
-        var cutout = DesignVersion.CreateProposal(
+        var proposal = DesignVersion.CreateProposal(
             Guid.NewGuid(),
             design.Id,
             design.CurrentVersionId,
-            StepType.BackgroundRemoval,
-            $"{design.BatchId}/designs/{design.Id}/versions/cutout.png",
+            stepType,
+            $"{design.BatchId}/designs/{design.Id}/versions/{stepType}.png",
             maskPath: null,
             svgPath: null,
             widthPx,
@@ -147,16 +187,16 @@ public sealed class TerminalStepTests
             jobId: Guid.NewGuid(),
             Now);
 
-        if (!cutout.IsSuccess)
+        if (!proposal.IsSuccess)
         {
             return false;
         }
 
-        if (!design.AddProposal(cutout.Value!, Now).IsSuccess)
+        if (!design.AddProposal(proposal.Value!, Now).IsSuccess)
         {
             return false;
         }
 
-        return design.ApproveVersion(cutout.Value!.Id, Now).IsSuccess;
+        return design.ApproveVersion(proposal.Value!.Id, Now).IsSuccess;
     }
 }

@@ -479,4 +479,108 @@ describe('core workbench routes', () => {
       expect(job?.parameters).not.toHaveProperty('provider')
     })
   })
+
+  it('offers the ink cleanup only once the artwork has a print size', async () => {
+    const mock = startTestMockApi([{
+      name: 'Ink cleanup',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Ink sample',
+        // No resize yet, so the refinement has no print pixels to cut at.
+        chain: [],
+      }],
+    }])
+    const batch = batchNamed(mock, 'Ink cleanup')
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+    expect(screen.queryByRole('button', { name: 'Clean up artwork' })).not.toBeInTheDocument()
+  })
+
+  it('sends the chosen mono preset and the flat-colour consent', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Ink refine',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Ink refine sample',
+        targetCm: [10, 10],
+        chain: [{ stepType: 'resize' }],
+      }],
+    }])
+    const batch = batchNamed(mock, 'Ink refine')
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+
+    // Step 4 is the shop's last numbered step; the refinement is offered after it.
+    await user.click(screen.getByText('Clean ink (optional)'))
+    await user.selectOptions(
+      screen.getByLabelText('Cleanup preset'),
+      screen.getByRole('option', { name: 'Flat-colour illustration' }),
+    )
+    await user.click(
+      screen.getByLabelText('Also reduce a flat-colour logo to a single ink'),
+    )
+    await user.click(screen.getByRole('button', { name: 'Clean up artwork' }))
+
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'refine-mono',
+      )
+      expect(job?.parameters).toMatchObject({
+        preset: 'illustration',
+        binarizeFlatColour: true,
+      })
+    })
+  })
+
+  it('disables the binarize consent under the clean-only preset', async () => {
+    // "Clean up only" is defined by keeping the colours, so consenting to flatten
+    // them contradicts it — and the API refuses the pair. Disable the box so the
+    // operator cannot build a request that will be rejected.
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Ink clean only',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Clean only sample',
+        targetCm: [10, 10],
+        chain: [{ stepType: 'resize' }],
+      }],
+    }])
+    const batch = batchNamed(mock, 'Ink clean only')
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+    await user.click(screen.getByText('Clean ink (optional)'))
+    await user.click(
+      screen.getByLabelText('Also reduce a flat-colour logo to a single ink'),
+    )
+    const consent = screen.getByLabelText(
+      'Also reduce a flat-colour logo to a single ink',
+    )
+    expect(consent).toBeChecked()
+
+    await user.selectOptions(
+      screen.getByLabelText('Cleanup preset'),
+      screen.getByRole('option', { name: 'Clean up only (keep colour)' }),
+    )
+    expect(consent).toBeDisabled()
+    expect(consent).not.toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Clean up artwork' }))
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'refine-mono',
+      )
+      // The contradictory consent is never sent, even though the box was ticked.
+      // The API omits the flag entirely rather than sending `false`.
+      expect(job?.parameters).toMatchObject({ preset: 'clean-only' })
+      expect(job?.parameters).not.toHaveProperty('binarizeFlatColour')
+    })
+  })
 })

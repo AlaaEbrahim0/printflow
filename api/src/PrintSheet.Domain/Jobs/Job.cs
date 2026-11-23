@@ -148,7 +148,8 @@ public sealed class Job
         or JobType.Trim
         or JobType.Upscale
         or JobType.Vectorize
-        or JobType.Resize;
+        or JobType.Resize
+        or JobType.RefineMono;
 
     /// <summary>
     /// True for jobs the API executes itself. <see cref="Type"/> is

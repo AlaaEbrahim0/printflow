@@ -93,6 +93,50 @@ describe('reviewReadiness', () => {
     expect(resize?.blockedBy).toContain('no longer matches')
   })
 
+  it('is packable when a mono refinement is the final version at the target pixels', () => {
+    // A refinement cuts the plate at the print pixels, so it is terminal too —
+    // as long as it kept the resize's exact dimensions.
+    const readiness = reviewReadiness(
+      design({
+        currentVersion: {
+          id: 'v5',
+          designId: '00000000-0000-0000-0000-0000000000aa',
+          stepType: 'refine-mono',
+          status: 'approved',
+          widthPx: 3543,
+          heightPx: 1417,
+          hasAlpha: true,
+          createdAt: '2026-01-01T00:00:00Z',
+          fileUrl: '/v5.png',
+        },
+      }),
+      300,
+    )
+    expect(readiness.packable).toBe(true)
+    expect(readiness.steps.every((step) => step.done)).toBe(true)
+  })
+
+  it('blocks a mono refinement that resampled the artwork off the target pixels', () => {
+    const readiness = reviewReadiness(
+      design({
+        currentVersion: {
+          id: 'v5',
+          designId: '00000000-0000-0000-0000-0000000000aa',
+          stepType: 'refine-mono',
+          status: 'approved',
+          widthPx: 4000,
+          heightPx: 1600,
+          hasAlpha: true,
+          createdAt: '2026-01-01T00:00:00Z',
+          fileUrl: '/v5.png',
+        },
+      }),
+      300,
+    )
+    expect(readiness.packable).toBe(false)
+    expect(readiness.steps.find((step) => step.id === 'resize')?.done).toBe(false)
+  })
+
   it('blocks when there is no target size and says which step to fix first', () => {
     const readiness = reviewReadiness(design({ targetWidthCm: null, targetHeightCm: null }), 300)
     expect(readiness.packable).toBe(false)

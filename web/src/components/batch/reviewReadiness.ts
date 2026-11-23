@@ -45,12 +45,14 @@ export function reviewReadiness(design: DesignDetail, workingDpi: number): Revie
     design.targetHeightCm !== null &&
     design.targetHeightCm !== undefined
   const current = design.currentVersion
-  // The shop's order is crop → enhance → set print size → remove background, so
-  // the last version is normally a cut-out, not a resize. Both are terminal when
-  // their pixels match the target; any other step means the print size is not
+  // The shop's order is crop → enhance → set print size → remove background, and
+  // a mono refinement can follow the cut-out. All three are terminal when their
+  // pixels match the target; any other step means the print size is not
   // established yet.
   const isFinalStep =
-    current?.stepType === 'resize' || current?.stepType === 'background-removal'
+    current?.stepType === 'resize' ||
+    current?.stepType === 'background-removal' ||
+    current?.stepType === 'refine-mono'
   // Mirror `Design.RecomputeStatus`: a final step only counts while its pixels
   // still equal the target at the batch's working DPI.
   const resizeMatchesTarget =

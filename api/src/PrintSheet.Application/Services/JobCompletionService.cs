@@ -910,6 +910,7 @@ public sealed class JobCompletionService
             JobType.Upscale => StepType.Upscale,
             JobType.Vectorize => StepType.Vectorize,
             JobType.Resize => StepType.Resize,
+            JobType.RefineMono => StepType.RefineMono,
             _ => StepType.Trim,
         };
     }

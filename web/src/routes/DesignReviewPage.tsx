@@ -47,6 +47,21 @@ const CUTOUT_PROVIDERS = [
 ] as const
 
 /**
+ * Mono-refinement presets, mirroring `app/mono/presets.py` in the worker.
+ *
+ * The worker owns the numbers behind each name — the web only chooses one — so
+ * a preset tuned server-side does not need a UI release. The labels say what
+ * each one is *for*, because "text" and "logo" are not self-explanatory to
+ * someone deciding which to pick.
+ */
+const MONO_PRESETS = [
+  { value: 'text', label: 'Text or line art' },
+  { value: 'logo', label: 'Single-ink logo' },
+  { value: 'illustration', label: 'Flat-colour illustration' },
+  { value: 'clean-only', label: 'Clean up only (keep colour)' },
+] as const
+
+/**
  * Processing profiles are operator presets. Each one applies a sane default for
  * the machines' steps so a designer can choose a job type without configuring
  * every slider. Selecting a profile never deletes a version: it only rewrites the
@@ -59,7 +74,7 @@ export type ProcessingProfileId = 'logo-text' | 'illustration' | 'soft-artwork' 
  * The three editing tools, in the order the shop works. The ids are stable
  * because the tool list derives which one to open from `pipelineStatus`.
  */
-export type ToolId = 'prepare' | 'cutout' | 'enhance' | 'size'
+export type ToolId = 'prepare' | 'cutout' | 'enhance' | 'size' | 'refine'
 
 export interface ProcessingProfile {
   id: ProcessingProfileId
@@ -170,6 +185,7 @@ const JOB_LABELS: Record<string, string> = {
   upscale: 'Image enhancement',
   resize: 'Print size',
   'background-removal': 'Background removal',
+  'refine-mono': 'Clean ink',
   vectorize: 'Vectorize (retired)',
   'pack-sheet': 'Packing sheet',
   'integrity-check': 'Integrity check',
@@ -193,6 +209,7 @@ const PROPOSAL_EFFECTS: Record<string, string> = {
   upscale: 'Replaces the current image with the enlarged one. AI enlargement adds pixels, not original detail, so compare it with the original first.',
   resize: 'Sets the pixel size the packer will place. Removing the background after this keeps those exact pixels.',
   'background-removal': 'Replaces the current image with the cut-out at the print size. This is usually the last step, so check the mask before approving — it becomes what the packer places.',
+  'refine-mono': 'Replaces the current image with a two-tone version: opaque ink on transparent paper. The colour is discarded for good, so check that thin strokes and small dots survived before approving.',
   vectorize: 'Retired step. This historical version stays readable but cannot be produced again.',
 }
 
@@ -216,6 +233,12 @@ export default function DesignReviewPage() {
   // Null means "whatever BackgroundRemoval:DefaultProvider says"; only an
   // explicit choice is sent as a per-job override.
   const [cutoutProvider, setCutoutProvider] = useState<'withoutbg' | 'poof' | null>(null)
+  // Mono refinement is a finishing pass on the plate, not one of the shop's four
+  // numbered steps, so its knobs live here rather than in the profile presets.
+  const [monoPreset, setMonoPreset] = useState<'text' | 'logo' | 'illustration' | 'clean-only'>(
+    'text',
+  )
+  const [binarizeFlatColour, setBinarizeFlatColour] = useState(false)
   const [targetWidthCm, setTargetWidthCm] = useState<number | null>(null)
   const [targetHeightCm, setTargetHeightCm] = useState<number | null>(null)
   const [aspectLinked, setAspectLinked] = useState(true)
@@ -273,7 +296,7 @@ export default function DesignReviewPage() {
   const designJobs = (data?.jobs.items ?? []).filter(
     (candidate) =>
       candidate.designId === designId &&
-      ['trim', 'upscale', 'vectorize', 'resize'].includes(candidate.type),
+      ['trim', 'upscale', 'vectorize', 'resize', 'refine-mono'].includes(candidate.type),
   )
   const activeJobId = designJobs.find((candidate) =>
     candidate.status === 'queued' || candidate.status === 'running',
@@ -542,6 +565,7 @@ export default function DesignReviewPage() {
     enhance: pipeline.enhanced,
     size: pipeline.sized,
     cutout: pipeline.cutout,
+    refine: pipeline.refined,
   }
 
   function toggleCompare() {
@@ -1271,6 +1295,89 @@ export default function DesignReviewPage() {
                   </p>
                 </div>
               </details>
+
+              {/*
+                Not a fifth numbered step: the shop's order is the four above.
+                This is a conditional finishing pass for text and logo scans, so it
+                is only offered once the artwork has been sized (the cut has to be
+                made at the final print pixels) and it is never auto-suggested.
+              */}
+              {pipeline.sized ? (
+                <details
+                  className={`tool${toolDone.refine ? ' is-done' : ''}`}
+                  open={shownTool === 'refine'}
+                  onToggle={(event) =>
+                    setOpenTool(event.currentTarget.open ? 'refine' : 'none')
+                  }
+                >
+                  <summary>
+                    <span className="tool-index">✦</span>
+                    <span className="tool-text">
+                      <strong>Clean ink (optional)</strong>
+                      <small>
+                        {toolDone.refine
+                          ? 'Cleaned in this stack — compare with the layer below'
+                          : 'For scans and logos · hard black ink on transparent paper'}
+                      </small>
+                    </span>
+                    {toolDone.refine ? <Chip tone="good">done</Chip> : null}
+                  </summary>
+                  <div className="tool-body stack-sm">
+                    <p className="hint">
+                      Runs at the print pixels and removes JPEG blocking, ringing and
+                      colour fringing. Mono artwork is reduced to exactly two tones —
+                      opaque black ink on fully transparent paper. A photograph is left
+                      completely untouched: the job still succeeds and tells you why.
+                    </p>
+                    <SelectField
+                      label="Cleanup preset"
+                      id="field-mono-preset"
+                      options={MONO_PRESETS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                      value={monoPreset}
+                      onChange={(event) => {
+                        const next = MONO_PRESETS.find((item) => item.value === event.target.value)
+                        if (next) setMonoPreset(next.value)
+                      }}
+                    />
+                    <CheckboxField
+                      label="Also reduce a flat-colour logo to a single ink"
+                      checked={binarizeFlatColour && monoPreset !== 'clean-only'}
+                      // "Clean up only" is defined by keeping the colours, so the
+                      // consent box is meaningless — and the API refuses the pair.
+                      // Disable it rather than let the operator build a request
+                      // that will be rejected.
+                      disabled={monoPreset === 'clean-only'}
+                      onChange={setBinarizeFlatColour}
+                      hint={
+                        monoPreset === 'clean-only'
+                          ? 'Not available with "Clean up only", which keeps the artwork’s colours.'
+                          : 'Irreversible: the colours are discarded. Leave this off to clean a multi-colour logo and keep its palette.'
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn primary"
+                      disabled={!canPropose}
+                      onClick={() =>
+                        void submitJob(() =>
+                          api.steps.refineMono(designId, {
+                            preset: monoPreset,
+                            // Never send consent the preset contradicts: the API
+                            // rejects the pair outright.
+                            binarizeFlatColour:
+                              monoPreset !== 'clean-only' && binarizeFlatColour,
+                          }),
+                        )
+                      }
+                    >
+                      Clean up artwork
+                    </button>
+                  </div>
+                </details>
+              ) : null}
             </div>
           </section>
 

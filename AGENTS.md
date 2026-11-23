@@ -944,6 +944,65 @@ reference data, not immediate work.
 
 ## 16. Handoff log
 
+### 2026-11-23 — Mono refinement: clean 1-bit DTF plates, server-side
+
+- **New worker job type `refine-mono`.** It reduces a text/logo scan to hard ink
+  at the **full print resolution** — never a preview. A cut made on a preview
+  bakes the preview's noise into the plate, which is the whole failure this
+  stage exists to prevent. Library lives in `worker/app/mono/`
+  (`types`/`classify`/`stages`/`presets`/`chain`), the job seam in
+  `worker/app/processors/refine_mono.py`.
+- **The chain is a strategy list, not a monolith**: `denoise → upscale →
+  binarize → despeckle → fillHoles → morphology`, then `validate`. Each stage is
+  an independent unit behind a `Stage` protocol with its own `StageTrace`, so
+  every one is testable alone and the order is data (`DEFAULT_CHAIN`), not
+  control flow.
+- **A classifier gate decides first, and it cannot be overridden.** Otsu
+  separability η (between-class variance / total variance) separates mono-type
+  art from photographs; a second feature (share of ink pixels with chroma ≤ 24)
+  splits `mono-ink` from `flat-colour`. Re-measured on the 10 fixtures with
+  luminance composited over white: mono-type art scores η ≥ 0.922, photos
+  ≤ 0.788, so the 0.85 gate sits in an empty band — 10/10 correct. Neutral-ink
+  share splits absolutely (mono-ink ≥ 0.946, flat-colour 0.000).
+- **A photograph is not a failure.** The job succeeds, writes the input through
+  unchanged and reports `skipped: true` with the measured reason. Failing would
+  make every non-mono design look broken in the queue. A preset can only *narrow*
+  the gate, never widen it: choosing `logo` on a photo still reports "these tones
+  are not separable".
+- **Binarizing a flat-colour illustration needs explicit consent**
+  (`binarizeFlatColour`), because it is irreversible. `clean-only` is the
+  deblock-and-denoise-without-binarize preset, expressed as a `MonoPreset` mode
+  rather than a parameter so the two intents cannot be combined nonsensically.
+- **Output is two-state RGBA, not a mode-1 PNG.** Measured: a mode-1 file
+  converts to RGBA with alpha 255 everywhere, and the packer decides occupancy
+  from alpha (`occupancy_from_alpha`, threshold 5), so a mode-1 design would be
+  packed as a **solid white box**. The plate is instead opaque black ink
+  `(0,0,0,255)` on fully transparent paper `(255,255,255,0)`, asserted before
+  write *and* re-checked on the array that reaches disk.
+- **`clean_colour` must use a vector-valued median** (take the whole colour of the
+  median-luminance neighbour). Per-channel medians invented 108 new shades on
+  `tall-banner`; 0 invented colours after the fix.
+- **The refinement is refused before the print size is established.** It is a
+  finishing pass; a resize afterwards would resample the hard plate back into
+  greys and waste the job. `StepService` returns `invalid-target-size` unless the
+  parent is already at the target pixels. `StepType.RefineMono` is terminal
+  (gated by `MatchesTarget` like the others).
+- Live proof, fresh batch, real quality-10 JPEG of a two-line logo:
+  resize → 2362×1181 → refine → `mono-ink`, η 0.9848, neutral share 1.0, Otsu
+  threshold 134, denoise changed 96,312 px, despeckle 0 → 186,167 ink px. On
+  disk: **exactly 2 distinct RGBA values**, 300 DPI preserved. Approved →
+  design `ready` at 299.97 DPI → packed with the second design, 0 unplaced →
+  integrity **5/5 passed**, sheet `valid`. On the rendered sheet the refined
+  design carries **1 ink colour**, the unrefined one beside it 67.
+- Also verified the decline path live on design `66c51a2c` (a 33-colour flat
+  logo): `text` preset → `mono-preset-skipped`, pixels byte-identical, design
+  stayed `ready`; then `illustration` + `binarizeFlatColour` → binarized to two
+  states.
+- Tests: worker 246 (+46: `test_mono.py` 31, `test_processors_refine_mono.py`
+  15), API 19 domain / 44 application / 75 infrastructure (3 live skipped), web
+  258. Frozen `worker-job`/`worker-result` schemas and examples updated (a
+  `monoMetadata` def was needed — `metadata` is `additionalProperties: false`).
+
 ### 2026-11-23 — Step order is now crop → enhance → print size → remove background
 
 - **The review page's four tools are numbered in the shop's real order.** Remove

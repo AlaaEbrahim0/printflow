@@ -251,15 +251,22 @@ The canonical request/response envelopes and per-type parameters are
 | Resize | Resample exactly once with Lanczos to `round(cm * dpi / 2.54)` pixels. Show effective source DPI; warn <150, strongly warn <100. Upscale is a separate proposal. |
 | Classify | Heuristic features: flat-color ratio, edge density, unique-color count, sampled background, full-bleed detection. Suggests trim and upscale settings. Suggestions are always overridable. |
 | Background removal | `color-to-alpha` (unmultiplied GIMP formulation: `keyColor` + `tolerance`) or `none` (re-apply brush edits and shaping to an earlier mask). Produces an 8-bit mask artifact; the stored image is `source alpha × mask / 255`. Optional `maskGrowPx` (circular Euclidean grow/contract), `edgeSoftness` (feather), `maskLevels` and `imageLevels` (Photoshop-style ramps) shape the result. |
+| Refine mono | `refine-mono` in the worker. A classifier gate decides first (Otsu separability η ≥ 0.85, then neutral-ink share) and only mono-type art is touched: a photo succeeds with `skipped: true` and identical pixels, and a flat-colour logo is binarized only on explicit `binarizeFlatColour`. Chain `denoise → upscale → binarize → despeckle → fillHoles → morphology → validate`, each stage a unit behind a `Stage` protocol. Output is two-state RGBA — opaque black ink on transparent paper — never a mode-1 PNG, because the packer reads occupancy from alpha and would pack a mode-1 file as a solid white box. Runs at the print pixels and is refused before the print size exists. |
 
 The operator-facing order is **crop → enhance → set print size → remove
 background**, and the review page numbers the four tools in that order. The
 cut-out is therefore normally the *terminal* version: `Design.RecomputeStatus`
-treats a `resize` or a `background-removal` as final when its pixels equal the
-target at the working DPI, and `BackgroundRemovalPipeline` takes a
-`preserveSize` flag so the API-side cut-out skips its internal auto-crop and
+treats a `resize`, a `background-removal` or a `refine-mono` as final when its
+pixels equal the target at the working DPI, and `BackgroundRemovalPipeline` takes
+a `preserveSize` flag so the API-side cut-out skips its internal auto-crop and
 upscale in that position. Without both, a cut-out after print size would leave
 the design `in-progress` forever and the packer would refuse it.
+
+Mono refinement sits outside the four numbered tools: it is a conditional
+finishing pass offered once the artwork is sized, and the API refuses it before
+that, because a resize afterwards would resample the hard plate back into greys.
+It is never *suggested*, for the same reason the cut-out is not — most artwork is
+not mono, and opening it by default would imply otherwise.
 
 The mask is built in one fixed pass so a proposal is reproducible: mode mask →
 `min` with the reused mask → brush strokes in source pixels → grow/contract

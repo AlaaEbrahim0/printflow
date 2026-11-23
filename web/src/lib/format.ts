@@ -65,6 +65,7 @@ const STEP_LABELS: Record<StepType, string> = {
   'background-removal': 'Background removal',
   'manual-edit': 'Manual cleanup',
   resize: 'Final resize',
+  'refine-mono': 'Clean ink',
 }
 
 export function stepLabel(stepType: StepType): string {

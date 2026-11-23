@@ -15,7 +15,7 @@ from typing import Any
 from app.errors import UnsupportedParameterError
 
 JOB_TYPES = frozenset(
-    {"classify", "trim", "upscale", "vectorize", "resize"}
+    {"classify", "trim", "upscale", "vectorize", "resize", "refine-mono"}
 )
 IMAGE_JOB_TYPES = JOB_TYPES - {"classify"}
 ARTIFACT_NAMES = ("svg",)

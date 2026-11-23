@@ -75,6 +75,19 @@ public sealed record ResizeStepCommand(
     int? Dpi);
 
 /// <summary>
+/// Mono refinement. Only the parameters an operator actually chooses are here;
+/// everything else comes from the preset inside the worker. Null means "use the
+/// preset's value", which keeps the API from duplicating the worker's defaults.
+/// </summary>
+public sealed record RefineMonoStepCommand(
+    string? Preset,
+    bool BinarizeFlatColour,
+    string? ThresholdMode,
+    int? DenoiseKernel,
+    int? DespeckleMaxPx,
+    int? FillHoleMaxPx);
+
+/// <summary>
 /// Photoshop-style levels. Used for historical versions only.
 /// </summary>
 public sealed record LevelsAdjustmentCommand(

@@ -124,6 +124,39 @@ public sealed class JobQueueClaimTests : IAsyncDisposable
         Assert.False(await jobs.HasActiveStepJobAsync(_designId, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task LeasesAMonoRefinementToAnImageWorker()
+    {
+        // Mono refinement runs in the worker at full print resolution, so it must
+        // be claimable like any other image step.
+        var batchId = Guid.NewGuid();
+        await QueueAsync(batchId, JobType.RefineMono, JobCapability.Image);
+        await _db.SaveChangesAsync();
+
+        var queue = new EfJobQueue(_db, new FixedClock());
+        var claimed = await queue.ClaimAsync(
+            "worker-1",
+            [JobCapability.Image],
+            leaseSeconds: 120,
+            workerJobsOnly: true,
+            CancellationToken.None);
+
+        Assert.NotNull(claimed);
+        Assert.Equal(JobType.RefineMono, claimed!.Type);
+    }
+
+    [Fact]
+    public async Task TreatsAQueuedMonoRefinementAsAnActiveStepJob()
+    {
+        var batchId = Guid.NewGuid();
+        await QueueAsync(batchId, JobType.RefineMono, JobCapability.Image);
+        await _db.SaveChangesAsync();
+
+        var jobs = new EfJobRepository(_db);
+
+        Assert.True(await jobs.HasActiveStepJobAsync(_designId, CancellationToken.None));
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _db.DisposeAsync();

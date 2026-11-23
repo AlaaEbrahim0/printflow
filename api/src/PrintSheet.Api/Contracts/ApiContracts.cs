@@ -264,6 +264,20 @@ public sealed record ResizeStepRequest(
 /// </summary>
 public sealed record BackgroundRemovalStepRequest(string? Provider);
 
+/// <summary>
+/// Mono refinement. Every field is optional: the preset supplies the defaults,
+/// and the classifier decides first whether the artwork is mono-type at all.
+/// <paramref name="BinarizeFlatColour"/> is the operator's explicit consent to
+/// reduce a multi-colour illustration to a single ink, which is irreversible.
+/// </summary>
+public sealed record RefineMonoStepRequest(
+    string? Preset,
+    bool? BinarizeFlatColour,
+    string? ThresholdMode,
+    int? DenoiseKernel,
+    int? DespeckleMaxPx,
+    int? FillHoleMaxPx);
+
 /// <summary>Photoshop-style levels for the mask ramp or the cut-out colours (historical).</summary>
 public sealed record LevelsAdjustmentRequest(
     int? BlackPoint,

@@ -218,12 +218,17 @@ export class MockStore {
   /** Public entry point used by the step handlers. */
   proposeStep(
     designId: string,
-    type: 'trim' | 'upscale' | 'resize' | 'background-removal',
+    type: 'trim' | 'upscale' | 'resize' | 'background-removal' | 'refine-mono',
     parameters: Record<string, unknown>,
   ): JobAccepted {
     const stepType: StepType =
       type === 'trim' ? (parameters.mode === 'manual' ? 'crop' : 'trim') : type
-    return this.propose(designId, type, stepType, parameters)
+    return this.propose(
+      designId,
+      type,
+      stepType,
+      type === 'refine-mono' ? refineMonoJobParameters(parameters) : parameters,
+    )
   }
 
   reset(seedBatches?: SeedBatch[]): void {
@@ -387,11 +392,13 @@ export class MockStore {
       design.targetWidthCm && design.targetHeightCm
         ? { widthCm: design.targetWidthCm, heightCm: design.targetHeightCm }
         : null
-    // Mirrors `Design.RecomputeStatus`: a resize or a cut-out that preserved the
-    // resize's pixels is the terminal step, because the shop runs crop → enhance
-    // → set print size → remove background.
+    // Mirrors `Design.RecomputeStatus`: a resize, a cut-out that preserved the
+    // resize's pixels, or a mono refinement of that plate is the terminal step,
+    // because the shop runs crop → enhance → set print size → remove background.
     const isTerminal =
-      current.stepType === 'resize' || current.stepType === 'background-removal'
+      current.stepType === 'resize' ||
+      current.stepType === 'background-removal' ||
+      current.stepType === 'refine-mono'
     if (
       isTerminal &&
       current.status === 'approved' &&
@@ -516,6 +523,13 @@ export class MockStore {
         version.hasSvg = true
         break
       }
+      case 'refine-mono': {
+        // The worker cuts at the print pixels, so the plate keeps its parent's
+        // exact dimensions — that is what keeps the design packable. It is
+        // two-state RGBA: opaque ink on transparent paper.
+        version.hasAlpha = true
+        break
+      }
       case 'resize': {
         const target =
           (parameters.targetWidthCm as number | undefined) ?? design.targetWidthCm ?? 10
@@ -582,6 +596,32 @@ export class MockStore {
         'Target size is required',
         'Set the target width and height in cm before proposing the final resize.',
       )
+    }
+    if (stepType === 'refine-mono') {
+      // Mirrors `StepService.ProposeRefineMonoAsync`: the refinement is a
+      // finishing pass at the print pixels, so a resize afterwards would resample
+      // the hard plate back into greys.
+      const target =
+        design.targetWidthCm && design.targetHeightCm
+          ? { widthCm: design.targetWidthCm, heightCm: design.targetHeightCm }
+          : null
+      if (!target || !matchesTargetPixels(current, target, batch.workingDpi)) {
+        throw new MockProblem(
+          422,
+          'invalid-target-size',
+          'The artwork is not at the print size',
+          'Set the print size and approve that version before cleaning up the ink.',
+        )
+      }
+      // `clean-only` keeps the colours, so consenting to binarize contradicts it.
+      if (parameters.preset === 'clean-only' && parameters.binarizeFlatColour === true) {
+        throw new MockProblem(
+          422,
+          'invalid-request',
+          'Contradictory mono refinement',
+          'The clean-only preset keeps the artwork’s colours, so it cannot be combined with binarizing flat colour.',
+        )
+      }
     }
     const versionId = uuid()
     const job = this.enqueueJob({
@@ -1811,6 +1851,28 @@ function parametersForVersion(
 function stepTypeForJob(type: Job['type'], parameters: Record<string, unknown>): StepType {
   if (type === 'trim') return parameters.mode === 'manual' ? 'crop' : 'trim'
   return type as StepType
+}
+
+/**
+ * Mirrors `StepService.EnqueueStepAsync`'s projection for a mono refinement.
+ *
+ * The real API does not forward the request body: it writes a fixed set of
+ * camelCase keys and leaves out every null one. `binarizeFlatColour` is omitted
+ * unless true, because the worker reads its presence as the operator's consent
+ * to destroy colour. Sending the raw body here would make the mock accept shapes
+ * the API cannot produce — and a test could then pass against a request the
+ * server would reject.
+ */
+function refineMonoJobParameters(request: Record<string, unknown>): Record<string, unknown> {
+  const parameters: Record<string, unknown> = {
+    preset: request.preset ?? 'text',
+  }
+  if (request.binarizeFlatColour === true) parameters.binarizeFlatColour = true
+  for (const key of ['thresholdMode', 'denoiseKernel', 'despeckleMaxPx', 'fillHoleMaxPx']) {
+    const value = request[key]
+    if (value !== null && value !== undefined) parameters[key] = value
+  }
+  return parameters
 }
 
 function outputArtifactsFor(version: MockVersionRecord): Record<string, string> {

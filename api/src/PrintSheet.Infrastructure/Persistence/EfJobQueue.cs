@@ -20,6 +20,7 @@ public sealed class EfJobQueue(PrintSheetDbContext db, IClock clock) : IJobQueue
         JobType.Upscale,
         JobType.Vectorize,
         JobType.Resize,
+        JobType.RefineMono,
     ];
 
     public async Task<Job?> ClaimAsync(

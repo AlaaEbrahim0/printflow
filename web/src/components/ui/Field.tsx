@@ -130,12 +130,15 @@ export function CheckboxField({
   onChange,
   hint,
   id,
+  disabled,
 }: {
   label: string
   checked: boolean
   onChange: (checked: boolean) => void
   hint?: ReactNode
   id?: string
+  /** For a choice that another field currently contradicts. */
+  disabled?: boolean
 }) {
   const fieldId = id ?? `field-${label.replace(/\W+/g, '-').toLowerCase()}`
   return (
@@ -145,6 +148,7 @@ export function CheckboxField({
           id={fieldId}
           type="checkbox"
           checked={checked}
+          disabled={disabled}
           onChange={(event) => onChange(event.target.checked)}
         />
         <span>{label}</span>

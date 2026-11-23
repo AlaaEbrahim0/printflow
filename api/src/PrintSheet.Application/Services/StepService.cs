@@ -4,6 +4,7 @@ using PrintSheet.Application.BackgroundRemoval;
 using PrintSheet.Application.Batches;
 using PrintSheet.Application.Common;
 using PrintSheet.Application.Jobs;
+using PrintSheet.Application.Mono;
 using PrintSheet.Domain.Batches;
 using PrintSheet.Domain.Common;
 using PrintSheet.Domain.Jobs;
@@ -230,6 +231,85 @@ public sealed class StepService
             && parent.HeightPx == PrintUnits.PixelsForCentimeters(heightCm, batch.Geometry.WorkingDpi);
     }
 
+    /// <summary>
+    /// Queues a mono refinement: reduce a text/logo scan to hard ink at the print
+    /// pixels.
+    /// </summary>
+    /// <remarks>
+    /// This runs in the worker, not here, because the chain has to see the full
+    /// print resolution — a cut made on a preview would bake in the preview's
+    /// noise. The API only validates what an operator can choose and passes the
+    /// rest through; the worker's classifier is the gate that refuses photographs,
+    /// and a refusal is a successful job that reports why.
+    /// </remarks>
+    public Task<Result<JobAccepted>> ProposeRefineMonoAsync(
+        Guid designId,
+        RefineMonoStepCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (command.Preset is { Length: > 0 } preset
+            && !MonoPresets.All.Contains(preset, StringComparer.OrdinalIgnoreCase))
+        {
+            return Task.FromResult(
+                Result<JobAccepted>.Failure(
+                    ErrorCodes.InvalidRequest,
+                    $"Unknown mono preset '{preset}'."));
+        }
+
+        if (command.ThresholdMode is { Length: > 0 } mode
+            && mode is not ("otsu" or "adaptive" or "fixed"))
+        {
+            return Task.FromResult(
+                Result<JobAccepted>.Failure(
+                    ErrorCodes.InvalidRequest,
+                    "Mono threshold mode must be otsu, adaptive or fixed."));
+        }
+
+        // `clean-only` means "keep the colours"; consenting to binarize in the
+        // same request is a contradiction, and silently honouring one of the two
+        // would discard an operator's explicit instruction. Refuse it.
+        if (command.BinarizeFlatColour
+            && string.Equals(command.Preset, MonoPresets.CleanOnly, StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.FromResult(
+                Result<JobAccepted>.Failure(
+                    ErrorCodes.InvalidRequest,
+                    "The clean-only preset keeps the artwork's colours, so it cannot be "
+                    + "combined with binarizing flat colour. Pick the illustration preset "
+                    + "to reduce a flat-colour logo to a single ink."));
+        }
+
+        return EnqueueStepAsync(
+            designId,
+            JobType.RefineMono,
+            StepType.RefineMono,
+            command,
+            JobCapability.Image,
+            validateParent: null,
+            cancellationToken,
+            beforeEnqueue: (batch, design) =>
+            {
+                // The refinement is a finishing pass: it cuts at the print pixels
+                // and the plate is then final. Running it earlier would be worse
+                // than useless — a resize afterwards would resample hard two-tone
+                // art back into greys, undoing the whole point. Refuse instead of
+                // quietly producing a plate that gets destroyed downstream.
+                var parent = design.CurrentVersion;
+                if (parent is null || !ParentIsFinalPrintSize(batch, parent))
+                {
+                    return Result.Failure(
+                        ErrorCodes.InvalidTargetSize,
+                        design.TargetWidthCm is null || design.TargetHeightCm is null
+                            ? "Set the print size before cleaning up the ink; the cut has to "
+                              + "be made at the final print pixels."
+                            : "The current version is not at the print size, so cleaning it up "
+                              + "would be undone by the resize. Set the print size again first.");
+                }
+
+                return Result.Success();
+            });
+    }
+
     private async Task<Result<JobAccepted>> EnqueueStepAsync(
         Guid designId,
         JobType jobType,
@@ -314,10 +394,27 @@ public sealed class StepService
                 fitMode = resize.FitMode ?? "contain",
             };
         }
+        else if (jobType == JobType.RefineMono && parameters is RefineMonoStepCommand mono)
+        {
+            // Sent as an explicit shape rather than the command itself so the job
+            // document matches the worker schema exactly. The preset fills in
+            // everything omitted here; a null parameter means "use the preset".
+            jobParameters = new
+            {
+                preset = mono.Preset ?? MonoPresets.Text,
+                // Only sent when true: the worker treats the flag as consent, and
+                // omitting it keeps the default (no binarizing) obvious in the
+                // stored job.
+                binarizeFlatColour = mono.BinarizeFlatColour ? (bool?)true : null,
+                thresholdMode = mono.ThresholdMode,
+                denoiseKernel = mono.DenoiseKernel,
+                despeckleMaxPx = mono.DespeckleMaxPx,
+                fillHoleMaxPx = mono.FillHoleMaxPx,
+            };
+        }
 
         string inputPath = parent.FilePath;
         const string inputArtifactsJson = "{}";
-
         var versionId = Guid.NewGuid();
         var jobId = Guid.NewGuid();
         var outputPath = $"{(batch.Id)}/designs/{design.Id}/versions/{versionId}.png";

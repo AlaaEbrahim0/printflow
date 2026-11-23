@@ -158,8 +158,9 @@ queued and recorded in the job's `parameters.preserveSize`, so the runner never
 re-derives it from state that may have changed.
 
 A design is `ready` when the current version is a resize **or a cut-out** whose
-pixels equal the target at the working DPI (`Design.RecomputeStatus`). Any other
-step is not terminal, because nothing would then guarantee the printed size.
+pixels equal the target at the working DPI (`Design.RecomputeStatus`). A mono
+refinement at those pixels counts too. Any other step is not terminal, because
+nothing would then guarantee the printed size.
 
 Providers are chosen by the server configuration; the design review's "Remove
 background" step offers `Server default` / `Local · withoutBG` / `Poof · cloud`
@@ -335,6 +336,111 @@ upload fails the pipeline with `InvalidImage` instead of being flattened behind
 your back. Flatten such a source onto its intended background before running
 background removal; the opaque-alpha PNG the cropper normally produces is
 accepted (see `worker/README.md`).
+
+---
+
+## Mono refinement (clean 1-bit ink)
+
+For text, line art and single-ink logos, DTF output is only clean if the artwork
+is hard ink — every pixel either fully printed or not printed at all. A JPEG of a
+logo is none of those things: it carries blocking, ringing around every stroke,
+mosquito noise in the paper and colour fringing on the edges, and a DTF printer
+turns all of that into visible speckle. The `refine-mono` step removes it and
+cuts the artwork to exactly two states.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/designs/$DESIGN_ID/steps/refine-mono \
+  -H 'Content-Type: application/json' -d '{"preset":"text"}'
+# 202 {"jobId": "...", "status": "queued", ...}
+```
+
+It runs in the **worker, at the full print resolution**, never on a preview: a
+cut made on a downscaled preview bakes the preview's own noise into the plate.
+The API only validates what an operator can choose and queues the job; the
+classifier inside the worker decides what is actually done.
+
+### The gate comes first
+
+The worker measures the artwork before touching it. Otsu separability η
+(between-class variance ÷ total variance) says whether the tones split into two
+populations at all; a second feature — the share of ink pixels whose chroma is
+≤ 24 — says whether the ink is neutral or whether colour is load-bearing.
+
+| Kind | Meaning | What happens |
+| --- | --- | --- |
+| `mono-ink` | Two well-separated tones, neutral ink | Cleaned and binarized |
+| `flat-colour` | Flat artwork, but the colour matters | **Only** binarized with `binarizeFlatColour` |
+| `photo` | Continuous tones | Left untouched, job succeeds with `skipped: true` |
+
+Measured on the ten fixtures with luminance composited over white, mono-type art
+scores η ≥ 0.922 and photographs ≤ 0.788, so the 0.85 threshold sits in an empty
+band (10/10 correct). Neutral-ink share separates absolutely: `mono-ink` ≥ 0.946,
+`flat-colour` 0.000.
+
+Two consequences are deliberate. **A photograph is not a failure** — the job
+succeeds and writes the input through unchanged with the measured reason, because
+failing would make every ordinary design look broken in the queue. And **a preset
+can only narrow the gate, never widen it**: choosing `logo` on a photo still
+reports "these tones are not separable" rather than flattening it.
+
+### The chain
+
+`denoise → upscale → binarize → despeckle → fillHoles → morphology → validate`.
+Each stage is an independent unit behind a `Stage` protocol with its own trace, so
+it can be tested alone and the order is data, not control flow.
+
+* **Denoise** — median 3×3 by default. On a low-resolution JPEG upscaled to
+  1440×960 it cut isolated noise pixels 56 → 8 and blobs ≤ 4 px 262 → 208 in
+  ~1 ms, while leaving a 3 px stroke intact.
+* **Binarize** — Otsu by default. `adaptive` (Gaussian, block 41, C 8) is for a
+  page lit unevenly across the scan, and is always followed by despeckle because a
+  local cut fabricates specks in flat areas: on an uneven-lit synthetic scan it
+  invented 3 tiny blobs that despeckle removed, while Otsu scored 1.0000 on the
+  same image.
+* **Despeckle / fillHoles** — remove ink blobs and fill enclosed paper holes up
+  to a pixel budget. Only ink is removed and only *enclosed* paper is filled, so a
+  real dot survives and negative space touching the border is never eaten.
+* **Validate** — asserts the plate really is two-state before it is written.
+
+### Presets
+
+| Preset | Use | Binarizes |
+| --- | --- | --- |
+| `text` | Scans and line art | mono-ink only |
+| `logo` | Single-ink logos | mono-ink only |
+| `illustration` | Flat-colour logos, **with consent** | mono-ink, and flat-colour when `binarizeFlatColour` is set |
+| `clean-only` | Keep the palette, just remove JPEG damage | never |
+
+Any parameter sent alongside a preset overrides it for that job only; the worker
+owns the numbers, so a preset tuned server-side needs no API change. Every field
+is optional and unknown parameters are refused rather than ignored.
+
+### Output format, and why it is not a mode-1 PNG
+
+The plate is RGBA with exactly two pixel states: opaque black ink `(0,0,0,255)`
+on fully transparent paper `(255,255,255,0)`, at the batch working DPI, with the
+ink and paper counts recorded in the job's `metadata.mono`.
+
+A mode-1 PNG would be the obvious choice and is wrong. Measured, it converts to
+RGBA with alpha 255 on every pixel, and the packer decides occupancy from alpha
+(`occupancy_from_alpha`, threshold 5) — so a mode-1 design would be packed as a
+**solid white box**. Two-state RGBA keeps the ink opaque and the paper invisible,
+which is what both the packer and the printer read.
+
+### When it is offered
+
+The step is a conditional finishing pass, not a fifth numbered tool: the review
+page offers it only once the artwork has a print size, and never opens it by
+itself. The API refuses it before the print size exists
+(`invalid-target-size`), because a resize afterwards would resample the hard plate
+back into greys and undo the whole job. A refined version at the target pixels is
+terminal, exactly like the resize and the cut-out.
+
+Verified live on a quality-10 JPEG of a two-line logo: 2362×1181 plate, η 0.9848,
+neutral ink 100%, Otsu threshold 134, denoise changing 96,312 px, ending at
+186,167 ink px — **exactly 2 distinct RGBA values on disk** at 300 DPI, packed
+with a second design (0 unplaced) and passing integrity 5/5. On the rendered
+sheet the refined design carries 1 ink colour; the unrefined one beside it, 67.
 
 ---
 

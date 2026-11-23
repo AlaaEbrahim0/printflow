@@ -37,6 +37,7 @@ public static class DesignEndpoints
         group.MapPost("/{designId:guid}/steps/upscale", UpscaleAsync);
         group.MapPost("/{designId:guid}/steps/resize", ResizeAsync);
         group.MapPost("/{designId:guid}/steps/background-removal", BackgroundRemovalAsync);
+        group.MapPost("/{designId:guid}/steps/refine-mono", RefineMonoAsync);
     }
 
     private static async Task<IResult> GetAsync(
@@ -390,8 +391,28 @@ public static class DesignEndpoints
             : ApiResults.Problem(result.Error!);
     }
 
-    private static IResult Accepted(Application.Jobs.JobAccepted accepted)
-        => Results.Accepted(
+    private static async Task<IResult> RefineMonoAsync(
+        Guid designId,
+        RefineMonoStepRequest? request,
+        StepService steps,
+        CancellationToken cancellationToken)
+    {
+        var result = await steps.ProposeRefineMonoAsync(
+            designId,
+            new RefineMonoStepCommand(
+                request?.Preset,
+                request?.BinarizeFlatColour ?? false,
+                request?.ThresholdMode,
+                request?.DenoiseKernel,
+                request?.DespeckleMaxPx,
+                request?.FillHoleMaxPx),
+            cancellationToken);
+        return result.IsSuccess
+            ? Accepted(result.Value!)
+            : ApiResults.Problem(result.Error!);
+    }
+
+    private static IResult Accepted(Application.Jobs.JobAccepted accepted)        => Results.Accepted(
             $"/api/v1/jobs/{accepted.JobId}",
             new JobAcceptedDto(
                 accepted.JobId,

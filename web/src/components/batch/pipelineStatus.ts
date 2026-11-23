@@ -18,6 +18,7 @@ export interface PipelineStatus {
   enhanced: boolean
   sized: boolean
   cutout: boolean
+  refined: boolean
 }
 
 export function pipelineStatus(
@@ -40,5 +41,9 @@ export function pipelineStatus(
     enhanced: lineage.some((version) => version.stepType === 'upscale'),
     sized: lineage.some((version) => version.stepType === 'resize'),
     cutout: lineage.some((version) => version.stepType === 'background-removal'),
+    // Not one of the shop's four numbered steps: a mono refinement is a
+    // conditional finishing pass, so it gets its own flag rather than being
+    // folded into the cut-out.
+    refined: lineage.some((version) => version.stepType === 'refine-mono'),
   }
 }

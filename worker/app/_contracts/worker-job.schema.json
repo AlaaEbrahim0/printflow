@@ -24,7 +24,8 @@
         "trim",
         "upscale",
         "vectorize",
-        "resize"
+        "resize",
+        "refine-mono"
       ]
     },
     "batchId": { "type": "string", "format": "uuid" },
@@ -71,7 +72,7 @@
       "if": {
         "properties": {
           "type": {
-            "enum": ["trim", "upscale", "vectorize", "resize"]
+            "enum": ["trim", "upscale", "vectorize", "resize", "refine-mono"]
           }
         },
         "required": ["type"]
@@ -148,6 +149,17 @@
       "then": {
         "properties": {
           "parameters": { "$ref": "#/$defs/resizeParameters" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "refine-mono" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "parameters": { "$ref": "#/$defs/refineMonoParameters" }
         }
       }
     }
@@ -271,6 +283,27 @@
         "fitMode": { "enum": ["width", "height", "contain"] },
         "resample": { "const": "lanczos" },
         "rasterizeFromVector": { "type": "boolean" }
+      }
+    },
+    "refineMonoParameters": {
+      "description": "Mono refinement. The classifier decides first; a photo is never altered, and flat colour is only binarized on explicit consent.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preset": { "enum": ["text", "logo", "illustration", "clean-only"] },
+        "binarizeFlatColour": { "type": "boolean" },
+        "thresholdMode": { "enum": ["otsu", "adaptive", "fixed"] },
+        "fixedThreshold": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "adaptiveBlock": { "type": "integer", "minimum": 3, "maximum": 255 },
+        "adaptiveConstant": { "type": "number", "minimum": -255, "maximum": 255 },
+        "denoiseMode": { "enum": ["none", "median", "bilateral"] },
+        "denoiseKernel": { "enum": [3, 5, 7] },
+        "despeckleMaxPx": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "fillHoleMaxPx": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "morphologyOpen": { "type": "integer", "minimum": 0, "maximum": 9 },
+        "morphologyClose": { "type": "integer", "minimum": 0, "maximum": 9 },
+        "upscaleFactor": { "enum": [1, 2, 3, 4] },
+        "monoEtaMin": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
       }
     }
   }

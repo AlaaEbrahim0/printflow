@@ -674,6 +674,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/designs/{designId}/steps/refine-mono": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                designId: components["parameters"]["DesignId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Propose a mono refinement (clean 1-bit ink)
+         * @description Queues a `refine-mono` job and returns immediately. The worker runs the
+         *     refinement at full print resolution — never on a preview — so the cut is
+         *     made on the pixels that will be printed.
+         *
+         *     The worker classifies first. A **photograph is left completely untouched**:
+         *     the job still succeeds, writes the input through unchanged and reports
+         *     `skipped: true` with the measured reason, so a photo never shows up as a
+         *     broken job. A **flat-colour illustration is only binarized when
+         *     `binarizeFlatColour` is true**, because reducing a multi-colour logo to one
+         *     ink is irreversible.
+         *
+         *     The output is RGBA with exactly two pixel states — opaque black ink on
+         *     fully transparent paper. It is not a mode-1 PNG: a mode-1 file converts to
+         *     RGBA with alpha 255 everywhere, which the packer would print as a solid
+         *     white box.
+         *
+         *     `preset` selects a named bundle of parameters (`text`, `logo`,
+         *     `illustration`, `clean-only`); any parameter sent alongside it overrides
+         *     that preset for this job only.
+         */
+        post: operations["proposeRefineMono"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs": {
         parameters: {
             query?: never;
@@ -871,11 +911,11 @@ export interface components {
         /** @enum {string} */
         VersionStatus: "proposed" | "approved" | "rejected";
         /** @enum {string} */
-        StepType: "original" | "trim" | "crop" | "upscale" | "vectorize" | "background-removal" | "manual-edit" | "resize";
+        StepType: "original" | "trim" | "crop" | "upscale" | "vectorize" | "background-removal" | "manual-edit" | "resize" | "refine-mono";
         /** @enum {string} */
         JobStatus: "queued" | "running" | "succeeded" | "failed" | "cancelled";
         /** @enum {string} */
-        JobType: "classify" | "trim" | "background-removal" | "upscale" | "vectorize" | "resize" | "pack-sheet" | "integrity-check" | "export";
+        JobType: "classify" | "trim" | "background-removal" | "upscale" | "vectorize" | "resize" | "refine-mono" | "pack-sheet" | "integrity-check" | "export";
         /** @enum {string} */
         SheetState: "unchecked" | "valid" | "invalid";
         /** @enum {string} */
@@ -1086,6 +1126,54 @@ export interface components {
         BackgroundRemovalStepRequest: {
             /** @enum {string|null} */
             provider?: "withoutbg" | "poof" | null;
+        };
+        /**
+         * @description Mono refinement. Every field is optional: the preset supplies the
+         *     defaults, and any field sent here overrides that preset for this job
+         *     only. The worker's classifier decides first whether the artwork is
+         *     mono-type at all, so no field can force the chain onto a photograph.
+         */
+        RefineMonoStepRequest: {
+            /**
+             * @description `text` and `logo` clean and binarize neutral ink. `illustration` also
+             *     allows binarizing a flat-colour logo. `clean-only` debocks and
+             *     denoises while keeping the colours.
+             * @default text
+             * @enum {string}
+             */
+            preset: "text" | "logo" | "illustration" | "clean-only";
+            /**
+             * @description Explicit consent to reduce a multi-colour illustration to a single
+             *     ink. Irreversible: the colour is discarded for good.
+             * @default false
+             */
+            binarizeFlatColour: boolean;
+            /**
+             * @description How the ink/paper cut is chosen. `otsu` is the default and wins on
+             *     uniform backgrounds. `adaptive` is for a scan lit unevenly across the
+             *     page; it is always followed by despeckle, because a local cut
+             *     fabricates specks in flat areas.
+             * @enum {string|null}
+             */
+            thresholdMode?: "otsu" | "adaptive" | "fixed" | null;
+            /**
+             * @description Median window applied before the cut. 3 is the default: it removes
+             *     single-pixel mosquito noise and leaves a 3 px stroke intact. 5 and 7
+             *     clean harder and thin the artwork.
+             * @enum {integer|null}
+             */
+            denoiseKernel?: 3 | 5 | 7 | null;
+            /**
+             * @description Remove ink blobs up to this many pixels. Only ever removes ink, so a
+             *     real dot survives while noise does not.
+             */
+            despeckleMaxPx?: number | null;
+            /**
+             * @description Fill enclosed paper holes up to this many pixels — JPEG ringing
+             *     punched into a thick stroke. A hole touching the border is negative
+             *     space and is never filled.
+             */
+            fillHoleMaxPx?: number | null;
         };
         RejectVersionRequest: {
             reason?: string | null;
@@ -2404,6 +2492,35 @@ export interface operations {
         };
         responses: {
             /** @description Cutout job accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    proposeRefineMono: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                designId: components["parameters"]["DesignId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RefineMonoStepRequest"];
+            };
+        };
+        responses: {
+            /** @description Mono refinement job accepted */
             202: {
                 headers: {
                     [name: string]: unknown;

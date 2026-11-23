@@ -608,16 +608,16 @@ public sealed class Design
     /// Steps that may legitimately be the last one before packing.
     /// </summary>
     /// <remarks>
-    /// The shop runs crop → enhance → set print size → remove background, so the
-    /// cut-out is normally the final version and a resize is not. Both qualify:
-    /// a cut-out that preserves the resize's exact pixels is just as packable as
-    /// the resize itself, and <see cref="MatchesTarget"/> is what actually decides.
-    /// Any other step (trim, crop, upscale, manual edit) changes pixels or scale
-    /// and can never be final, because nothing would then guarantee the printed
-    /// size.
+    /// The shop runs crop → enhance → set print size → remove background, and a
+    /// mono refinement can be applied to the finished plate. All three of resize,
+    /// cut-out and mono refinement keep the print pixels intact, and
+    /// <see cref="MatchesTarget"/> is what actually decides: a step only ends the
+    /// design if its pixels are exactly the target. Any other step (trim, crop,
+    /// upscale, manual edit) changes pixels or scale and can never be final,
+    /// because nothing would then guarantee the printed size.
     /// </remarks>
     private static bool IsTerminalStep(StepType stepType)
-        => stepType is StepType.Resize or StepType.BackgroundRemoval;
+        => stepType is StepType.Resize or StepType.BackgroundRemoval or StepType.RefineMono;
 
     private bool MatchesTarget(DesignVersion version)
     {

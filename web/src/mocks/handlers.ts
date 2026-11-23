@@ -430,6 +430,15 @@ export const handlers = [
     ),
   ),
 
+  http.post(`${V1}/designs/:designId/steps/refine-mono`, async ({ request, params }) =>
+    guarded(async () =>
+      jsonBody(
+        store().proposeStep(params.designId as string, 'refine-mono', await readJson(request)),
+        202,
+      ),
+    ),
+  ),
+
   http.get(`${V1}/jobs`, ({ request }) =>
     guarded(() => {
       const url = new URL(request.url)

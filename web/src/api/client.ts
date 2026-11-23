@@ -63,6 +63,7 @@ export type CropStepRequest = components['schemas']['CropStepRequest']
 export type UpscaleStepRequest = components['schemas']['UpscaleStepRequest']
 export type ResizeStepRequest = components['schemas']['ResizeStepRequest']
 export type BackgroundRemovalStepRequest = components['schemas']['BackgroundRemovalStepRequest']
+export type RefineMonoStepRequest = components['schemas']['RefineMonoStepRequest']
 export type RejectVersionRequest = components['schemas']['RejectVersionRequest']
 export type RejectVersionResponse = components['schemas']['RejectVersionResponse']
 export type RejectNextAction = components['schemas']['RejectNextAction']
@@ -70,6 +71,7 @@ export type RevertVersionRequest = components['schemas']['RevertVersionRequest']
 
 export type PackInput = Partial<PackSheetRequest>
 export type UpscaleInput = Pick<UpscaleStepRequest, 'model' | 'scale'> & Partial<UpscaleStepRequest>
+export type RefineMonoInput = Partial<RefineMonoStepRequest>
 export type ExportInput = Pick<ExportRequest, 'format'> & Partial<ExportRequest>
 
 export interface RequestOptions {
@@ -442,6 +444,14 @@ export const api = {
       post<JobAccepted>(
         `${API_ROOT}/designs/${encoded(designId)}/steps/background-removal`,
         body ?? {},
+        options,
+      ),
+    // `preset` has a contract default, so `openapi-typescript` marks it required;
+    // callers may omit it and get the worker's default.
+    refineMono: (designId: string, body: RefineMonoInput = {}, options?: RequestOptions) =>
+      post<JobAccepted>(
+        `${API_ROOT}/designs/${encoded(designId)}/steps/refine-mono`,
+        { preset: 'text', ...body },
         options,
       ),
   },
