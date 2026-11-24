@@ -237,6 +237,11 @@ export default function DesignReviewPage() {
   const [cutoutProvider, setCutoutProvider] = useState<
     'withoutbg' | 'poof' | 'solid' | 'auto' | null
   >(null)
+  // Off by default because only the operator can judge it: the pass keys by
+  // colour, so artwork that happens to be the background colour would be eaten.
+  // False here means "send nothing" — an explicit false would pin the job to
+  // off even when the deployment default is on.
+  const [removeEnclosedBackground, setRemoveEnclosedBackground] = useState(false)
   // Mono refinement is a finishing pass on the plate, not one of the shop's four
   // numbered steps, so its knobs live here rather than in the profile presets.
   const [monoPreset, setMonoPreset] = useState<'text' | 'logo' | 'illustration' | 'clean-only'>(
@@ -1277,16 +1282,33 @@ export default function DesignReviewPage() {
                       </button>
                     ))}
                   </div>
+                  <CheckboxField
+                    label="Also remove enclosed background (inside letters and badges)"
+                    checked={removeEnclosedBackground}
+                    onChange={setRemoveEnclosedBackground}
+                    hint={
+                      'Fills in the background that survives inside the artwork — the hole in an '
+                      + '“o”, the bowls of a “B”, the stripes inside a badge — which the provider '
+                      + 'cannot reach from the edge. It keys by colour, so leave it off when the '
+                      + 'design itself is the same colour as its background; the server refuses '
+                      + 'the pass entirely if it would clear too much of the design.'
+                    }
+                  />
                   <button
                     type="button"
                     className="btn primary"
                     disabled={!canPropose}
                     onClick={() =>
                       void submitJob(() =>
-                        api.steps.backgroundRemoval(
-                          designId,
-                          cutoutProvider === null ? {} : { provider: cutoutProvider },
-                        ),
+                        api.steps.backgroundRemoval(designId, {
+                          // Only send what the operator actually chose, so an
+                          // untouched control cannot pin a job against a
+                          // deployment default that is set to on.
+                          ...(cutoutProvider === null ? {} : { provider: cutoutProvider }),
+                          ...(removeEnclosedBackground
+                            ? { removeEnclosedBackground: true }
+                            : {}),
+                        }),
                       )}
                   >
                     Remove background
@@ -1298,8 +1320,7 @@ export default function DesignReviewPage() {
                     Solid, then the self-hosted withoutBG model, then Poof (which sends
                     the image to api.poof.bg and needs a server API key). Transparent
                     uploads cannot be cut out again — crop first if the edge is wrong.
-                  </p>
-                </div>
+                  </p>                </div>
               </details>
 
               {/*

@@ -480,6 +480,70 @@ describe('core workbench routes', () => {
     })
   })
 
+  it('sends the enclosed-background opt-in only when the operator ticks it', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Enclosed background',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Enclosed sample',
+        chain: [],
+      }],
+    }])
+    const batch = batchNamed(mock, 'Enclosed background')
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+
+    // Off by default: clearing a counter is only right when those areas really
+    // are background, and the pass keys by colour, not by shape.
+    const optIn = screen.getByRole('checkbox', {
+      name: /Also remove enclosed background/,
+    })
+    expect(optIn).not.toBeChecked()
+
+    await user.click(optIn)
+    await user.click(screen.getByRole('button', { name: 'Remove background' }))
+
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'background-removal',
+      )
+      expect(job?.parameters).toMatchObject({ removeEnclosedBackground: true })
+      // The provider is still left to the deployment default.
+      expect(job?.parameters).not.toHaveProperty('provider')
+    })
+  })
+
+  it('omits the enclosed-background flag when it is left off', async () => {
+    const user = userEvent.setup()
+    const mock = startTestMockApi([{
+      name: 'Enclosed default',
+      designs: [{
+        assetKey: 'flat-logo-black',
+        name: 'Enclosed default sample',
+        chain: [],
+      }],
+    }])
+    const batch = batchNamed(mock, 'Enclosed default')
+    const design = mock.designs.get(batch.designIds[0]!)!
+    renderAt(`/batches/${batch.id}/designs/${design.id}`)
+
+    await screen.findByTestId('current-design-preview')
+    await user.click(screen.getByRole('button', { name: 'Remove background' }))
+
+    await waitFor(() => {
+      const job = [...mock.jobs.values()].find(
+        (item) => item.designId === design.id && item.type === 'background-removal',
+      )
+      expect(job).toBeDefined()
+      // Not sent at all, so a deployment default of "on" is not overridden by an
+      // untouched control.
+      expect(job?.parameters).not.toHaveProperty('removeEnclosedBackground')
+    })
+  })
+
   it('offers the ink cleanup only once the artwork has a print size', async () => {
     const mock = startTestMockApi([{
       name: 'Ink cleanup',
