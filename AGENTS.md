@@ -609,9 +609,36 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 ## 15. Live status
 
-**Last updated:** 2026-11-24 (preflight distance map fixed; soft-edge recalibrated)
+**Last updated:** 2026-11-24 (the "blank cut-out" was white ink on a white preview)
 
 **Done and verified:**
+
+- **The "blank cut-out" was white ink on a white preview, not a bad cut-out
+  (2026-11-24).** The operator reported a cut-out that showed only thin rings.
+  The stored file was correct: `051678fb` holds 1,261,481 white-ink px, **0
+  opaque dark px** and a clean alpha silhouette, and composites into a perfect
+  `Bo8` with counters removed on any dark surface. It looked empty because
+  **98.7% of that ink is pure white** and the review page had silently given it
+  a white canvas: the API defaults `garmentColorKind` to `light`, and
+  `previewBackgroundFor` maps `light` → a solid white preview. Measured contrast
+  of the file's own median ink against that surface is **1.00:1**.
+  Nothing in the pipeline changed, because nothing in the pipeline was wrong.
+  `lib/previewContrast.ts` now samples the dominant opaque colour of the layer
+  on the canvas (median of its opaque pixels, 96 px sample) and compares it with
+  the preview surface at the **same 1.5:1 floor preflight already applies to the
+  garment**. `PreviewContrastHint` then states that the artwork is intact but
+  invisible and offers one click to a surface that can show it. It **never
+  switches the background itself** — the garment colour is the operator's
+  choice, and a silent switch would be exactly the kind of hidden change the
+  product rules forbid. The checkerboard is exempt by construction: its two
+  tones guarantee some contrast with any ink, so it can never hide artwork. The
+  rule is measurement, not a white-ink special case; dark ink on a dark garment
+  warns identically. 21 new tests (11 pure contrast, 6 component, 4 route wiring
+  through a real design-review render); web 284 tests / 23 files, four
+  consecutive green runs. Gates: `make phase-gates` green — API 26 domain / 59
+  application / 11 api / 123 infrastructure (3 live skipped), contracts v3.3.0,
+  worker 248, packer 161, web 284 / 23 files. No contract change: this is a
+  client-side read of pixels already on screen.
 
 - **Preflight distance map was unusable, and `soft-edge` could not pass
   (2026-11-24).** Two independent defects, both found while investigating the
@@ -1065,6 +1092,45 @@ reference data, not immediate work.
 ---
 
 ## 16. Handoff log
+
+### 2026-11-24 — The "blank cut-out" was white ink on a white preview
+
+- **The cut-out was never broken.** The operator showed a `Bo8` cut-out that
+  looked blank apart from thin rings. Measured: `051678fb` holds 1,261,481
+  white-ink px, **0 opaque dark px**, and a clean alpha silhouette; composited
+  on `(18,18,18)` it renders a perfect `Bo8` with the counters correctly
+  removed. The ring-only appearance is the anti-aliased rim of white ink on a
+  **white** canvas.
+- **Why the canvas was white.** `POST /designs` defaults `garmentColorKind` to
+  `Light`, and `previewBackgroundFor({kind:'light'})` returns a solid white
+  surface. Nothing in the review UI ever said the surface came from a garment
+  default rather than from the artwork, so a correct cut-out looked like a
+  failed one. The Bo8 file's own median ink is `#FFFFFF`: **1.00:1** against
+  that surface.
+- **The fix is a measurement, not a pipeline change.** `lib/previewContrast.ts`
+  samples the dominant opaque colour of the layer on the canvas (median per
+  channel over opaque pixels, 96 px sample) and compares it with the preview
+  surface at the **1.5:1 floor preflight already uses** for garment contrast.
+  `PreviewContrastHint` says the artwork is intact but invisible and offers one
+  click to a surface that can show it.
+- **It deliberately does not auto-switch the background.** The garment colour is
+  the operator's choice; silently repainting it would be the exact "hidden
+  change" §2 rule 4 forbids. The hint is also not a white-ink special case —
+  dark ink on a dark garment warns identically, which is why the rule is
+  measured rather than keyed on luminance of the design.
+- **The checkerboard is exempt by construction.** Its two tones guarantee that
+  some tone contrasts with any ink, so it can never hide artwork; only solid
+  surfaces can, and only those are checked.
+- **Do not "fix" this in the cutout algorithm.** There is nothing to fix: the
+  alpha is clean and the ink is intact. Any change to thresholds here would
+  damage a correct file. The open opaque-fringe item (below) is a *different*
+  defect on a different design and is still real.
+- 21 new tests: 11 pure contrast maths (WCAG reference values, the 1.5:1
+  boundary, the checkerboard exemption, "never recommend an invisible
+  surface"), 6 component, 4 route wiring through a real design-review render
+  (including a regression test that the hint must not change the background on
+  its own). Web 284 tests / 23 files, four consecutive green runs; `make
+  phase-gates` green. No contract change.
 
 ### 2026-11-24 — The preflight distance map was unusable; soft-edge measured the wrong thing
 
