@@ -8,6 +8,7 @@ import {
   type DesignVersion,
 } from '../api/client'
 import { AlphaPreview } from '../components/preview/AlphaPreview'
+import { PreviewContrastHint } from '../components/preview/PreviewContrastHint'
 import { PhotopeaIcon } from '../components/photopea/PhotopeaIcon'
 import { ErrorBanner } from '../components/ui/Banner'
 import { Chip, StatusChip } from '../components/ui/Chip'
@@ -23,6 +24,7 @@ import { pipelineStatus } from '../components/batch/pipelineStatus'
 import { WORKBENCH_DEFAULTS } from '../lib/defaults'
 import { photopeaEditorPath } from '../lib/photopea'
 import { DEFAULT_PREVIEW_BACKGROUND, previewBackgroundFor, type PreviewBackground } from '../lib/preview'
+import { sampleInkColour } from '../lib/previewContrast'
 import {
   aspectRatioOf,
   heightForWidth,
@@ -225,6 +227,10 @@ function proposalEffect(stepType: string): string {
 export default function DesignReviewPage() {
   const { designId = '', batchId = '' } = useParams()
   const [background, setBackground] = useState<PreviewBackground>(DEFAULT_PREVIEW_BACKGROUND)
+  // Dominant opaque colour of the layer on the canvas, sampled in the browser.
+  // It exists only so the page can tell an operator *why* a preview looks empty;
+  // it never feeds a job, a version or an export.
+  const [inkHex, setInkHex] = useState<string | null>(null)
   const [cropOpen, setCropOpen] = useState(false)
   const [cropInitial, setCropInitial] = useState<CropRect | null>(null)
   const [cropAspect, setCropAspect] = useState<number | null>(null)
@@ -500,6 +506,33 @@ export default function DesignReviewPage() {
     return () => document.removeEventListener('keydown', onKey)
   }, [modalOpen])
 
+  // The layer whose pixels are on the canvas, resolved before the early returns
+  // below so the ink sampler is an ordinary hook rather than a conditional one.
+  // It mirrors the rendered `activeLayer`: the picked layer when it still
+  // exists, otherwise the proposal, otherwise the current version.
+  const previewLayerId =
+    design && pickedLayerId && versionFor(design, pickedLayerId)
+      ? pickedLayerId
+      : (proposal?.id ?? current?.id ?? null)
+  const previewFileUrl =
+    design && previewLayerId ? (versionFor(design, previewLayerId)?.fileUrl ?? null) : null
+
+  // Sample the ink of whatever is on the canvas so a preview that renders as
+  // nothing can explain itself. Re-sampled per layer, because a cut-out and the
+  // flat source it came from have different dominant colours.
+  useEffect(() => {
+    let cancelled = false
+    setInkHex(null)
+    if (previewFileUrl) {
+      sampleInkColour(previewFileUrl).then((hex) => {
+        if (!cancelled) setInkHex(hex)
+      })
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [previewFileUrl])
+
   if (state.kind === 'loading') return <Loading label="Loading design…" />
   if (state.kind === 'error') {
     return <ErrorState error={state.error} onRetry={reload} title="Could not load design" />
@@ -710,6 +743,12 @@ export default function DesignReviewPage() {
               />
             )}
           </div>
+
+          <PreviewContrastHint
+            inkHex={inkHex}
+            background={background}
+            onUseContrasting={setBackground}
+          />
 
           <div className="editor-canvas-meta">
             <span className="mono muted" data-testid="canvas-layer-meta">
