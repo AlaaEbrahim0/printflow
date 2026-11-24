@@ -183,8 +183,12 @@ Highlights:
 - Designs: metadata, garment color, target size, exclude/include, better-source
   flag.
 - Versions: list/download, approve, reject (returns next actions), revert.
-- Steps: trim, crop, upscale, resize, background-removal. Vectorize is retired:
-  its historical versions and SVGs remain readable; new proposals are not accepted.
+- Steps: trim, crop, upscale, resize, background-removal, refine-mono.
+  Vectorize is retired: its historical versions and SVGs remain readable; new
+  proposals are not accepted.
+- Preflight: `POST /api/v1/preflight` checks an uploaded PNG that is not a
+  version yet and returns the same report a cut-out writes beside its output;
+  `fix=true` also returns the repaired PNG.
 - Jobs: poll, cancel, batch listing.
 - Sheets: pack, manual placements, integrity check, preview.
 - Exports: request, list, get, download artifacts.
@@ -316,6 +320,52 @@ the assigned new file paths.
   for a single GPU worker.
 - CPU fallback is allowed for trim/resize but not for a good Real-ESRGAN
   experience.
+
+### 7.4 DTF preflight
+
+Preflight answers one question before ink is spent: will this file print
+correctly on this garment at this size? It is deterministic and in-process — no
+network, no model, no randomness, iterative algorithms only — because a report
+that changes between runs is not evidence of anything.
+
+```
+Domain/Preflight/         PrintSpec, PreflightProfile, PreflightReport
+Application/Preflight/    PreflightService, PreflightRunner, PreflightAnalysis,
+                          IPreflightCheck/IPreflightFix, options + validator
+Infrastructure/Preflight/ Skia codec + PngMetadata, 15 checks, 5 fixes, DI scan
+Api/Endpoints/            POST /api/v1/preflight
+```
+
+`PreflightService` decodes once, builds a `PrintSpec` (the caller's, or
+`FromPixels` when no print size exists), runs the checks, optionally applies the
+enabled fixes, runs them again, and serialises the report from the *final*
+state. `PreflightContext` owns one `Lazy<PreflightAnalysis>` so the pixel facts —
+opaque mask, 8-connected components, 4-connected holes, an exact Euclidean
+distance map via two Felzenszwalb passes capped at 255 px, and a lazy hole-label
+map for the fill-holes fix — are built at most once and shared by all fifteen
+checks. Three buffers per image, no per-pixel allocation.
+
+Checks are `IPreflightCheck` classes discovered from the assembly by
+`AddPreflight`; the runner sorts them by `Code`, so registration order never
+reaches the JSON, and it isolates a throwing check as a `check-failed` warning
+rather than losing the other fourteen results. Findings are sorted by code, then
+region Y/X, then message, which is what makes the document byte-stable.
+
+A report is built from three states: `pass` with no findings, `warn` with any
+warning, `fail` with any error. It never runs as a gate on its own — a cut-out
+writes `<output>.preflight.json` report-only and records
+`preflightReportPath`, `preflightVerdict` and `preflightFindingCount` in the job
+metadata, and any preflight failure is logged and swallowed, because the version
+is already on disk. The operator, not the pipeline, decides what to do with a
+finding; the safe fixes (`remove-islands`, `fill-holes`, `set-dpi-metadata`,
+`embed-srgb`, `harden-soft-interior`) are opt-in through `fix=true` and never
+touch resolution, coverage, stroke or gap, which need artwork changes rather
+than metadata repair.
+
+Thresholds are a `PreflightProfile` in millimetres, fractions and ratios so the
+same numbers mean the same thing at 200 and 600 DPI. `PreflightOptionsValidator`
+runs `Profile.Validate()` at startup: a self-contradictory profile refuses to
+boot instead of producing confident nonsense.
 
 ---
 

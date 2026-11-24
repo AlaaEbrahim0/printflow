@@ -163,15 +163,29 @@ refinement at those pixels counts too. Any other step is not terminal, because
 nothing would then guarantee the printed size.
 
 Providers are chosen by the server configuration; the design review's "Remove
-background" step offers `Server default` / `Local · withoutBG` / `Poof · cloud`
-and sends `provider` only for an explicit override. `Server default` follows
-`BackgroundRemoval:DefaultProvider`.
+background" step offers `Server default` / `Solid · local` / `Local · withoutBG` /
+`Poof · cloud` / `Auto · solid → local → Poof`, and sends `provider` only for an
+explicit override. `Server default` follows `BackgroundRemoval:DefaultProvider`.
+
+`solid` is the deterministic local remover for flat artwork on a solid
+background: it samples the border, refuses when the border is not uniform enough
+to be a background, and keys the sampled colour with a hard contract, so a logo on
+a flat canvas is cut in milliseconds with no model and no network. `auto` probes
+`solid` first and falls through to withoutBG and then Poof when the border
+analysis says the image is not flat; an explicit `solid` that cannot apply fails
+loudly instead of silently doing nothing.
 
 | Setting | Meaning |
 | --- | --- |
-| `BackgroundRemoval:DefaultProvider` | `withoutbg` (default) or `poof` |
+| `BackgroundRemoval:DefaultProvider` | `withoutbg` (default), `poof`, `solid` or `auto` |
 | `BackgroundRemoval:FallbackProvider` | optional second provider; empty disables fallback |
 | `BackgroundRemoval:RunJobs` | set `false` to stop the API executing cutout jobs |
+| `BackgroundRemoval:Solid:BackgroundTolerance` | per-channel RGB distance a pixel may be from the sampled background and still be keyed, default 22 |
+| `BackgroundRemoval:Solid:MinBorderUniformity` | share of border pixels that must match the sampled colour before the remover will run, default 0.90 |
+| `BackgroundRemoval:Solid:MaxBorderForegroundRatio` | share of border pixels that may be artwork before the remover refuses, default 0.02 |
+| `BackgroundRemoval:Solid:BorderWidthPx` | thickness of the sampled border, default 2 px |
+| `BackgroundRemoval:Solid:EdgeBandPixels` | how far the fractional-alpha band reaches into the foreground, default 3 px |
+| `BackgroundRemoval:Solid:MinSpeckArea` | opaque specks under this pixel area are dropped, default 12 |
 | `BackgroundRemoval:Poof:ApiKey` | Poof key; never logged |
 | `BackgroundRemoval:Poof:BaseUrl` | defaults to `https://api.poof.bg/v1/` |
 | `BackgroundRemoval:WithoutBg:BaseUrl` | defaults to `http://localhost:8002` |
@@ -444,6 +458,98 @@ sheet the refined design carries 1 ink colour; the unrefined one beside it, 67.
 
 ---
 
+## DTF preflight
+
+Every cut-out now produces a report next to its output, and the same report can
+be requested for any PNG before it becomes a version:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/preflight \
+  -F file=@design.png \
+  -F targetWidthCm=10 -F targetHeightCm=10 \
+  -F garmentColorKind=dark
+# 200 {"report": {...}}
+```
+
+It is deterministic and in-process: no network, no model, no randomness, and no
+per-pixel allocation beyond the flat buffers the analysis needs. The same input
+always produces the same report bytes, which is what makes the file worth
+keeping beside the artwork.
+
+### The report
+
+`verdict` is `fail` when any finding is an error, `warn` when any is a warning,
+otherwise `pass`. Findings and fixes are sorted by code (then region, then
+message), metrics keep their measurement order, and nothing time- or
+machine-dependent is serialised — a diff between two runs is a real difference.
+
+| Code | Severity | Rule |
+| --- | --- | --- |
+| `resolution` | error / warning | Effective DPI across the printed width: error below 200, warning below 300 |
+| `alpha` | error | No alpha channel, or every pixel opaque: the background will print |
+| `bit-depth` | warning | Above 8 bits per channel: the RIP silently reduces it |
+| `icc-profile` | warning | No sRGB/ICC profile: the RIP guesses the colour space |
+| `dpi-metadata` | warning | Missing or mismatched pHYs: the print size is assumed, not declared |
+| `soft-edge` | warning | More than 12% of the edge band is semi-transparent: the outline will look feathered |
+| `soft-interior` | error | More than 0.5% of the foreground is semi-transparent away from the edge: the matte is incomplete |
+| `coverage` | warning | Ink over 60% of the print area: stiff, heavy, slow to cure |
+| `safe-margin` | warning | Opaque ink within 1 mm of the trim edge |
+| `region-count` | warning | More than 10 islands above the minimum area: usually a fragmented cut-out |
+| `stroke-width` | error / warning | Thinnest stroke on the medial axis: error below 0.25 mm, warning below 0.5 mm |
+| `gap-width` | warning | Two shapes closer than 0.5 mm: they bleed together on the shirt |
+| `island-area` | warning | Opaque islands below 1.0 mm²: they flake off or clog the film |
+| `hole-area` | warning | Enclosed holes below 0.5 mm²: trapped air under the film |
+| `contrast` | warning | WCAG contrast against the garment below 1.5:1 at 25% and 60% ink opacity |
+| `check-failed` | warning | A check threw; the other fourteen still ran |
+
+Thresholds live in `Preflight:Profile` and are validated at startup: a profile
+whose numbers contradict each other (`RecommendedDpi` below `MinimumDpi`, a
+`CriticalStrokeMm` above `MinimumStrokeMm`, an opacity outside `(0, 1]`) refuses
+to start rather than reporting nonsense. `appsettings.Example.json` lists every
+key. A check is one class implementing `IPreflightCheck`; it is discovered from
+the assembly, so a new rule needs no registration and no edit to the runner.
+
+### Fixes are opt-in, and report-only is the default
+
+`fix=true` applies the enabled safe fixes and returns the repaired PNG as
+`fixedImageBase64`. The report is then rebuilt from the fixed pixels, so a fix
+that did not help still shows its finding — the report never claims a repair it
+cannot see.
+
+| Fix | Resolves | What it does |
+| --- | --- | --- |
+| `remove-islands` | `island-area`, `region-count` | Clears opaque islands below the area floor |
+| `fill-holes` | `hole-area` | Fills enclosed holes below the area floor |
+| `set-dpi-metadata` | `dpi-metadata` | Writes the print spec DPI into `pHYs` |
+| `embed-srgb` | `icc-profile` | Writes the `sRGB` chunk |
+| `harden-soft-interior` | `soft-interior` | Snaps interior semi-transparency to 0 or 255, leaving the edge band alone |
+
+`Preflight:EnabledFixes` bounds what a caller may request. Fixes never touch
+resolution, coverage, stroke or gap: those need the operator to change the
+artwork, not the metadata.
+
+### The cut-out always preflights
+
+`POST /api/v1/designs/{designId}/steps/background-removal` runs preflight
+report-only after the pipeline writes the cut-out. The report goes to
+`<output>.preflight.json` and the job metadata carries `preflightReportPath`,
+`preflightVerdict` and `preflightFindingCount`. A preflight failure is logged and
+swallowed: the version is already on disk, and a report problem must never turn
+finished work into a failed job.
+
+The report judges the cut-out against the print job it is destined for: the
+design's target centimetres at its working DPI. A design without a print size yet
+is measured on its own canvas, and the report echoes that derived size.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/preflight -F file=@artwork.png -F fix=true
+```
+
+Omitting `targetWidthCm`/`targetHeightCm` is the same as the cut-out path with no
+target: the file is judged at the `dpi` you name (default 300).
+
+---
+
 ## Repository map
 
 ```text
@@ -475,7 +581,7 @@ Key documents:
 
 ## Contracts
 
-Contract version: **1.0.0**. Canonical files:
+Contract version: **3.2.0**. Canonical files:
 
 ```text
 contracts/openapi/printsheet-api.yaml
@@ -500,11 +606,13 @@ python3 -m venv .venv-contracts
 Rules that are easy to break:
 
 - Service-to-service file exchange uses **relative storage paths**, never
-  base64 or file bytes in JSON. Intake multipart is the only exception.
+  base64 or file bytes in JSON. Intake multipart is the only inbound exception,
+  and `POST /api/v1/preflight` is the only outbound one: it returns one repaired
+  PNG to the browser that just uploaded it, not a file between services.
 - Paths must not contain `..`.
 - Packer placements use a top-left origin, cm for positions, px for geometry,
   and rotations of exactly 0/90/180/270°.
-- The four blocking integrity checks have fixed IDs and any `skipped` check
+- The five blocking integrity checks have fixed IDs and any `skipped` check
   means the report is **not** passed.
 - Export is blocked when the report is missing, stale or failed for the sheet
   revision.

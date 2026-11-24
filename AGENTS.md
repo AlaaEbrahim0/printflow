@@ -170,7 +170,7 @@ Phase 2 progress:
 │   └── spikes/psd-spike/        ← executable PSD/PSB reproducer
 ├── web/                         ← React 19 + TypeScript + Vite shell
 ├── contracts/
-│   ├── openapi/                 ← printsheet-api.yaml (3.0.3, v3.1.0)
+│   ├── openapi/                 ← printsheet-api.yaml (3.0.3, v3.2.0)
 │   ├── jsonschema/              ← 5 worker/packer/integrity contracts
 │   └── examples/                ← 14 validated examples
 ├── docs/
@@ -239,7 +239,7 @@ version or docs first.
   and exports.
 - EF Core persistence supports PostgreSQL in Compose and SQLite in Development;
   `/healthz` checks the configured database and `/api/v1/info` returns contract
-  version `3.1.0`.
+  version `3.2.0`.
 - Supported new steps are classify, trim/manual crop, upscale, resize and
   background removal. `vectorize` and `manual-edit` are retired step types that
   remain readable in historical records but cannot be proposed anew.
@@ -329,13 +329,13 @@ npm test
 
 ## 7. Frozen contracts
 
-Contract version: **3.1.0** (additive on top of the 3.0.0 breaking change; the
+Contract version: **3.2.0** (additive on top of the 3.0.0 breaking change; the
 frozen 1.0.0 was 2026-11-05).
 
 Canonical files:
 
-- `contracts/openapi/printsheet-api.yaml` — HTTP API, OpenAPI 3.0.3, 39 paths,
-  67 schemas.
+- `contracts/openapi/printsheet-api.yaml` — HTTP API, OpenAPI 3.0.3, 41 paths,
+  75 schemas.
 - `contracts/jsonschema/worker-job.schema.json` — worker request envelope with
   per-type parameters.
 - `contracts/jsonschema/worker-result.schema.json` — worker completion result,
@@ -609,9 +609,27 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 ## 15. Live status
 
-**Last updated:** 2026-11-23 (step order is crop → enhance → print size → remove background)
+**Last updated:** 2026-11-24 (DTF preflight shipped, contracts 3.2.0)
 
 **Done and verified:**
+
+- **DTF preflight (2026-11-24).** Phase 2 preflight is implemented and green:
+  domain (`PrintSpec`, `PreflightProfile`, `PreflightReport`), application
+  (`PreflightService`/`PreflightRunner`/`PreflightAnalysis`, options +
+  startup validator), infrastructure (Skia codec + `PngMetadata`, 15 checks, 5
+  opt-in fixes, assembly-scanned DI) and `POST /api/v1/preflight`. The cut-out
+  always runs it report-only, writes `<output>.preflight.json` and records
+  `preflightReportPath`/`preflightVerdict`/`preflightFindingCount`; any preflight
+  failure is logged and swallowed. Contracts 3.2.0 (additive, 41 paths / 75
+  schemas), `schema.d.ts` regenerated, smoke test follows `ContractVersion.cs`.
+  Verified live on a native API: a real cut-out produced verdict `warn` with
+  contrast/coverage/dpi-metadata/icc-profile findings, and `fix=true` on a
+  screenshot-like PNG embedded `sRGB` and wrote `pHYs` 11811 (300 DPI).
+  Two defects found by the new API test project: `fixedImageBase64` was sent as
+  `null` instead of omitted, and a malformed multipart body produced an unhandled
+  500 instead of a 422. API tests 26 domain / 52 application / 11 api / 111
+  infrastructure (2 live skipped); web 261 tests / 20 files, build and lint green
+  (same 8 pre-existing warnings).
 
 - Git repo initialized (`main`); skeleton commit `d0d44b9`; Phase 0 deliverable
   commit `9f52d0b`.
@@ -943,6 +961,75 @@ reference data, not immediate work.
 ---
 
 ## 16. Handoff log
+
+### 2026-11-24 — DTF preflight: 15 checks, 5 opt-in fixes, contracts 3.2.0
+
+- **Preflight is deterministic and in-process.** No network, no model, no
+  randomness, iterative algorithms only, flat buffers and no per-pixel
+  allocation. A report that changes between runs is not evidence of anything, so
+  the JSON is byte-stable: findings and fixes are sorted by code (then region
+  Y/X, then message), metrics keep their measurement order, and nothing time- or
+  machine-dependent is serialised. `ReportJsonIsByteStable` pins it.
+- **One shared analysis, fifteen rules.** `PreflightContext` owns a single
+  `Lazy<PreflightAnalysis>`: opaque mask (alpha ≥ 128), 8-connected opaque
+  components, 4-connected holes that do not touch the border, an exact Euclidean
+  distance map via two Felzenszwalb passes capped at 255 px (a byte keeps it
+  affordable on a 6850 px roll), and a lazy hole-label map only the fill-holes
+  fix needs. Three buffers per image instead of one per rule.
+- **Checks are discovered, not listed.** `AddPreflight` scans the assembly for
+  `IPreflightCheck`/`IPreflightFix`, so a new rule is one class and no
+  registration. The runner sorts by `Code`, so assembly order never reaches the
+  JSON, and a throwing check becomes a `check-failed` warning instead of losing
+  the other fourteen results (cancellation still propagates).
+- **Thresholds are physical, and validated at startup.** `PreflightProfile`
+  expresses everything in mm, fractions and ratios, so the same numbers mean the
+  same thing at 200 and 600 DPI. `Profile.Validate()` catches cross-field
+  contradictions (`RecommendedDpi` < `MinimumDpi`, `CriticalStrokeMm` ≥
+  `MinimumStrokeMm`, opacity outside `(0, 1]`, non-positive limits) and
+  `PreflightOptionsValidator` refuses to boot on them rather than reporting
+  confident nonsense.
+- **Report-only by default; fixes are opt-in.** `PreflightService` decodes once,
+  runs the checks, applies only the enabled fixes whose findings are present,
+  then re-runs and serialises the *final* state — so a fix that did not help still
+  shows its finding. `fix=true` on the endpoint returns the repaired PNG as
+  `fixedImageBase64`. Fixes cover metadata (`set-dpi-metadata`, `embed-srgb`),
+  specks (`remove-islands`, `fill-holes`) and interior matte damage
+  (`harden-soft-interior`); none touch resolution, coverage, stroke or gap, which
+  need the operator to change the artwork.
+- **The cut-out always preflights, and never fails because of it.** The runner
+  runs it report-only after the pipeline writes its output, stores the JSON as
+  `<output>.preflight.json`, and adds `preflightReportPath`, `preflightVerdict`
+  and `preflightFindingCount` to the job metadata. Any preflight failure is logged
+  and swallowed: the version is already on disk, and a report problem must never
+  turn finished work into a failed job. It judges the cut-out against the design's
+  target centimetres at its working DPI, and against its own canvas when no print
+  size exists yet.
+- **Two defects the new API test project caught.** `fixedImageBase64` was
+  serialised as `null` rather than omitted (contract says nullable *and absent*
+  when nothing was fixed), and a malformed multipart body threw
+  `InvalidDataException` out of `ReadFormAsync`, which the exception handler does
+  not map — a 500 for a caller error. Both fixed and covered.
+- **Two threshold defects found by driving the live API.** A correctly sized
+  2362×1575 version at 20 cm measures 299.974 DPI and warned "below target" on
+  every such version, so both resolution comparisons now carry a 0.5 DPI
+  rounding allowance. And `PreflightProfile.ContrastOpacities` was a non-empty
+  array default, which the .NET binder *appends* to, so configuration produced
+  `[0.25, 0.6, 0.5]` instead of `[0.5]`; it is now nullable with an
+  `EffectiveContrastOpacities` fallback.
+- Contracts 3.2.0 (additive): new `POST /api/v1/preflight` plus
+  `PreflightResponse`, `PreflightReport`, `PreflightSpecSummary`,
+  `PreflightFinding`, `PreflightRegion`, `PreflightMetric` and
+  `PreflightFixRecord`. No existing request or response changed shape.
+  `web/src/api/schema.d.ts` regenerated; the smoke test reads
+  `ContractVersion.cs`.
+- Gates: `dotnet build` 0 warnings / 0 errors; API 26 domain / 52 application /
+  11 api / 111 infrastructure (2 live skipped); contracts valid (5 schemas, 15
+  examples, OpenAPI 3.0.3 v3.2.0, 41 paths / 75 schemas); web 261 tests / 20
+  files, `npm run build` and `npm run lint` green (same 8 pre-existing warnings).
+- Not verified: the Compose image was not rebuilt for this change (a native API
+  was used for the live checks), and no real shop artwork has been judged against
+  the profile yet — the thresholds are the production checklist defaults, not
+  measured on the shop's own files.
 
 ### 2026-11-23 — Mono refinement: clean 1-bit DTF plates, server-side
 
@@ -1775,6 +1862,31 @@ breaking 2.0.0 change on 2026-11-08 after two additive clarifications on
 When a contract changes, add a dated entry here naming the schema/operation,
 the version bump, and which tracks must adapt (API A, worker B, packer C,
 web D). Also update `contracts/CHANGELOG.md` and the examples.
+
+### 2026-11-24 — Additive: DTF preflight (contracts 3.2.0)
+
+Contract version is now `3.2.0`. Additive on top of 3.1.0: no existing request
+or response changed shape.
+
+- **API (track A):** new `POST /api/v1/preflight` (multipart `file`,
+  `targetWidthCm`, `targetHeightCm`, `dpi`, `garmentColorKind`,
+  `garmentColorHex`, `profile`, `fix`) returning `PreflightResponse`
+  (`report`, plus `fixedImageBase64` when a fix applied). A cut-out now always
+  runs preflight report-only and writes `<output>.preflight.json`; its job
+  metadata gains `preflightReportPath`, `preflightVerdict` and
+  `preflightFindingCount`.
+- **New schemas:** `PreflightResponse`, `PreflightReport`,
+  `PreflightSpecSummary`, `PreflightFinding`, `PreflightRegion`,
+  `PreflightMetric`, `PreflightFixRecord`. The report is a stable document:
+  findings and fixes sorted by code, nothing time- or machine-dependent.
+- **Web (track D):** `web/src/api/schema.d.ts` regenerated. The review page's
+  cutout provider list gains `solid` and `auto`; nothing consumes the preflight
+  report in the UI yet — it is written beside the cut-out and returned by the
+  ad-hoc endpoint.
+- **Worker (track B) / packer (track C):** no change. Preflight is an API-side
+  read of pixels and PNG metadata; no new job type, no new file exchange.
+- Thresholds are configuration (`Preflight:Profile`), not contract surface, so a
+  profile change needs no version bump.
 
 ### 2026-11-13 — Additive: AI matte (`withoutbg-open`) and `maskMinAreaPx`
 
