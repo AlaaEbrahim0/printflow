@@ -182,6 +182,21 @@ public sealed class BackgroundRemovalPipelineTests
         Assert.Equal(BackgroundRemovalFailureReason.InvalidImage, error.Reason);
     }
 
+    [Fact]
+    public async Task DecontaminatesAfterTheCompositorWhenTheRemoverReportsABackground()
+    {
+        var calls = new List<string>();
+        var harness = Harness.Create(calls: calls, background: new RgbColor(0, 0, 0));
+
+        var result = await Create(harness).RunAsync(Input(), CancellationToken.None);
+
+        Assert.Equal(
+            ["crop", "remove", "upscale", "refine", "composite", "decontaminate"],
+            calls);
+        Assert.Equal(new RgbColor(0, 0, 0), harness.Decontaminator.LastColor);
+        Assert.Equal(FinalPng, result.PngBytes);
+    }
+
     private static ImageInput Input() => new([1, 2, 3], "image/png", "art.png");
 
     private static BackgroundRemovalPipeline Create(List<string> calls)
@@ -194,6 +209,7 @@ public sealed class BackgroundRemovalPipelineTests
             harness.Upscaler,
             harness.Refiner,
             harness.Compositor,
+            harness.Decontaminator,
             harness.Inspector,
             Options.Create(
                 new BackgroundRemovalOptions
@@ -217,22 +233,26 @@ public sealed class BackgroundRemovalPipelineTests
 
         public FakeCompositor Compositor { get; private init; } = null!;
 
+        public FakeDecontaminator Decontaminator { get; private init; } = null!;
+
         public FakeInspector Inspector { get; private init; } = null!;
 
         public static Harness Create(
             int cutoutWidth = 100,
             int cutoutHeight = 50,
-            List<string>? calls = null)
+            List<string>? calls = null,
+            RgbColor? background = null)
         {
             var log = calls ?? [];
             return new Harness
             {
                 Calls = log,
                 Cropper = new FakeCropper(log),
-                Remover = new FakeRemover(log),
+                Remover = new FakeRemover(log, background),
                 Upscaler = new FakeUpscaler(log),
                 Refiner = new FakeRefiner(log),
                 Compositor = new FakeCompositor(log),
+                Decontaminator = new FakeDecontaminator(log),
                 // Inspection order: cropped frame, provider cutout, upscaled frame.
                 Inspector = new FakeInspector(
                     [
@@ -256,7 +276,7 @@ public sealed class BackgroundRemovalPipelineTests
         }
     }
 
-    private sealed class FakeRemover(List<string> calls) : IBackgroundRemovalService
+    private sealed class FakeRemover(List<string> calls, RgbColor? background = null) : IBackgroundRemovalService
     {
         public ImageInput? LastImage { get; private set; }
 
@@ -277,7 +297,11 @@ public sealed class BackgroundRemovalPipelineTests
             LastPreferredProvider = preferredProvider;
             calls.Add("remove");
             return Task.FromResult(
-                new BackgroundRemovalResult(CutoutPng, "fake", TimeSpan.FromMilliseconds(5)));
+                new BackgroundRemovalResult(
+                    CutoutPng,
+                    "fake",
+                    TimeSpan.FromMilliseconds(5),
+                    background));
         }
     }
 
@@ -329,8 +353,22 @@ public sealed class BackgroundRemovalPipelineTests
         }
     }
 
-    private sealed class FakeInspector(IReadOnlyList<ImageInspection> results) : IImageInspector
+    private sealed class FakeDecontaminator(List<string> calls) : IBackgroundDecontaminator
     {
+        public RgbColor? LastColor { get; private set; }
+
+        public Task<byte[]> DecontaminateAsync(
+            byte[] rgbaPng,
+            RgbColor backgroundColor,
+            CancellationToken cancellationToken)
+        {
+            LastColor = backgroundColor;
+            calls.Add("decontaminate");
+            return Task.FromResult(rgbaPng);
+        }
+    }
+
+    private sealed class FakeInspector(IReadOnlyList<ImageInspection> results) : IImageInspector    {
         private int _next;
 
         public Task<ImageInspection> InspectAsync(Stream stream, CancellationToken cancellationToken)

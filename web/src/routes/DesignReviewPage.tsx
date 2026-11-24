@@ -42,6 +42,8 @@ const UPSCALE_MODELS = [
 
 const CUTOUT_PROVIDERS = [
   { provider: null, label: 'Server default' },
+  { provider: 'solid', label: 'Solid · local' },
+  { provider: 'auto', label: 'Auto · solid → local → Poof' },
   { provider: 'withoutbg', label: 'Local · withoutBG' },
   { provider: 'poof', label: 'Poof · cloud' },
 ] as const
@@ -232,7 +234,9 @@ export default function DesignReviewPage() {
   const [upscaleScale, setUpscaleScale] = useState<2 | 4>(4)
   // Null means "whatever BackgroundRemoval:DefaultProvider says"; only an
   // explicit choice is sent as a per-job override.
-  const [cutoutProvider, setCutoutProvider] = useState<'withoutbg' | 'poof' | null>(null)
+  const [cutoutProvider, setCutoutProvider] = useState<
+    'withoutbg' | 'poof' | 'solid' | 'auto' | null
+  >(null)
   // Mono refinement is a finishing pass on the plate, not one of the shop's four
   // numbered steps, so its knobs live here rather than in the profile presets.
   const [monoPreset, setMonoPreset] = useState<'text' | 'logo' | 'illustration' | 'clean-only'>(
@@ -1288,10 +1292,12 @@ export default function DesignReviewPage() {
                     Remove background
                   </button>
                   <p className="hint">
-                    Server default follows the API provider configuration. Local runs the
-                    self-hosted withoutBG model; Poof sends the cropped image to api.poof.bg
-                    and needs a server API key. Transparent uploads cannot be cut out again
-                    — crop first if the edge is wrong.
+                    Server default follows the API provider configuration. Solid is the
+                    deterministic local remover for flat logos and text on a solid
+                    background; it refuses artwork that touches the border. Auto tries
+                    Solid, then the self-hosted withoutBG model, then Poof (which sends
+                    the image to api.poof.bg and needs a server API key). Transparent
+                    uploads cannot be cut out again — crop first if the edge is wrong.
                   </p>
                 </div>
               </details>

@@ -54,6 +54,17 @@ public static class BackgroundRemovalDependencyInjection
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
+        services.AddOptions<SolidBackgroundRemovalOptions>()
+            .Bind(configuration.GetSection(SolidBackgroundRemovalOptions.SectionName))
+            .ValidateDataAnnotations()
+            .Validate(
+                options => options.EdgeLow < options.EdgeReferenceFloor,
+                "BackgroundRemoval:Solid:EdgeLow must be below EdgeReferenceFloor.")
+            .Validate(
+                options => options.MinBorderUniformity > options.MaxBorderForegroundRatio,
+                "BackgroundRemoval:Solid:MinBorderUniformity must exceed MaxBorderForegroundRatio.")
+            .ValidateOnStart();
+
         AddAdapter<WithoutBgBackgroundRemover, WithoutBgOptions>(
             services,
             WithoutBgAttemptTimeout,
@@ -77,6 +88,12 @@ public static class BackgroundRemovalDependencyInjection
             provider.GetRequiredService<PoofBackgroundRemover>());
         services.AddTransient<IBackgroundRemover>(provider =>
             provider.GetRequiredService<WithoutBgBackgroundRemover>());
+        services.AddTransient<SolidBackgroundRemover>();
+        services.AddTransient<IBackgroundRemover>(provider =>
+            provider.GetRequiredService<SolidBackgroundRemover>());
+        services.AddTransient<IBackgroundRemovalApplicability>(provider =>
+            provider.GetRequiredService<SolidBackgroundRemover>());
+        services.AddTransient<IBackgroundDecontaminator, SkiaBackgroundDecontaminator>();
 
         services.AddTransient<BackgroundRemovalProviderSelector>();
         services.AddTransient<IBackgroundRemovalService>(provider =>

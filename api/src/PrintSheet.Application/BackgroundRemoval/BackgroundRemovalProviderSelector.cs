@@ -8,11 +8,18 @@ namespace PrintSheet.Application.BackgroundRemoval;
 /// Chooses the configured primary provider and falls back only for availability
 /// failures. A validation failure caused by our own input is never retried on the
 /// other provider: the same bytes would fail there too.
+///
+/// <c>auto</c> is a selection mode, not an adapter: it probes the deterministic
+/// Solid remover first, then the local ML service, then Poof. The configured
+/// fallback still governs explicit providers.
 /// </summary>
 public sealed class BackgroundRemovalProviderSelector : IBackgroundRemovalService
 {
+    private static readonly string[] AutoChain =
+        [BackgroundRemovalProviders.WithoutBg, BackgroundRemovalProviders.Poof];
+
     private readonly IReadOnlyList<IBackgroundRemover> _providers;
-    private readonly IBackgroundRemover _primary;
+    private readonly IBackgroundRemover? _primary;
     private readonly IBackgroundRemover? _fallback;
     private readonly ILogger<BackgroundRemovalProviderSelector> _logger;
 
@@ -25,9 +32,11 @@ public sealed class BackgroundRemovalProviderSelector : IBackgroundRemovalServic
         _providers = providers.ToArray();
         var configured = options.Value;
 
-        _primary = Find(configured.DefaultProvider)
-            ?? throw new InvalidOperationException(
-                $"BackgroundRemoval:DefaultProvider '{configured.DefaultProvider}' has no registered adapter.");
+        _primary = IsAuto(configured.DefaultProvider)
+            ? null
+            : Find(configured.DefaultProvider)
+                ?? throw new InvalidOperationException(
+                    $"BackgroundRemoval:DefaultProvider '{configured.DefaultProvider}' has no registered adapter.");
 
         _fallback = configured.FallbackProvider is { Length: > 0 } name
             ? Find(name) ?? throw new InvalidOperationException(
@@ -35,6 +44,7 @@ public sealed class BackgroundRemovalProviderSelector : IBackgroundRemovalServic
             : null;
 
         if (_fallback is not null
+            && _primary is not null
             && string.Equals(_fallback.Provider, _primary.Provider, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
@@ -42,7 +52,7 @@ public sealed class BackgroundRemovalProviderSelector : IBackgroundRemovalServic
         }
     }
 
-    public string Provider => _primary.Provider;
+    public string Provider => _primary?.Provider ?? BackgroundRemovalProviders.Auto;
 
     public IReadOnlyList<IBackgroundRemover> Providers => _providers;
 
@@ -51,7 +61,17 @@ public sealed class BackgroundRemovalProviderSelector : IBackgroundRemovalServic
         CancellationToken cancellationToken,
         string? preferredProvider = null)
     {
-        var primary = Resolve(preferredProvider);
+        var requested = string.IsNullOrWhiteSpace(preferredProvider)
+            ? Provider
+            : preferredProvider;
+
+        if (IsAuto(requested))
+        {
+            return await RemoveAutoAsync(image, cancellationToken);
+        }
+
+        var primary = Resolve(requested);
+        await EnsureApplicableAsync(primary, image, cancellationToken);
 
         try
         {
@@ -80,6 +100,110 @@ public sealed class BackgroundRemovalProviderSelector : IBackgroundRemovalServic
     }
 
     /// <summary>
+    /// Solid when the border analysis says it is safe, then the local model, then
+    /// Poof. The order is fixed here because it is the point of the mode: no
+    /// operator should have to configure a chain. Availability faults move down
+    /// the chain; an input fault still stops immediately.
+    /// </summary>
+    private async Task<BackgroundRemovalResult> RemoveAutoAsync(
+        ImageInput image,
+        CancellationToken cancellationToken)
+    {
+        if (Find(BackgroundRemovalProviders.Solid) is { } solid)
+        {
+            var applicability = await ProbeAsync(solid, image, cancellationToken);
+            if (applicability?.IsApplicable != false)
+            {
+                _logger.LogInformation(
+                    "auto background removal chose {Provider}: borderUniformity={Uniformity:F3} "
+                    + "borderForegroundRatio={ForegroundRatio:F3} backgroundFraction={BackgroundFraction:F3}",
+                    solid.Provider,
+                    applicability?.BorderUniformity ?? 0,
+                    applicability?.BorderForegroundRatio ?? 0,
+                    applicability?.BackgroundFraction ?? 0);
+
+                return await solid.RemoveAsync(image, cancellationToken);
+            }
+
+            _logger.LogInformation(
+                "auto background removal skipped solid: {Reasons}",
+                string.Join(" ", applicability.Reasons));
+        }
+
+        BackgroundRemovalException? lastFailure = null;
+        foreach (var name in AutoChain)
+        {
+            if (Find(name) is not { } provider)
+            {
+                continue;
+            }
+
+            try
+            {
+                var result = await provider.RemoveAsync(image, cancellationToken);
+                _logger.LogInformation(
+                    "auto background removal chose {Provider}.", provider.Provider);
+                return result;
+            }
+            catch (BackgroundRemovalException exception) when (exception.AllowsFallback)
+            {
+                lastFailure = exception;
+                _logger.LogWarning(
+                    "auto background removal provider {Provider} was unavailable ({Reason}); trying the next one.",
+                    provider.Provider,
+                    exception.Reason);
+            }
+        }
+
+        throw lastFailure ?? new BackgroundRemovalException(
+            BackgroundRemovalFailureReason.ProviderUnavailable,
+            BackgroundRemovalProviders.Auto,
+            "No background-removal provider is available.");
+    }
+
+    /// <summary>
+    /// Explicit <c>solid</c> must fail loudly when it cannot work: silently
+    /// running an ML model would defeat the operator's choice and spend credits.
+    /// </summary>
+    private async Task EnsureApplicableAsync(
+        IBackgroundRemover provider,
+        ImageInput image,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(provider.Provider, BackgroundRemovalProviders.Solid, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var applicability = await ProbeAsync(provider, image, cancellationToken);
+        if (applicability is { IsApplicable: false })
+        {
+            throw new BackgroundRemovalException(
+                BackgroundRemovalFailureReason.InvalidImage,
+                provider.Provider,
+                "Solid background removal is not applicable: "
+                + string.Join(" ", applicability.Reasons)
+                + " Choose withoutbg or poof, or clean the background first.");
+        }
+    }
+
+    private static async Task<BackgroundRemovalApplicability?> ProbeAsync(
+        IBackgroundRemover provider,
+        ImageInput image,
+        CancellationToken cancellationToken)
+    {
+        if (provider is IBackgroundRemovalApplicability probe)
+        {
+            return await probe.CheckApplicabilityAsync(image, cancellationToken);
+        }
+
+        return null;
+    }
+
+    private static bool IsAuto(string? name)
+        => string.Equals(name, BackgroundRemovalProviders.Auto, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// The adapter for a per-job override, or the configured primary when none was
     /// requested. An unknown name is an input fault, not an availability fault: the
     /// API validates overrides when the job is queued, so reaching this with a
@@ -89,7 +213,11 @@ public sealed class BackgroundRemovalProviderSelector : IBackgroundRemovalServic
     {
         if (string.IsNullOrWhiteSpace(preferredProvider))
         {
-            return _primary;
+            return _primary
+                ?? throw new BackgroundRemovalException(
+                    BackgroundRemovalFailureReason.InvalidImage,
+                    BackgroundRemovalProviders.Auto,
+                    "No explicit background-removal provider was requested.");
         }
 
         return Find(preferredProvider)

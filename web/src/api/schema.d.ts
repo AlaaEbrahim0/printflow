@@ -1124,8 +1124,14 @@ export interface components {
          *     not per-request knobs.
          */
         BackgroundRemovalStepRequest: {
-            /** @enum {string|null} */
-            provider?: "withoutbg" | "poof" | null;
+            /**
+             * @description `solid` is the deterministic local remover for flat artwork on a
+             *     solid background; it fails loudly when the border analysis says the
+             *     image is unsafe. `auto` probes Solid first, then withoutbg, then
+             *     Poof.
+             * @enum {string|null}
+             */
+            provider?: "withoutbg" | "poof" | "solid" | "auto" | null;
         };
         /**
          * @description Mono refinement. Every field is optional: the preset supplies the

@@ -112,16 +112,31 @@ public sealed class BoundedMatteProvider(
         var primary = string.IsNullOrWhiteSpace(preferredProvider)
             ? configured.DefaultProvider
             : preferredProvider;
+
+        // Solid runs in-process on the full-resolution pixels and must not be
+        // downscaled. Auto prefers Solid, so bounding it for a fallback that may
+        // never run would throw away the local path's quality; the HTTP timeouts
+        // still bound the rare ML fallback.
+        if (IsLocal(primary))
+        {
+            return int.MaxValue;
+        }
+
         var budget = BudgetOf(primary);
 
         if (configured.FallbackProvider is { Length: > 0 } fallback
-            && !string.Equals(fallback, primary, StringComparison.OrdinalIgnoreCase))
+            && !string.Equals(fallback, primary, StringComparison.OrdinalIgnoreCase)
+            && !IsLocal(fallback))
         {
             budget = Math.Min(budget, BudgetOf(fallback));
         }
 
         return budget;
     }
+
+    private static bool IsLocal(string provider)
+        => string.Equals(provider, BackgroundRemovalProviders.Solid, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(provider, BackgroundRemovalProviders.Auto, StringComparison.OrdinalIgnoreCase);
 
     private int BudgetOf(string provider)
         => string.Equals(provider, BackgroundRemovalProviders.Poof, StringComparison.OrdinalIgnoreCase)

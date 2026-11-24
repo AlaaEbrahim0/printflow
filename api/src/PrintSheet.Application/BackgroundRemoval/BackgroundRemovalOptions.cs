@@ -8,7 +8,62 @@ public static class BackgroundRemovalProviders
     public const string WithoutBg = "withoutbg";
     public const string Poof = "poof";
 
-    public static readonly string[] All = [WithoutBg, Poof];
+    /// <summary>Deterministic local remover for flat artwork on a solid background.</summary>
+    public const string Solid = "solid";
+
+    /// <summary>Solid when applicable, then the local ML remover, then Poof.</summary>
+    public const string Auto = "auto";
+
+    public static readonly string[] All = [WithoutBg, Poof, Solid, Auto];
+}
+
+/// <summary>Bound from <c>BackgroundRemoval:Solid</c>; validated on startup.</summary>
+public sealed class SolidBackgroundRemovalOptions
+{
+    public const string SectionName = "BackgroundRemoval:Solid";
+
+    /// <summary>Thickness of the sampled border, in pixels.</summary>
+    [Range(1, 32)]
+    public int BorderWidthPx { get; init; } = 2;
+
+    /// <summary>Maximum RGB distance (0-255) still considered background.</summary>
+    [Range(0, 255)]
+    public int BackgroundTolerance { get; init; } = 22;
+
+    /// <summary>Share of border pixels that must match the estimated colour.</summary>
+    [Range(0d, 1d)]
+    public double MinBorderUniformity { get; init; } = 0.90;
+
+    /// <summary>Share of border pixels allowed to be foreground (art bleeding off the edge).</summary>
+    [Range(0d, 1d)]
+    public double MaxBorderForegroundRatio { get; init; } = 0.02;
+
+    [Range(0d, 1d)]
+    public double MinBackgroundFraction { get; init; } = 0.05;
+
+    [Range(0d, 1d)]
+    public double MaxBackgroundFraction { get; init; } = 0.98;
+
+    /// <summary>How far the fractional-alpha band reaches into the foreground.</summary>
+    [Range(0, 32)]
+    public int EdgeBandPixels { get; init; } = 3;
+
+    /// <summary>Distance at or below which an edge pixel is fully transparent.</summary>
+    [Range(0, 255)]
+    public int EdgeLow { get; init; } = 10;
+
+    /// <summary>Lower bound for the edge ramp's reference distance.</summary>
+    [Range(1, 255)]
+    public int EdgeReferenceFloor { get; init; } = 60;
+
+    /// <summary>Percentile of foreground distance used as the edge ramp reference.</summary>
+    [Range(0, 100)]
+    public int EdgeReferencePercentile { get; init; } = 90;
+
+    [Range(0, int.MaxValue)]
+    public int MinSpeckArea { get; init; } = 12;
+
+    public bool RemoveSpecks { get; init; } = true;
 }
 
 /// <summary>Bound from <c>BackgroundRemoval</c>; validated on startup.</summary>

@@ -48,7 +48,7 @@ public sealed class SkiaAlphaRefiner(IOptions<BackgroundRemovalOptions> options)
         cancellationToken.ThrowIfCancellationRequested();
 
         var featherRadius = (int)Math.Round(_options.AlphaFeatherPx, MidpointRounding.AwayFromZero);
-        if (_options.AlphaContractPx > 0)
+        if (!refinement.PreserveSoftEdge && _options.AlphaContractPx > 0)
         {
             // Photoshop's Select > Modify > Contract moves the *selection border*
             // inward, and the border is where the matte is at least half visible.
@@ -67,12 +67,12 @@ public sealed class SkiaAlphaRefiner(IOptions<BackgroundRemovalOptions> options)
             cancellationToken.ThrowIfCancellationRequested();
         }
 
-        if (featherRadius > 0)
+        if (!refinement.PreserveSoftEdge && featherRadius > 0)
         {
             BoxBlur(alpha, refinement.TargetWidthPx, refinement.TargetHeightPx, featherRadius);
         }
 
-        if (_options.AlphaThreshold is { } threshold)
+        if (!refinement.PreserveSoftEdge && _options.AlphaThreshold is { } threshold)
         {
             for (var i = 0; i < alpha.Length; i++)
             {

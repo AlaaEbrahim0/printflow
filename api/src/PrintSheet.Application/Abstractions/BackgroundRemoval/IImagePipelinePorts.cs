@@ -16,7 +16,8 @@ public interface IImageUpscaler
 public sealed record AlphaRefinement(
     byte[] CutoutRgbaPng,
     int TargetWidthPx,
-    int TargetHeightPx);
+    int TargetHeightPx,
+    bool PreserveSoftEdge = false);
 
 /// <summary>An 8-bit single-channel matte, already at the target size.</summary>
 public sealed record AlphaMask(byte[] Pixels, int WidthPx, int HeightPx);
@@ -35,4 +36,17 @@ public interface IAlphaRefiner
 public interface IAlphaCompositor
 {
     Task<byte[]> ApplyAlphaAsync(byte[] rgbPng, AlphaMask alpha, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Removes the background colour that remains mixed into semi-transparent edge
+/// pixels. Runs after the compositor because the provider's RGB is discarded by
+/// the pipeline; only a background-colour hint from the remover can drive it.
+/// </summary>
+public interface IBackgroundDecontaminator
+{
+    Task<byte[]> DecontaminateAsync(
+        byte[] rgbaPng,
+        RgbColor backgroundColor,
+        CancellationToken cancellationToken);
 }

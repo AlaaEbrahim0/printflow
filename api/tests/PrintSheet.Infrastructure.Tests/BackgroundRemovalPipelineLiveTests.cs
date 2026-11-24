@@ -57,6 +57,7 @@ public sealed class BackgroundRemovalPipelineLiveTests
                 NullLogger<PrepareWorkerUpscaler>.Instance),
             new SkiaAlphaRefiner(Options.Create(new BackgroundRemovalOptions { AlphaFeatherPx = 0.5 })),
             new SkiaAlphaCompositor(),
+            new SkiaBackgroundDecontaminator(),
             new SkiaImageInspector(),
             Options.Create(new BackgroundRemovalOptions { DefaultProvider = "withoutbg" }),
             NullLogger<BackgroundRemovalPipeline>.Instance);

@@ -199,6 +199,103 @@ public sealed class BackgroundRemovalProviderSelectorTests
     }
 
     [Fact]
+    public async Task AutoPicksSolidWhenItIsApplicable()
+    {
+        var solid = new ApplicabilityStubRemover(applicable: true);
+        var local = new StubRemover("withoutbg", _ => Result("withoutbg"));
+        var selector = CreateAuto(solid, local);
+
+        var result = await selector.RemoveAsync(Input, CancellationToken.None);
+
+        Assert.Equal("solid", result.Provider);
+        Assert.Equal(1, solid.Calls);
+        Assert.Equal(0, local.Calls);
+    }
+
+    [Fact]
+    public async Task AutoUsesTheLocalModelWhenSolidIsNotApplicable()
+    {
+        var solid = new ApplicabilityStubRemover(applicable: false);
+        var local = new StubRemover("withoutbg", _ => Result("withoutbg"));
+        var selector = CreateAuto(solid, local);
+
+        var result = await selector.RemoveAsync(Input, CancellationToken.None);
+
+        Assert.Equal("withoutbg", result.Provider);
+        Assert.Equal(0, solid.Calls);
+        Assert.Equal(1, local.Calls);
+    }
+
+    [Fact]
+    public async Task AutoFallsThroughToPoofWhenTheLocalModelIsUnavailable()
+    {
+        var solid = new ApplicabilityStubRemover(applicable: false);
+        var local = new StubRemover(
+            "withoutbg",
+            _ => throw new BackgroundRemovalException(
+                BackgroundRemovalFailureReason.ProviderUnavailable,
+                "withoutbg",
+                "down"));
+        var poof = new StubRemover("poof", _ => Result("poof"));
+        var selector = CreateAuto(solid, local, poof);
+
+        var result = await selector.RemoveAsync(Input, CancellationToken.None);
+
+        Assert.Equal("poof", result.Provider);
+        Assert.Equal(1, local.Calls);
+        Assert.Equal(1, poof.Calls);
+    }
+
+    [Fact]
+    public async Task ExplicitSolidThatIsNotApplicableFailsWithoutCallingAnotherProvider()
+    {
+        var solid = new ApplicabilityStubRemover(applicable: false);
+        var local = new StubRemover("withoutbg", _ => Result("withoutbg"));
+        var selector = CreateAuto(solid, local);
+
+        var error = await Assert.ThrowsAsync<BackgroundRemovalException>(
+            () => selector.RemoveAsync(Input, CancellationToken.None, preferredProvider: "solid"));
+
+        Assert.Equal(BackgroundRemovalFailureReason.InvalidImage, error.Reason);
+        Assert.Contains("not applicable", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, solid.Calls);
+        Assert.Equal(0, local.Calls);
+    }
+
+    private static BackgroundRemovalProviderSelector CreateAuto(params IBackgroundRemover[] providers)
+        => new(
+            providers,
+            Options.Create(new BackgroundRemovalOptions { DefaultProvider = "auto" }),
+            NullLogger<BackgroundRemovalProviderSelector>.Instance);
+
+    private sealed class ApplicabilityStubRemover(bool applicable) : IBackgroundRemover, IBackgroundRemovalApplicability
+    {
+        public int Calls { get; private set; }
+
+        public string Provider => "solid";
+
+        public Task<BackgroundRemovalResult> RemoveAsync(
+            ImageInput image,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(Result("solid"));
+        }
+
+        public Task<BackgroundRemovalApplicability> CheckApplicabilityAsync(
+            ImageInput image,
+            CancellationToken cancellationToken)
+            => Task.FromResult(
+                new BackgroundRemovalApplicability(
+                    applicable,
+                    applicable ? [] : ["Artwork touches the border."],
+                    new RgbColor(0, 0, 0),
+                    0.99,
+                    0.01,
+                    0.5));
+    }
+
+    [Fact]
     public void RejectsAFallbackEqualToThePrimary()
     {
         var poof = new StubRemover("poof", _ => Result("poof"));

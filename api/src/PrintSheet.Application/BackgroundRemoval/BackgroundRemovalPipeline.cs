@@ -31,6 +31,7 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
     private readonly IImageUpscaler _upscaler;
     private readonly IAlphaRefiner _refiner;
     private readonly IAlphaCompositor _compositor;
+    private readonly IBackgroundDecontaminator _decontaminator;
     private readonly IImageInspector _inspector;
     private readonly BackgroundRemovalOptions _options;
     private readonly ILogger<BackgroundRemovalPipeline> _logger;
@@ -41,6 +42,7 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
         IImageUpscaler upscaler,
         IAlphaRefiner refiner,
         IAlphaCompositor compositor,
+        IBackgroundDecontaminator decontaminator,
         IImageInspector inspector,
         IOptions<BackgroundRemovalOptions> options,
         ILogger<BackgroundRemovalPipeline> logger)
@@ -50,6 +52,7 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
         _upscaler = upscaler;
         _refiner = refiner;
         _compositor = compositor;
+        _decontaminator = decontaminator;
         _inspector = inspector;
         _options = options.Value;
         _logger = logger;
@@ -109,9 +112,24 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
             : await InspectAsync(upscaledPng, cancellationToken);
 
         var alpha = await _refiner.RefineAsync(
-            new AlphaRefinement(removal.PngBytes, upscaled.WidthPx, upscaled.HeightPx),
+            new AlphaRefinement(
+                removal.PngBytes,
+                upscaled.WidthPx,
+                upscaled.HeightPx,
+                removal.PreserveSoftEdge),
             cancellationToken);
         var finalPng = await _compositor.ApplyAlphaAsync(upscaledPng, alpha, cancellationToken);
+
+        // The provider's RGB never reaches the output: the compositor writes the
+        // refined matte over the upscaled original colours. Decontamination must
+        // therefore run here, after the alpha exists, using the remover's hint.
+        if (removal.BackgroundColor is { } background)
+        {
+            finalPng = await _decontaminator.DecontaminateAsync(
+                finalPng,
+                background,
+                cancellationToken);
+        }
 
         total.Stop();
         _logger.LogInformation(
