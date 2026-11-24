@@ -609,9 +609,66 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 ## 15. Live status
 
-**Last updated:** 2026-11-24 (enclosed-background opt-in shipped, contracts 3.3.0)
+**Last updated:** 2026-11-24 (preflight distance map fixed; soft-edge recalibrated)
 
 **Done and verified:**
+
+- **Preflight distance map was unusable, and `soft-edge` could not pass
+  (2026-11-24).** Two independent defects, both found while investigating the
+  user's "dirty cutout edges" report.
+  1. `PreflightAnalysis.ComputeDistanceToTransparent` used
+     `double.PositiveInfinity` as the "no transparent pixel here" sentinel. The
+     Felzenszwalb parabola intersection subtracts two of them
+     (`(f[q] + q^2 - (f[v] + v^2)) / (2q - 2v)`), so `Inf - Inf` gave `NaN`, the
+     `while (s <= z[k])` walk stopped terminating correctly and `k` ran off the
+     start of `v`. On 200 random masks **178 threw
+     `IndexOutOfRangeException`** and the other 22 were wrong; on the real
+     2835×2967 FCB cut-out **31.3% of pixels were wrong, every one an
+     overestimate, worst delta 255**, 61.3% of the 4 px edge band was wrong and
+     78% of opaque pixels sat at the 255 saturation value. The sentinel is now
+     the squared diagonal (finite, strictly farther than any pixel pair) and the
+     map matches a brute-force EDT exactly. Four rules read that map
+     (`stroke-width`, `gap-width`, `soft-edge`, `soft-interior`), so all four
+     were being fed garbage.
+  2. `soft-edge` measured the *share* of a fixed band that was semi-transparent
+     and failed above 12%. On a 0.3 mm band (4 px at 300 DPI) a textbook 1 px
+     anti-aliased ramp already scores 25%, so the rule required a ramp thinner
+     than one pixel — it failed a synthetic perfectly anti-aliased disc (26%) and
+     every real cut-out (42%). It now measures ramp **depth**:
+     `MaximumSoftEdgeFraction` (0.12) is replaced by `MaximumSoftEdgeDepthMm`
+     (0.5), the deepest semi-transparent pixel's distance to the nearest fully
+     clear pixel. Measured separation is 2 px perfect AA / 3 px shipped cut-outs
+     / 30–43 px genuinely feathered.
+  **A third defect the first fix exposed:** `soft-interior` used the same
+  transparent map, but a semi-transparent pixel is *itself* not opaque, so it
+  scores 0 and the rule could never fire on the pixels it was written for — it
+  only fired because the broken map saturated. A second map, `DistanceToClear`
+  (distance to the nearest alpha-0 pixel), is what "how far inside the artwork"
+  means, and `SoftInteriorCheck` + `HardenSoftInteriorFix` now use it. On the
+  shipped cut-outs it reports **0** interior soft pixels instead of 12,393
+  (61.5% of the ramp). The extra map costs ~5 s on a 47 MP roll (10.2 → 15.5 s)
+  and runs once per immutable file.
+  Live on both shipped FCB cut-outs: `soft-edge` now reports **3 px / 0.254 mm
+  against a 6 px / 0.50 mm limit** and does not fire; `soft-interior` is 0.
+  Verified through the rebuilt Compose container as well: `POST
+  /api/v1/preflight` on `982b95c7` and a real `background-removal` job
+  (`752396fd`, `preserveSize=true`, 3.6 s) both produce a report with **no
+  `soft-edge` and no `soft-interior`** and the new depth metrics. The cut-out's
+  finding count dropped 11 → 8: `coverage` and `resolution` also stopped firing,
+  which is consistent with the corrected map. The remaining findings are genuine
+  (`stroke-width` errors at 0.17 mm because the design really has 1 px features
+  at 300 DPI).
+  Neither change is contract surface (`PreflightMetric.name` is a free-form
+  string, the finding code is unchanged, and the profile is referenced by
+  *name* in OpenAPI), so the version stays 3.3.0. Gates: `dotnet build` 0
+  warnings / 0 errors; API 26 domain / 59 application / 11 api / 123
+  infrastructure (2 live skipped, +3 tests); contracts valid v3.3.0; worker 248;
+  packer 161; web 263 tests / 20 files.
+  **Still open:** the grey ringing the user actually photographed is *opaque*
+  RGB from the source JPEG and Real-ESRGAN, not alpha — it cannot be removed by
+  any alpha-side operation. Preflight now stops mislabelling clean cut-outs, but
+  no pipeline change removes that fringe; it needs a source-quality or
+  hand-retouch decision.
 
 - **Enclosed background removal, opt-in (2026-11-24).** Providers only matte
   background reachable from the frame edge, so a letter counter — the inside of
@@ -787,7 +844,18 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 **In progress / immediate next:**
 
-1. **AI cutout phase shipped, awaiting manual acceptance (2026-11-13).** The
+1. **The opaque grey fringe on the FCB badge is unresolved and is not an alpha
+   defect (2026-11-24).** Measured: it is opaque RGB produced by Real-ESRGAN from
+   a 741×830 JPEG source, not a matte or silhouette problem, so contract /
+   feather / threshold cannot touch it. Real-ESRGAN is still better than plain
+   Lanczos or Bicubic on the same input (31,742 invented mid-grey px vs 223,524
+   / 241,957), and `preserveSize=true` only halves the ringing (652 → 328) by
+   averaging it away in a mild downscale. The options are a better source, a
+   de-ringing pass on opaque pixels (new capability, needs its own validation),
+   or hand retouching. Preflight no longer *mislabels* these cut-outs — the
+   distance-map and `soft-edge` defects that made every cut-out look feathered
+   are fixed — but nothing in the pipeline removes the fringe.
+2. **AI cutout phase shipped, awaiting manual acceptance (2026-11-13).** The
    manual editor is frozen; the product priority is design quality — a clean mask
    and DTF-ready printing. Shipped: withoutBG `ai` mode, `maskMinAreaPx` speck and
    pinhole pass, live levels preview, AI-by-default cutout step, and the
@@ -796,17 +864,17 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
    are CC BY-NC 4.0. Next in this track: judge the matte visually on real shop
    photos and colour art, then decide whether `2.png`-style 13% subject loss
    needs a second pass or just review guidance.
-2. Phase 1b complete and committed (`f5441f8`): draft store + editor lifecycle
+3. Phase 1b complete and committed (`f5441f8`): draft store + editor lifecycle
    (restore prompt, debounced autosave, visibility flush, clear after confirmed
    API save).
-3. Phase 4 complete and committed (`f869dc1`): `web/src/lib/quickLevels.ts`
+4. Phase 4 complete and committed (`f869dc1`): `web/src/lib/quickLevels.ts`
    (histogram + percentile auto levels, pure functions, BT.601 luminance),
    `QuickLevels` + `BackgroundReadout` components in the design-review cutout
    step, and a one-click Clean button that keys the classifier's
    `sampledBackground` hex and resets levels/grow to identity before submitting
    color-to-alpha. No contract change (`sampledBackground`, `imageLevels`
    already in schema).
-4. Phase 4 fixture validation done (`scripts/check_clean_preset.py`,
+5. Phase 4 fixture validation done (`scripts/check_clean_preset.py`,
    `make clean-preset`). It runs the worker's own `sample_background` +
    `background_matches` over the ten generated fixtures and scores against a
    ground truth independent of the sampled colour (border pixels are background
@@ -825,7 +893,7 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
    23–230); the narrow-range refusal is unit-tested, not fixture-triggered.
    Web suite 428 tests / 41 files green; full `make phase-gates` green.
    Next: Phase 2 selection tools.
-5. Phase 2 selection tools done. The six tools (marquee, ellipse, lasso,
+6. Phase 2 selection tools done. The six tools (marquee, ellipse, lasso,
    polygon, wand, color-range) and four combine modes were already implemented
    and wired; this pass found and closed the gaps around them:
    - `colorRange.ts` was the only selection module with no test file. Writing
@@ -846,7 +914,7 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
    Every module under `web/src/components/manual-editor/` is now imported and
    tested. Web suite 473 tests / 45 files green; full `make phase-gates` green.
    Next: Phase 3 complex editor shell.
-6. Phase 3 complex editor shell, first slice done. `document.ts` and
+7. Phase 3 complex editor shell, first slice done. `document.ts` and
    `compositeDocument` already described a full stack (base raster, adjustment
    layers, colour-key layers, each with visibility/opacity/blend/mask) but the
    editor only ever built one base layer and never showed a list. Scoping that
@@ -929,9 +997,9 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
    Next: still Phase 3 — layer rename, a pixel-op layer the operator can
    configure (colour key is added at a fixed white seed), and per-layer mask
    feather are not wired.
-7. Keep worker loop sequential with concurrency 1 for every job type. The AI
+8. Keep worker loop sequential with concurrency 1 for every job type. The AI
    matte is CPU-bound and serialized; that is deliberate, not a backlog item.
-8. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
+9. Do not start scaling, pagination, multi-worker, or bulk-throughput work unless
    measured need appears. Manual editor feature work stays frozen even though its
    route and modules remain green.
 
@@ -997,6 +1065,58 @@ reference data, not immediate work.
 ---
 
 ## 16. Handoff log
+
+### 2026-11-24 — The preflight distance map was unusable; soft-edge measured the wrong thing
+
+- **The user's "dirty cutout edges" report did not lead to an edge fix, because
+  the edge is not what is dirty.** Measured on the shipped 2835×2967 FCB cut-out:
+  the silhouette is textbook 1–2 px white-ink anti-aliasing, only 3 of 44,402
+  opaque mid-grey pixels touch transparency, and 100% of transparent pixels hold
+  black RGB (PIL premultiplies on resample, so a naive and a colour-bled resample
+  differ by 0 pixels). The grey the user photographed at `(1624,1373)` is
+  **opaque** RGB: `(255,255,255) → (247,253,255) → (135,150,160) → (16,14,15)`,
+  all alpha 255. It is Real-ESRGAN's own output baked in from the 741×830 JPEG
+  source. **No alpha-side operation can remove it** — contract, feather and
+  threshold all act on the wrong channel. Real-ESRGAN is still measurably better
+  than Lanczos/Bicubic (31,742 invented mid-grey px vs 223,524 / 241,957), so
+  this is a source-quality/hand-retouch decision, not a pipeline bug. Recorded
+  rather than "fixed" so the next agent does not re-run the same investigation.
+- **Chasing it surfaced a much worse defect: the distance map was garbage.**
+  `ComputeDistanceToTransparent` seeded "no transparent pixel here" with
+  `double.PositiveInfinity`, and the Felzenszwalb parabola intersection subtracts
+  two of them, so `Inf - Inf = NaN` and the lower-envelope walk ran off the start
+  of `v`. It was not slightly wrong: **178 of 200 random masks threw
+  `IndexOutOfRangeException`**, and on the real cut-out 31.3% of pixels were
+  wrong, all overestimates, worst delta 255, with 78% of opaque pixels pinned at
+  the 255 saturation value. A finite sentinel (the squared diagonal) makes it
+  match a brute-force EDT exactly. The bug was invisible because preflight
+  swallows failures and the real images happened to build without throwing.
+- **`soft-edge` could never pass a clean cut-out.** It measured the share of a
+  0.3 mm band (4 px) that was semi-transparent and failed above 12%. A textbook
+  1 px anti-aliased ramp already scores 25% on that band, so the rule demanded a
+  ramp thinner than one pixel. Proven on a synthetic perfectly anti-aliased disc
+  (26%) and on every real cut-out (42%). It now measures ramp **depth** against
+  `MaximumSoftEdgeDepthMm` (0.5 mm); the measured separation is 2 px for a
+  perfect edge, 3 px for the shipped cut-outs, 30–43 px for a real feather. Live:
+  3 px / 0.254 mm against a 6 px limit, no finding.
+- **The first fix exposed a third defect.** `soft-interior` reused the same map,
+  but a semi-transparent pixel is itself not opaque, so it scores **0** — the
+  rule was structurally incapable of firing on its own subject and only ever
+  fired because the broken map saturated. A second map, `DistanceToClear`
+  (nearest alpha-0 pixel), is the correct "how far inside the artwork" measure;
+  the check and `HardenSoftInteriorFix` now use it and report 0 instead of
+  misclassifying 12,393 soft pixels (61.5% of the ramp) as interior.
+- **`stroke-width` and `gap-width` were also being fed the broken map** and will
+  now report different (correct) numbers. The FCB cut-out still legitimately
+  errors at 0.17 mm: that is a genuine 1 px feature at 300 DPI (2 × 25.4/300).
+- Not contract surface: `PreflightMetric.name` is a free-form string, finding
+  codes are unchanged, and OpenAPI references the profile by **name**, so the
+  version stays 3.3.0. The `MaximumSoftEdgeFraction` config key is renamed;
+  only `appsettings.Example.json` carried it, so no deployment silently loses a
+  tuned value.
+- Gates: `dotnet build` 0 warnings / 0 errors; API 26 domain / 59 application /
+  11 api / 123 infrastructure (2 live skipped); contracts v3.3.0; worker 248;
+  packer 161; web 263 / 20 files.
 
 ### 2026-11-24 — Enclosed background removal (letter counters), contracts 3.3.0
 
