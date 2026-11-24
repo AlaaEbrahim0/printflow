@@ -6,13 +6,23 @@ using PrintSheet.Application.Abstractions;
 namespace PrintSheet.Application.BackgroundRemoval;
 
 /// <summary>Final artefact of the pipeline, still in memory.</summary>
+/// <param name="PngBytes">The cut-out PNG.</param>
+/// <param name="Provider">Adapter that produced the matte.</param>
+/// <param name="RemovalElapsed">Time inside the provider.</param>
+/// <param name="TotalElapsed">Time for the whole pipeline.</param>
+/// <param name="WidthPx">Output width.</param>
+/// <param name="HeightPx">Output height.</param>
+/// <param name="EnclosedBackground">
+/// What the optional counter pass did, or null when it was not requested.
+/// </param>
 public sealed record BackgroundRemovalPipelineResult(
     byte[] PngBytes,
     string Provider,
     TimeSpan RemovalElapsed,
     TimeSpan TotalElapsed,
     int WidthPx,
-    int HeightPx);
+    int HeightPx,
+    EnclosedBackgroundOutcome? EnclosedBackground = null);
 
 /// <summary>
 /// Crop, remove background on the small clean image, upscale the original cropped
@@ -32,6 +42,7 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
     private readonly IAlphaRefiner _refiner;
     private readonly IAlphaCompositor _compositor;
     private readonly IBackgroundDecontaminator _decontaminator;
+    private readonly IEnclosedBackgroundCleaner _enclosedCleaner;
     private readonly IImageInspector _inspector;
     private readonly BackgroundRemovalOptions _options;
     private readonly ILogger<BackgroundRemovalPipeline> _logger;
@@ -43,6 +54,7 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
         IAlphaRefiner refiner,
         IAlphaCompositor compositor,
         IBackgroundDecontaminator decontaminator,
+        IEnclosedBackgroundCleaner enclosedCleaner,
         IImageInspector inspector,
         IOptions<BackgroundRemovalOptions> options,
         ILogger<BackgroundRemovalPipeline> logger)
@@ -53,6 +65,7 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
         _refiner = refiner;
         _compositor = compositor;
         _decontaminator = decontaminator;
+        _enclosedCleaner = enclosedCleaner;
         _inspector = inspector;
         _options = options.Value;
         _logger = logger;
@@ -62,7 +75,8 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
         ImageInput input,
         CancellationToken cancellationToken,
         string? preferredProvider = null,
-        bool preserveSize = false)
+        bool preserveSize = false,
+        bool removeEnclosedBackground = false)
     {
         Validate(input);
         var total = Stopwatch.StartNew();
@@ -123,6 +137,18 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
         // The provider's RGB never reaches the output: the compositor writes the
         // refined matte over the upscaled original colours. Decontamination must
         // therefore run here, after the alpha exists, using the remover's hint.
+        // Enclosed counters are cleared first, because that pass creates a new
+        // anti-aliased ramp which then needs the same decontamination.
+        EnclosedBackgroundOutcome? enclosed = null;
+        if (removeEnclosedBackground)
+        {
+            enclosed = await _enclosedCleaner.ClearAsync(
+                finalPng,
+                removal.BackgroundColor,
+                cancellationToken);
+            finalPng = enclosed.PngBytes;
+        }
+
         if (removal.BackgroundColor is { } background)
         {
             finalPng = await _decontaminator.DecontaminateAsync(
@@ -135,7 +161,9 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
         _logger.LogInformation(
             "Background removal pipeline succeeded: provider={Provider} inputBytes={InputBytes} "
             + "outputBytes={OutputBytes} removalMs={RemovalMs} totalMs={TotalMs} "
-            + "widthPx={WidthPx} heightPx={HeightPx} preserveSize={PreserveSize}",
+            + "widthPx={WidthPx} heightPx={HeightPx} preserveSize={PreserveSize} "
+            + "enclosedRegions={EnclosedRegions} enclosedPixels={EnclosedPixels} "
+            + "enclosedSkipped={EnclosedSkipped}",
             removal.Provider,
             input.Bytes.Length,
             finalPng.Length,
@@ -143,7 +171,10 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
             (long)total.Elapsed.TotalMilliseconds,
             upscaled.WidthPx,
             upscaled.HeightPx,
-            preserveSize);
+            preserveSize,
+            enclosed?.RegionsCleared,
+            enclosed?.PixelsCleared,
+            enclosed?.SkippedReason);
 
         return new BackgroundRemovalPipelineResult(
             finalPng,
@@ -151,7 +182,8 @@ public sealed class BackgroundRemovalPipeline : IBackgroundRemovalPipeline
             removal.Elapsed,
             total.Elapsed,
             upscaled.WidthPx,
-            upscaled.HeightPx);
+            upscaled.HeightPx,
+            enclosed);
     }
 
     private void Validate(ImageInput input)

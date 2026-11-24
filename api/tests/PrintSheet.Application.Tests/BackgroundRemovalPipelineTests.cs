@@ -11,6 +11,7 @@ public sealed class BackgroundRemovalPipelineTests
     private static readonly byte[] CutoutPng = [20, 21, 22];
     private static readonly byte[] UpscaledPng = [30, 31, 32];
     private static readonly byte[] AlphaPixels = [40, 41, 42];
+    private static readonly byte[] ClearedPng = [60, 61, 62];
     private static readonly byte[] FinalPng = [50, 51, 52];
 
     [Fact]
@@ -197,6 +198,48 @@ public sealed class BackgroundRemovalPipelineTests
         Assert.Equal(FinalPng, result.PngBytes);
     }
 
+    [Fact]
+    public async Task ClearsEnclosedCountersBetweenTheCompositorAndDecontamination()
+    {
+        var calls = new List<string>();
+        var harness = Harness.Create(calls: calls, background: new RgbColor(0, 0, 0));
+
+        var result = await Create(harness).RunAsync(
+            Input(),
+            CancellationToken.None,
+            preferredProvider: null,
+            preserveSize: false,
+            removeEnclosedBackground: true);
+
+        // The counter pass creates a new anti-aliased ramp, so it must run before
+        // decontamination or that ramp keeps the background colour mixed in.
+        Assert.Equal(
+            ["crop", "remove", "upscale", "refine", "composite", "clear-enclosed", "decontaminate"],
+            calls);
+        Assert.Equal(FinalPng, harness.EnclosedCleaner.LastPng);
+        Assert.Equal(new RgbColor(0, 0, 0), harness.EnclosedCleaner.LastColor);
+        Assert.Equal(ClearedPng, harness.Decontaminator.LastPng);
+        Assert.Equal(ClearedPng, result.PngBytes);
+        Assert.NotNull(result.EnclosedBackground);
+        Assert.Equal(3, result.EnclosedBackground!.RegionsCleared);
+        Assert.Equal(120, result.EnclosedBackground.PixelsCleared);
+    }
+
+    [Fact]
+    public async Task DoesNotRunTheEnclosedPassUnlessItIsRequested()
+    {
+        var calls = new List<string>();
+        var harness = Harness.Create(calls: calls);
+
+        var result = await Create(harness).RunAsync(Input(), CancellationToken.None);
+
+        Assert.DoesNotContain("clear-enclosed", calls);
+        Assert.Null(harness.EnclosedCleaner.LastPng);
+        // Null means "not requested", which the job metadata must not confuse
+        // with "requested but nothing was enclosed".
+        Assert.Null(result.EnclosedBackground);
+    }
+
     private static ImageInput Input() => new([1, 2, 3], "image/png", "art.png");
 
     private static BackgroundRemovalPipeline Create(List<string> calls)
@@ -210,6 +253,7 @@ public sealed class BackgroundRemovalPipelineTests
             harness.Refiner,
             harness.Compositor,
             harness.Decontaminator,
+            harness.EnclosedCleaner,
             harness.Inspector,
             Options.Create(
                 new BackgroundRemovalOptions
@@ -235,6 +279,8 @@ public sealed class BackgroundRemovalPipelineTests
 
         public FakeDecontaminator Decontaminator { get; private init; } = null!;
 
+        public FakeEnclosedCleaner EnclosedCleaner { get; private init; } = null!;
+
         public FakeInspector Inspector { get; private init; } = null!;
 
         public static Harness Create(
@@ -253,6 +299,7 @@ public sealed class BackgroundRemovalPipelineTests
                 Refiner = new FakeRefiner(log),
                 Compositor = new FakeCompositor(log),
                 Decontaminator = new FakeDecontaminator(log),
+                EnclosedCleaner = new FakeEnclosedCleaner(log),
                 // Inspection order: cropped frame, provider cutout, upscaled frame.
                 Inspector = new FakeInspector(
                     [
@@ -357,14 +404,41 @@ public sealed class BackgroundRemovalPipelineTests
     {
         public RgbColor? LastColor { get; private set; }
 
+        public byte[]? LastPng { get; private set; }
+
         public Task<byte[]> DecontaminateAsync(
             byte[] rgbaPng,
             RgbColor backgroundColor,
             CancellationToken cancellationToken)
         {
+            LastPng = rgbaPng;
             LastColor = backgroundColor;
             calls.Add("decontaminate");
             return Task.FromResult(rgbaPng);
+        }
+    }
+
+    private sealed class FakeEnclosedCleaner(List<string> calls) : IEnclosedBackgroundCleaner
+    {
+        public byte[]? LastPng { get; private set; }
+
+        public RgbColor? LastColor { get; private set; }
+
+        public Task<EnclosedBackgroundOutcome> ClearAsync(
+            byte[] rgbaPng,
+            RgbColor? backgroundColor,
+            CancellationToken cancellationToken)
+        {
+            LastPng = rgbaPng;
+            LastColor = backgroundColor;
+            calls.Add("clear-enclosed");
+            return Task.FromResult(
+                new EnclosedBackgroundOutcome(
+                    ClearedPng,
+                    Applied: true,
+                    SkippedReason: null,
+                    RegionsCleared: 3,
+                    PixelsCleared: 120));
         }
     }
 

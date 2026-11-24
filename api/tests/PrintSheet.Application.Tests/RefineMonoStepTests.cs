@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Options;
 using PrintSheet.Application.Abstractions;
+using PrintSheet.Application.BackgroundRemoval;
 using PrintSheet.Application.Batches;
 using PrintSheet.Application.Mono;
 using PrintSheet.Application.Services;
@@ -195,7 +197,11 @@ public sealed class RefineMonoStepTests
         }
 
         var jobs = new RecordingJobs();
-        var service = new StepService(new SingleBatch(batch), jobs, new FixedClock());
+        var service = new StepService(
+            new SingleBatch(batch),
+            jobs,
+            new FixedClock(),
+            Options.Create(new BackgroundRemovalOptions()));
         return (service, jobs, design);
     }
 

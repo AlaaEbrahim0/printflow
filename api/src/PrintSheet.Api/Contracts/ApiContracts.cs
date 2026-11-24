@@ -263,7 +263,15 @@ public sealed record ResizeStepRequest(
 /// Optional provider override. Omitted means the configured default; the alpha
 /// refiner is configured, not per request.
 /// </summary>
-public sealed record BackgroundRemovalStepRequest(string? Provider);
+/// <summary>
+/// Optional provider override for one cutout. Omit the body to use the configured
+/// default. <paramref name="RemoveEnclosedBackground"/> is the operator's answer
+/// to whether background-coloured areas enclosed by artwork are background
+/// (clear them) or ink (keep them); null takes the deployment default.
+/// </summary>
+public sealed record BackgroundRemovalStepRequest(
+    string? Provider,
+    bool? RemoveEnclosedBackground);
 
 /// <summary>
 /// Ad-hoc preflight result. <paramref name="Report"/> is the same stable document

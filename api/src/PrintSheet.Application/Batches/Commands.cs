@@ -52,15 +52,26 @@ public sealed record CropStepCommand(CropRect Rect);
 /// <summary>
 /// Background removal has no mask-shaping knobs: the provider produces the
 /// matte, and the alpha refiner (feather/threshold) is configured, not per job.
+/// <paramref name="RemoveEnclosedBackground"/> is the one exception, because
+/// whether an enclosed background-coloured area is background or ink is a
+/// judgement only the operator can make from the artwork.
 /// </summary>
-public sealed record BackgroundRemovalStepCommand(string? Provider);
+public sealed record BackgroundRemovalStepCommand(
+    string? Provider,
+    bool? RemoveEnclosedBackground = null);
 
 /// <summary>
 /// What the cut-out job records for the runner. <paramref name="PreserveSize"/>
-/// is decided when the job is queued: true means the parent was already at the
-/// approved print pixels, so the pipeline must not crop or upscale.
+/// and <paramref name="RemoveEnclosedBackground"/> are both resolved when the job
+/// is queued: true means the parent was already at the approved print pixels, so
+/// the pipeline must not crop or upscale, and whether enclosed counters are
+/// cleared, so the runner never re-derives it from configuration that may have
+/// changed since.
 /// </summary>
-public sealed record BackgroundRemovalJobParameters(string? Provider, bool PreserveSize);
+public sealed record BackgroundRemovalJobParameters(
+    string? Provider,
+    bool PreserveSize,
+    bool RemoveEnclosedBackground);
 
 public sealed record UpscaleStepCommand(
     string Model,

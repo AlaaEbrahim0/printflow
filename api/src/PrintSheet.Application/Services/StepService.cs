@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using PrintSheet.Application.Abstractions;
 using PrintSheet.Application.BackgroundRemoval;
 using PrintSheet.Application.Batches;
@@ -21,15 +22,18 @@ public sealed class StepService
     private readonly IBatchRepository _batches;
     private readonly IJobRepository _jobs;
     private readonly IClock _clock;
+    private readonly BackgroundRemovalOptions _removalOptions;
 
     public StepService(
         IBatchRepository batches,
         IJobRepository jobs,
-        IClock clock)
+        IClock clock,
+        IOptions<BackgroundRemovalOptions> removalOptions)
     {
         _batches = batches;
         _jobs = jobs;
         _clock = clock;
+        _removalOptions = removalOptions.Value;
     }
 
     public Task<Result<JobAccepted>> ProposeTrimAsync(
@@ -204,11 +208,20 @@ public sealed class StepService
             preserveSize = ParentIsFinalPrintSize(batch, parent);
         }
 
+        // Same rule: the operator's answer is recorded once, at queue time. An
+        // omitted flag takes the deployment default, so the stored job always says
+        // what actually happened.
+        var removeEnclosedBackground = command.RemoveEnclosedBackground
+            ?? _removalOptions.RemoveEnclosedBackgroundByDefault;
+
         return await EnqueueStepAsync(
             designId,
             JobType.BackgroundRemoval,
             StepType.BackgroundRemoval,
-            new BackgroundRemovalJobParameters(command.Provider, preserveSize),
+            new BackgroundRemovalJobParameters(
+                command.Provider,
+                preserveSize,
+                removeEnclosedBackground),
             JobCapability.Cutout,
             validateParent: null,
             cancellationToken);

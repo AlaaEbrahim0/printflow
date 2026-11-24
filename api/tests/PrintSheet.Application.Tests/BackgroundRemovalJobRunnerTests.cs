@@ -148,6 +148,82 @@ public sealed class BackgroundRemovalJobRunnerTests
     }
 
     [Fact]
+    public async Task ForwardsTheRemoveEnclosedBackgroundFlagStoredOnTheJob()
+    {
+        var harness = Harness.Create(parametersJson: """{"removeEnclosedBackground":true}""");
+
+        await harness.Runner.RunNextAsync(CancellationToken.None);
+
+        Assert.True(harness.Pipeline.LastRemoveEnclosedBackground);
+    }
+
+    [Fact]
+    public async Task DefaultsRemoveEnclosedBackgroundToOffForAnOlderJob()
+    {
+        // A job queued before this option existed has no such property. Clearing
+        // counters is only correct when the operator asked for it, so absent means
+        // off, never the current configuration default.
+        var harness = Harness.Create(parametersJson: """{"provider":"solid"}""");
+
+        await harness.Runner.RunNextAsync(CancellationToken.None);
+
+        Assert.False(harness.Pipeline.LastRemoveEnclosedBackground);
+    }
+
+    [Fact]
+    public async Task RecordsWhatTheEnclosedPassDidInTheMetadata()
+    {
+        var harness = Harness.Create(parametersJson: """{"removeEnclosedBackground":true}""");
+        harness.Pipeline.Enclosed = new EnclosedBackgroundOutcome(
+            ResultPng,
+            Applied: true,
+            SkippedReason: null,
+            RegionsCleared: 4,
+            PixelsCleared: 1_024);
+
+        await harness.Runner.RunNextAsync(CancellationToken.None);
+
+        var metadata = harness.Completion.Result!.Value.GetProperty("metadata");
+        Assert.True(metadata.GetProperty("enclosedBackgroundApplied").GetBoolean());
+        Assert.Equal(4, metadata.GetProperty("enclosedBackgroundRegionsCleared").GetInt32());
+        Assert.Equal(1_024, metadata.GetProperty("enclosedBackgroundPixelsCleared").GetInt32());
+        Assert.False(metadata.TryGetProperty("enclosedBackgroundSkipped", out _));
+    }
+
+    [Fact]
+    public async Task RecordsWhyTheEnclosedPassDeclined()
+    {
+        var harness = Harness.Create(parametersJson: """{"removeEnclosedBackground":true}""");
+        harness.Pipeline.Enclosed = new EnclosedBackgroundOutcome(
+            ResultPng,
+            Applied: false,
+            SkippedReason: "region-too-large",
+            RegionsCleared: 0,
+            PixelsCleared: 0);
+
+        await harness.Runner.RunNextAsync(CancellationToken.None);
+
+        var metadata = harness.Completion.Result!.Value.GetProperty("metadata");
+        Assert.False(metadata.GetProperty("enclosedBackgroundApplied").GetBoolean());
+        Assert.Equal("region-too-large", metadata.GetProperty("enclosedBackgroundSkipped").GetString());
+        // The job still succeeded: refusing a risky pass is a correct outcome.
+        Assert.True(harness.Completion.Completed);
+    }
+
+    [Fact]
+    public async Task OmitsTheEnclosedMetadataWhenThePassWasNotRequested()
+    {
+        var harness = Harness.Create();
+
+        await harness.Runner.RunNextAsync(CancellationToken.None);
+
+        var metadata = harness.Completion.Result!.Value.GetProperty("metadata");
+        // Absent must stay distinguishable from "requested, nothing enclosed".
+        Assert.False(metadata.TryGetProperty("enclosedBackgroundApplied", out _));
+        Assert.False(metadata.TryGetProperty("enclosedBackgroundRegionsCleared", out _));
+    }
+
+    [Fact]
     public async Task WritesAReportBesideTheCutoutAndRecordsItInTheMetadata()
     {
         var harness = Harness.Create(preflight: StubPreflight());
@@ -412,15 +488,21 @@ public sealed class BackgroundRemovalJobRunnerTests
 
         public bool LastPreserveSize { get; private set; }
 
+        public bool LastRemoveEnclosedBackground { get; private set; }
+
+        public EnclosedBackgroundOutcome? Enclosed { get; set; }
+
         public Task<BackgroundRemovalPipelineResult> RunAsync(
             ImageInput input,
             CancellationToken cancellationToken,
             string? preferredProvider = null,
-            bool preserveSize = false)
+            bool preserveSize = false,
+            bool removeEnclosedBackground = false)
         {
             Calls++;
             LastPreferredProvider = preferredProvider;
             LastPreserveSize = preserveSize;
+            LastRemoveEnclosedBackground = removeEnclosedBackground;
             if (Throws is not null)
             {
                 throw Throws;
@@ -433,7 +515,8 @@ public sealed class BackgroundRemovalJobRunnerTests
                     TimeSpan.FromSeconds(1),
                     TimeSpan.FromSeconds(2),
                     400,
-                    200));
+                    200,
+                    Enclosed));
         }
     }
 

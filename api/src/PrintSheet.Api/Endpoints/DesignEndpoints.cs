@@ -384,7 +384,9 @@ public static class DesignEndpoints
     {
         var result = await steps.ProposeBackgroundRemovalAsync(
             designId,
-            new BackgroundRemovalStepCommand(request?.Provider),
+            new BackgroundRemovalStepCommand(
+                request?.Provider,
+                request?.RemoveEnclosedBackground),
             cancellationToken);
         return result.IsSuccess
             ? Accepted(result.Value!)

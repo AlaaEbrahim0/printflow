@@ -123,12 +123,14 @@ public sealed class BackgroundRemovalJobRunner
         {
             // The override was validated when the job was queued; the runner only
             // needs to forward it so the job runs on the provider the operator chose.
-            // preserveSize was decided at queue time from the parent's pixel size.
+            // preserveSize and removeEnclosedBackground were both decided at queue
+            // time: from the parent's pixel size and from the operator's answer.
             result = await _pipeline.RunAsync(
                 input,
                 cancellationToken,
                 ReadProviderOverride(job),
-                ReadPreserveSize(job));
+                ReadPreserveSize(job),
+                ReadRemoveEnclosedBackground(job));
         }
         catch (BackgroundRemovalException exception)
         {
@@ -276,6 +278,19 @@ public sealed class BackgroundRemovalJobRunner
             metadata["preflightFindingCount"] = report.Report.Findings.Count;
         }
 
+        // Only reported when the operator asked for the pass: "absent" and
+        // "nothing was enclosed" must stay distinguishable in the job record.
+        if (result.EnclosedBackground is { } enclosed)
+        {
+            metadata["enclosedBackgroundApplied"] = enclosed.Applied;
+            metadata["enclosedBackgroundRegionsCleared"] = enclosed.RegionsCleared;
+            metadata["enclosedBackgroundPixelsCleared"] = enclosed.PixelsCleared;
+            if (enclosed.SkippedReason is { } reason)
+            {
+                metadata["enclosedBackgroundSkipped"] = reason;
+            }
+        }
+
         var document = new JsonObject
         {
             ["schemaVersion"] = "1.0",
@@ -402,5 +417,19 @@ public sealed class BackgroundRemovalJobRunner
             && parameters.RootElement.TryGetProperty("preserveSize", out var preserve)
             && preserve.ValueKind is JsonValueKind.True or JsonValueKind.False
             && preserve.GetBoolean();
+    }
+
+    /// <summary>
+    /// Whether the cut-out should clear background-coloured regions enclosed by
+    /// artwork. Absent means false, so a job queued before this option existed
+    /// keeps its old behaviour instead of silently clearing counters.
+    /// </summary>
+    private static bool ReadRemoveEnclosedBackground(Job job)
+    {
+        using var parameters = JsonDocument.Parse(job.ParametersJson);
+        return parameters.RootElement.ValueKind == JsonValueKind.Object
+            && parameters.RootElement.TryGetProperty("removeEnclosedBackground", out var remove)
+            && remove.ValueKind is JsonValueKind.True or JsonValueKind.False
+            && remove.GetBoolean();
     }
 }
