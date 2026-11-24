@@ -622,9 +622,11 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
   `preflightReportPath`/`preflightVerdict`/`preflightFindingCount`; any preflight
   failure is logged and swallowed. Contracts 3.2.0 (additive, 41 paths / 75
   schemas), `schema.d.ts` regenerated, smoke test follows `ContractVersion.cs`.
-  Verified live on a native API: a real cut-out produced verdict `warn` with
-  contrast/coverage/dpi-metadata/icc-profile findings, and `fix=true` on a
-  screenshot-like PNG embedded `sRGB` and wrote `pHYs` 11811 (300 DPI).
+  Verified live on a native API and through the rebuilt Compose container: a real
+  cut-out produced verdict `warn` with contrast/dpi-metadata/icc-profile
+  findings, the ad-hoc endpoint on the same file produced a byte-identical
+  report, and `fix=true` on a screenshot-like PNG embedded `sRGB` and wrote
+  `pHYs` 11811 (300 DPI).
   Two defects found by the new API test project: `fixedImageBase64` was sent as
   `null` instead of omitted, and a malformed multipart body produced an unhandled
   500 instead of a 422. API tests 26 domain / 52 application / 11 api / 111
@@ -1026,10 +1028,11 @@ reference data, not immediate work.
   11 api / 111 infrastructure (2 live skipped); contracts valid (5 schemas, 15
   examples, OpenAPI 3.0.3 v3.2.0, 41 paths / 75 schemas); web 261 tests / 20
   files, `npm run build` and `npm run lint` green (same 8 pre-existing warnings).
-- Not verified: the Compose image was not rebuilt for this change (a native API
-  was used for the live checks), and no real shop artwork has been judged against
-  the profile yet — the thresholds are the production checklist defaults, not
-  measured on the shop's own files.
+- Not verified: no real shop artwork has been judged against the profile yet —
+  the thresholds are the production checklist defaults, not measured on the
+  shop's own files. The Compose API image *was* rebuilt and smoke-tested
+  (`make smoke` green, `/api/v1/info` reports 3.2.0, `POST /api/v1/preflight`
+  answers 200 through the container).
 
 ### 2026-11-23 — Mono refinement: clean 1-bit DTF plates, server-side
 
