@@ -91,9 +91,15 @@ public interface IBackgroundRemovalPipeline
     /// print size is set, because the packer requires the final version to be
     /// exactly the target pixels.
     /// </param>
+    /// <param name="removeEnclosedBackground">
+    /// When true, background-coloured regions that the matte left opaque because
+    /// artwork encloses them (letter counters) are cleared after compositing.
+    /// Off by default: it is only correct when those areas really are background.
+    /// </param>
     Task<BackgroundRemoval.BackgroundRemovalPipelineResult> RunAsync(
         ImageInput input,
         CancellationToken cancellationToken,
         string? preferredProvider = null,
-        bool preserveSize = false);
+        bool preserveSize = false,
+        bool removeEnclosedBackground = false);
 }

@@ -36,6 +36,10 @@ public static class BackgroundRemovalDependencyInjection
         services.AddOptions<BackgroundRemovalOptions>()
             .Bind(configuration.GetSection(BackgroundRemovalOptions.SectionName))
             .ValidateDataAnnotations()
+            .Validate(
+                options => options.CounterEdgeLow < options.CounterEdgeReferenceFloor,
+                "BackgroundRemoval:CounterEdgeLow must be below CounterEdgeReferenceFloor, "
+                + "or every cleared counter gets a hard edge.")
             .ValidateOnStart();
 
         services.AddOptions<WithoutBgOptions>()
@@ -94,6 +98,7 @@ public static class BackgroundRemovalDependencyInjection
         services.AddTransient<IBackgroundRemovalApplicability>(provider =>
             provider.GetRequiredService<SolidBackgroundRemover>());
         services.AddTransient<IBackgroundDecontaminator, SkiaBackgroundDecontaminator>();
+        services.AddTransient<IEnclosedBackgroundCleaner, SkiaEnclosedBackgroundCleaner>();
 
         services.AddTransient<BackgroundRemovalProviderSelector>();
         services.AddTransient<IBackgroundRemovalService>(provider =>

@@ -102,6 +102,61 @@ public sealed class BackgroundRemovalOptions
     [Range(0, 255)]
     public int? AlphaThreshold { get; init; }
 
+    /// <summary>
+    /// Clears background-coloured regions enclosed by artwork — the inside of an
+    /// <c>o</c>, the bowls of a <c>B</c> — when the caller does not choose. Off by
+    /// default: it is only right when those areas really are background, and a
+    /// design whose ink matches the background colour loses the ink instead.
+    /// </summary>
+    public bool RemoveEnclosedBackgroundByDefault { get; init; }
+
+    /// <summary>
+    /// Smallest enclosed region the pass will clear. 64 px is 0.5 mm² at 300 DPI,
+    /// the same floor preflight uses for a printable hole, so a dark dot that is
+    /// part of the design is never mistaken for a counter.
+    /// </summary>
+    [Range(1, int.MaxValue)]
+    public int MinCounterAreaPx { get; init; } = 64;
+
+    /// <summary>
+    /// Safety cap: a single enclosed region larger than this share of the image
+    /// makes the pass refuse and report it. A design whose ink is the background
+    /// colour (a black logo on black) is otherwise gutted. Measured per region, not
+    /// on the total: a white "Bo8" on black is five legitimate counters adding up
+    /// to 15% of the canvas, while an inverted logo is one region the size of the
+    /// design.
+    /// </summary>
+    [Range(0.001d, 1d)]
+    public double MaxCounterAreaFraction { get; init; } = 0.10;
+
+    /// <summary>How far the rebuilt soft ramp reaches into the artwork around a counter.</summary>
+    [Range(0, 32)]
+    public int CounterEdgeBandPixels { get; init; } = 3;
+
+    /// <summary>Distance at or below which a counter's edge pixel is fully transparent.</summary>
+    [Range(0, 255)]
+    public int CounterEdgeLow { get; init; } = 10;
+
+    /// <summary>Lower bound for the counter edge ramp's reference distance.</summary>
+    [Range(1, 255)]
+    public int CounterEdgeReferenceFloor { get; init; } = 60;
+
+    /// <summary>Percentile of artwork distance used as the counter edge ramp reference.</summary>
+    [Range(0, 100)]
+    public int CounterEdgeReferencePercentile { get; init; } = 90;
+
+    /// <summary>Maximum RGB distance (0-255) still considered the background colour.</summary>
+    [Range(0, 255)]
+    public int CounterBackgroundTolerance { get; init; } = 22;
+
+    /// <summary>
+    /// Share of the transparent border that must match the sampled key before the
+    /// pass trusts it. When the remover reports no background colour, the key is
+    /// recovered from that border; a soft, blended rim is not a keyable background.
+    /// </summary>
+    [Range(0.5d, 1d)]
+    public double MinCounterKeyUniformity { get; init; } = 0.90;
+
     public bool IsAllowedContentType(string? contentType)
         => contentType is not null
             && AllowedContentTypes.Any(
