@@ -6,6 +6,7 @@ using PrintSheet.Application.Services;
 using PrintSheet.Infrastructure.BackgroundRemoval;
 using PrintSheet.Infrastructure.Imaging;
 using PrintSheet.Infrastructure.Persistence;
+using PrintSheet.Infrastructure.Preflight;
 using PrintSheet.Infrastructure.Storage;
 
 namespace PrintSheet.Infrastructure;
@@ -61,6 +62,7 @@ public static class DependencyInjection
         services.AddScoped<JobService>();
 
         services.AddBackgroundRemoval(configuration);
+        services.AddPreflight(configuration);
 
         return services;
     }

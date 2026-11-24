@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using PrintSheet.Application.Abstractions;
 using PrintSheet.Application.BackgroundRemoval;
+using PrintSheet.Application.Preflight;
 using PrintSheet.Application.Services;
 using PrintSheet.Domain.Batches;
 using PrintSheet.Domain.Common;
@@ -145,6 +147,64 @@ public sealed class BackgroundRemovalJobRunnerTests
         Assert.True(harness.Completion.Completed);
     }
 
+    [Fact]
+    public async Task WritesAReportBesideTheCutoutAndRecordsItInTheMetadata()
+    {
+        var harness = Harness.Create(preflight: StubPreflight());
+
+        await harness.Runner.RunNextAsync(CancellationToken.None);
+
+        var reportPath = Path.ChangeExtension(harness.Job.OutputPath!, ".preflight.json");
+        Assert.True(harness.Files.Written.ContainsKey(reportPath));
+        Assert.Contains(
+            "\"verdict\"",
+            System.Text.Encoding.UTF8.GetString(harness.Files.Written[reportPath].ToArray()),
+            StringComparison.Ordinal);
+
+        var metadata = harness.Completion.Result!.Value
+            .GetProperty("metadata");
+        Assert.Equal(reportPath, metadata.GetProperty("preflightReportPath").GetString());
+        Assert.Equal("pass", metadata.GetProperty("preflightVerdict").GetString());
+        Assert.Equal(0, metadata.GetProperty("preflightFindingCount").GetInt32());
+        Assert.True(harness.Completion.Completed);
+    }
+
+    [Fact]
+    public async Task APreflightFailureNeverFailsTheCutout()
+    {
+        // The cut-out is already on disk when preflight runs; a broken report must
+        // not throw finished work away.
+        var harness = Harness.Create(
+            preflight: new PreflightService(
+                new RejectingCodec(),
+                new PreflightRunner([], NullLogger<PreflightRunner>.Instance),
+                [],
+                Options.Create(new PreflightOptions()),
+                NullLogger<PreflightService>.Instance));
+
+        await harness.Runner.RunNextAsync(CancellationToken.None);
+
+        Assert.True(harness.Completion.Completed);
+        Assert.False(harness.Completion.Failed);
+        Assert.Equal(ResultPng, harness.Files.Written[harness.Job.OutputPath!].ToArray());
+    }
+
+    private static PreflightService StubPreflight()
+        => new(
+            new StubCodec(),
+            new PreflightRunner([], NullLogger<PreflightRunner>.Instance),
+            [],
+            Options.Create(new PreflightOptions()),
+            NullLogger<PreflightService>.Instance);
+
+    private sealed class StubCodec : IPreflightImageCodec
+    {
+        public PreflightImage Decode(byte[] png)
+            => new(new byte[4], 1, 1, true, 8, true, 300, 300);
+
+        public byte[] Encode(PreflightImage image) => image.Pixels;
+    }
+
     private sealed class Harness
     {
         public required Job Job { get; init; }
@@ -162,7 +222,8 @@ public sealed class BackgroundRemovalJobRunnerTests
         public static Harness Create(
             bool designFound = true,
             bool jobAvailable = true,
-            string parametersJson = "")
+            string parametersJson = "",
+            PreflightService? preflight = null)
         {
             var job = Job.Create(
                 Guid.NewGuid(),
@@ -200,10 +261,32 @@ public sealed class BackgroundRemovalJobRunnerTests
                     new FakeBatches(batch),
                     files,
                     pipeline,
+                    preflight ?? CreatePreflight(),
                     completion,
                     NullLogger<BackgroundRemovalJobRunner>.Instance),
             };
         }
+
+        /// <summary>
+        /// Disabled preflight: these tests are about the cut-out contract, and the
+        /// runner tests that touch the report live in the preflight suite.
+        /// </summary>
+        private static PreflightService CreatePreflight()
+            => new(
+                new RejectingCodec(),
+                new PreflightRunner([], NullLogger<PreflightRunner>.Instance),
+                [],
+                Options.Create(new PreflightOptions { Enabled = false }),
+                NullLogger<PreflightService>.Instance);
+    }
+
+    private sealed class RejectingCodec : IPreflightImageCodec
+    {
+        public PreflightImage Decode(byte[] png)
+            => throw PreflightException.Unsupported("not a PNG");
+
+        public byte[] Encode(PreflightImage image)
+            => throw new NotSupportedException();
     }
 
     /// <summary>

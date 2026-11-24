@@ -1,11 +1,15 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using PrintSheet.Application.Abstractions;
 using PrintSheet.Application.Common;
+using PrintSheet.Application.Preflight;
 using PrintSheet.Domain.Batches;
 using PrintSheet.Domain.Common;
 using PrintSheet.Domain.Jobs;
+using PrintSheet.Domain.Preflight;
+using PrintSheet.Domain.Units;
 
 namespace PrintSheet.Application.BackgroundRemoval;
 
@@ -30,6 +34,7 @@ public sealed class BackgroundRemovalJobRunner
     private readonly IBatchRepository _batches;
     private readonly IFileStore _files;
     private readonly IBackgroundRemovalPipeline _pipeline;
+    private readonly PreflightService _preflight;
     private readonly IJobCompletionPort _completion;
     private readonly ILogger<BackgroundRemovalJobRunner> _logger;
 
@@ -38,6 +43,7 @@ public sealed class BackgroundRemovalJobRunner
         IBatchRepository batches,
         IFileStore files,
         IBackgroundRemovalPipeline pipeline,
+        PreflightService preflight,
         IJobCompletionPort completion,
         ILogger<BackgroundRemovalJobRunner> logger)
     {
@@ -45,6 +51,7 @@ public sealed class BackgroundRemovalJobRunner
         _batches = batches;
         _files = files;
         _pipeline = pipeline;
+        _preflight = preflight;
         _completion = completion;
         _logger = logger;
     }
@@ -109,7 +116,7 @@ public sealed class BackgroundRemovalJobRunner
             return;
         }
 
-        var (input, sourceVersionId, outputPath) = prepared.Value;
+        var (input, sourceVersionId, outputPath, spec) = prepared.Value;
 
         BackgroundRemovalPipelineResult result;
         try
@@ -149,10 +156,14 @@ public sealed class BackgroundRemovalJobRunner
             await _files.WriteAsync(outputPath, stream, cancellationToken);
         }
 
+        // The preflight report is advisory and never fails the cut-out: the version
+        // is already on disk and a report problem must not throw away finished work.
+        var preflight = await TryPreflightAsync(result.PngBytes, spec, outputPath, cancellationToken);
+
         var completionResult = await _completion.CompleteAsync(
             job.Id,
             leaseToken,
-            BuildResult(job, result, outputPath, sourceVersionId),
+            BuildResult(job, result, outputPath, sourceVersionId, preflight),
             cancellationToken);
 
         if (!completionResult.IsSuccess)
@@ -170,7 +181,7 @@ public sealed class BackgroundRemovalJobRunner
     /// assigned when the job was queued and already ends in the new version id,
     /// which is how the completion service reads the version back.
     /// </summary>
-    private async Task<Result<(ImageInput Input, Guid SourceVersionId, string OutputPath)>> PrepareAsync(
+    private async Task<Result<(ImageInput Input, Guid SourceVersionId, string OutputPath, PrintSpec Spec)>> PrepareAsync(
         Job job,
         CancellationToken cancellationToken)
     {
@@ -188,7 +199,7 @@ public sealed class BackgroundRemovalJobRunner
         var design = batch?.FindDesign(designId);
         if (design is null)
         {
-            return Result<(ImageInput, Guid, string)>.Failure(
+            return Result<(ImageInput, Guid, string, PrintSpec)>.Failure(
                 ErrorCodes.DesignNotFound,
                 $"Design {designId} was not found.");
         }
@@ -219,15 +230,52 @@ public sealed class BackgroundRemovalJobRunner
         // Version files are always PNG in this system, so the content type is known
         // rather than guessed from a possibly stale extension.
         var input = new ImageInput(bytes, "image/png", Path.GetFileName(parent.FilePath));
-        return Result<(ImageInput, Guid, string)>.Success((input, parent.Id, job.OutputPath));
+
+        // Preflight judges the cut-out against the print job it is destined for.
+        // A design without an approved print size has no physical size yet, so the
+        // version is measured on its own canvas at the design's working DPI.
+        var dpi = design.WorkingDpi > 0 ? design.WorkingDpi : PrintUnits.DefaultWorkingDpi;
+        var garment = design.GarmentColor;
+        var created = design.TargetWidthCm is { } widthCm
+            && design.TargetHeightCm is { } heightCm
+            ? PrintSpec.Create(widthCm, heightCm, dpi, garment)
+            : Result<PrintSpec>.Failure(ErrorCodes.InvalidTargetSize, "No print size.");
+        var spec = created.IsSuccess
+            ? created.Value!
+            : PrintSpec.FromPixels(parent.WidthPx, parent.HeightPx, dpi, garment);
+
+        return Result<(ImageInput, Guid, string, PrintSpec)>.Success(
+            (input, parent.Id, job.OutputPath, spec));
     }
 
     private static JsonElement BuildResult(
         Job job,
         BackgroundRemovalPipelineResult result,
         string outputPath,
-        Guid sourceVersionId)
+        Guid sourceVersionId,
+        (PreflightReport Report, string Path)? preflight)
     {
+        var metadata = new JsonObject
+        {
+            ["widthPx"] = result.WidthPx,
+            ["heightPx"] = result.HeightPx,
+            // hasAlpha is deliberately not reported: the completion service
+            // inspects the file on disk and that is the only claim it can verify.
+            // A hardcoded `true` here would win over the inspection and could
+            // record transparency the file does not have.
+            ["provider"] = result.Provider,
+            ["durationMs"] = (int)result.TotalElapsed.TotalMilliseconds,
+            ["removalMs"] = (int)result.RemovalElapsed.TotalMilliseconds,
+            ["sourceVersionId"] = sourceVersionId,
+        };
+
+        if (preflight is { } report)
+        {
+            metadata["preflightReportPath"] = report.Path;
+            metadata["preflightVerdict"] = report.Report.Verdict.ToString().ToLowerInvariant();
+            metadata["preflightFindingCount"] = report.Report.Findings.Count;
+        }
+
         var document = new JsonObject
         {
             ["schemaVersion"] = "1.0",
@@ -235,23 +283,76 @@ public sealed class BackgroundRemovalJobRunner
             ["status"] = "succeeded",
             ["outputPath"] = outputPath,
             ["outputArtifacts"] = new JsonObject(),
-            ["metadata"] = new JsonObject
-            {
-                ["widthPx"] = result.WidthPx,
-                ["heightPx"] = result.HeightPx,
-                // hasAlpha is deliberately not reported: the completion service
-                // inspects the file on disk and that is the only claim it can verify.
-                // A hardcoded `true` here would win over the inspection and could
-                // record transparency the file does not have.
-                ["provider"] = result.Provider,
-                ["durationMs"] = (int)result.TotalElapsed.TotalMilliseconds,
-                ["removalMs"] = (int)result.RemovalElapsed.TotalMilliseconds,
-                ["sourceVersionId"] = sourceVersionId,
-            },
+            ["metadata"] = metadata,
         };
 
         using var parsed = JsonDocument.Parse(document.ToJsonString(ApplicationJson.Web));
         return parsed.RootElement.Clone();
+    }
+
+    /// <summary>
+    /// Runs the report-only preflight next to the cut-out and writes the stable
+    /// JSON beside it. Any failure is logged and swallowed: the version is already
+    /// written, and a report must never turn a finished cut-out into a failed job.
+    /// </summary>
+    private async Task<(PreflightReport Report, string Path)?> TryPreflightAsync(
+        byte[] png,
+        PrintSpec spec,
+        string outputPath,
+        CancellationToken cancellationToken)
+    {
+        if (!_preflight.Enabled)
+        {
+            return null;
+        }
+
+        try
+        {
+            var outcome = _preflight.Run(
+                png,
+                spec,
+                spec.Dpi,
+                spec.Garment,
+                profileName: null,
+                applyFixes: false,
+                cancellationToken);
+
+            if (!outcome.IsSuccess)
+            {
+                _logger.LogWarning(
+                    "Preflight was skipped for {OutputPath}: {Message}",
+                    outputPath,
+                    outcome.Error!.Message);
+                return null;
+            }
+
+            var path = Path.ChangeExtension(outputPath, ".preflight.json");
+            await using var stream = new MemoryStream(
+                Encoding.UTF8.GetBytes(outcome.Value!.Json),
+                writable: false);
+            await _files.WriteAsync(path, stream, cancellationToken);
+
+            _logger.LogInformation(
+                "Preflight for {OutputPath}: verdict={Verdict} findings={FindingCount} report={ReportPath}",
+                outputPath,
+                outcome.Value.Report.Verdict,
+                outcome.Value.Report.Findings.Count,
+                path);
+
+            return (outcome.Value.Report, path);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Preflight failed for {OutputPath}; the cut-out is unaffected.",
+                outputPath);
+            return null;
+        }
     }
 
     private Task FailAsync(
@@ -271,8 +372,8 @@ public sealed class BackgroundRemovalJobRunner
             cancellationToken);
     }
 
-    private static Result<(ImageInput, Guid, string)> Invalid(string message)
-        => Result<(ImageInput, Guid, string)>.Failure(ErrorCodes.InvalidRequest, message);
+    private static Result<(ImageInput, Guid, string, PrintSpec)> Invalid(string message)
+        => Result<(ImageInput, Guid, string, PrintSpec)>.Failure(ErrorCodes.InvalidRequest, message);
 
     /// <summary>
     /// The per-job provider override, if the operator supplied one when queueing.
