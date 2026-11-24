@@ -81,7 +81,7 @@ def expected_contract_version() -> str:
             for line in handle:
                 if "Current =" in line and '"' in line:
                     return line.split('"')[1]
-    return "3.1.0"
+    return "3.2.0"
 
 
 def check_api_info() -> None:

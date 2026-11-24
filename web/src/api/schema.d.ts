@@ -666,6 +666,12 @@ export interface paths {
          *     `provider` is an optional override of `BackgroundRemoval:DefaultProvider`.
          *     Fallback to `BackgroundRemoval:FallbackProvider` happens only for
          *     availability failures; an input the provider cannot decode fails outright.
+         *
+         *     **Preflight always runs report-only after the cut-out.** The report is
+         *     written beside the output as `<output>.preflight.json`, and the job
+         *     metadata carries `preflightReportPath`, `preflightVerdict` and
+         *     `preflightFindingCount`. A preflight failure never fails the cut-out: the
+         *     version is already on disk.
          */
         post: operations["proposeBackgroundRemoval"];
         delete?: never;
@@ -768,6 +774,37 @@ export interface paths {
         put?: never;
         /** Cancel a queued job */
         post: operations["cancelJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a PNG against the DTF print rules
+         * @description Runs the preflight checks on an uploaded PNG without creating a version.
+         *     The response carries the same report document that a cut-out writes
+         *     beside its output (`<output>.preflight.json`), so the operator sees the
+         *     identical verdict whether the file came from a step or from a designer.
+         *
+         *     **Report only by default.** Set `fix=true` to apply the enabled safe
+         *     fixes and receive the repaired PNG as `fixedImageBase64`. The report is
+         *     always rebuilt from the final state, so a fix that did not help still
+         *     shows its finding.
+         *
+         *     Omit `targetWidthCm`/`targetHeightCm` to judge the file on its own canvas
+         *     at `dpi`: the report then echoes that derived print size.
+         */
+        post: operations["runPreflight"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1509,6 +1546,74 @@ export interface components {
         JobFailure: {
             leaseToken: string;
             error: components["schemas"]["JobError"];
+        };
+        PreflightResponse: {
+            report: components["schemas"]["PreflightReport"];
+            /**
+             * @description The repaired PNG, base64-encoded, present only when `fix=true` and at
+             *     least one fix applied. Base64 is acceptable here because the response
+             *     is one ad-hoc review file, not a service-to-service exchange.
+             */
+            fixedImageBase64?: string | null;
+        };
+        /**
+         * @description Stable preflight document. Findings and fixes are sorted by code, metrics
+         *     keep their measurement order, and nothing time- or machine-dependent is
+         *     included, so the same input produces the same bytes.
+         */
+        PreflightReport: {
+            /** @enum {string} */
+            schemaVersion: "1.0";
+            profile: string;
+            spec: components["schemas"]["PreflightSpecSummary"];
+            /**
+             * @description fail when any finding is an error, warn when any is a warning.
+             * @enum {string}
+             */
+            verdict: "pass" | "warn" | "fail";
+            findings: components["schemas"]["PreflightFinding"][];
+            fixes: components["schemas"]["PreflightFixRecord"][];
+            metrics: components["schemas"]["PreflightMetric"][];
+        };
+        PreflightSpecSummary: {
+            widthCm: number;
+            heightCm: number;
+            dpi: number;
+            /** @enum {string} */
+            garmentColor: "light" | "dark" | "custom";
+        };
+        PreflightFinding: {
+            /**
+             * @description One of `resolution`, `alpha`, `bit-depth`, `icc-profile`,
+             *     `dpi-metadata`, `soft-edge`, `soft-interior`, `coverage`,
+             *     `safe-margin`, `region-count`, `stroke-width`, `gap-width`,
+             *     `island-area`, `hole-area`, `contrast`, or `check-failed` when a
+             *     check itself threw.
+             */
+            code: string;
+            /** @enum {string} */
+            severity: "info" | "warning" | "error";
+            title: string;
+            message: string;
+            region?: components["schemas"]["PreflightRegion"] | null;
+            metrics: components["schemas"]["PreflightMetric"][];
+        };
+        PreflightRegion: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+        };
+        PreflightMetric: {
+            name: string;
+            value: number;
+            unit: string;
+            limit?: string | null;
+        };
+        PreflightFixRecord: {
+            /** @enum {string} */
+            code: "remove-islands" | "fill-holes" | "set-dpi-metadata" | "embed-srgb" | "harden-soft-interior";
+            description: string;
         };
     };
     responses: {
@@ -2610,6 +2715,60 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    runPreflight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description PNG. Maximum size is configured by the API.
+                     */
+                    file: string;
+                    /** @description Printed width; provide together with targetHeightCm. */
+                    targetWidthCm?: number | null;
+                    targetHeightCm?: number | null;
+                    /** @default 300 */
+                    dpi?: number;
+                    garmentColorKind?: components["schemas"]["GarmentColorKind"];
+                    garmentColorHex?: string | null;
+                    /** @description Preflight profile name; the configured profile when omitted. */
+                    profile?: string | null;
+                    /**
+                     * @description Apply the enabled safe fixes and return the repaired PNG.
+                     * @default false
+                     */
+                    fix?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Preflight report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreflightResponse"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            422: components["responses"]["UnprocessableEntity"];
         };
     };
     getExport: {

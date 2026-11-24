@@ -1,16 +1,17 @@
-# PrintSheet Contracts — v3.0.0
+# PrintSheet Contracts — v3.2.0
 
 These files define the interface between API, worker, packer and web.
 Contract changes are not free: update the schema, its examples, the changelog,
 and notify every track in the handoff summary.
 
-The API contract is v3.0.0. Background removal and manual-edit proposal endpoints
-were removed in this version. The `background-removal` and `manual-edit` step
-types remain in the `StepType` enum for historical record readability; new work
-cannot submit these operations. Active worker job types are `classify`, `trim`,
-`upscale`, `vectorize`, `resize`. The historical `vectorize` type remains in the
-schemas and persisted models so existing records stay readable, but does not accept
-new work.
+The API contract is v3.2.0. Active worker job types are `classify`, `trim`,
+`upscale`, `resize` and `refine-mono`. `vectorize` is accepted by the worker
+envelope only so historical documents stay readable and is rejected as
+`retired`. `background-removal` is a live step type but not a worker job: the
+API executes it in-process behind a `cutout` capability. `manual-edit` is
+retired. v3.2.0 adds DTF preflight (`POST /api/v1/preflight`, plus the report a
+cut-out writes beside its output); it is additive and no existing request or
+response changed shape.
 
 ## Files
 

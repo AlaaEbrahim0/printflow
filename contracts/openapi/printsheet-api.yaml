@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PrintSheet Workbench API
-  version: 3.1.0
+  version: 3.2.0
   description: |
     Contract for the PrintSheet Workbench HTTP API.
 
@@ -27,6 +27,7 @@ tags:
   - name: Designs
   - name: Versions
   - name: Jobs
+  - name: Preflight
   - name: Sheets
   - name: Exports
   - name: Internal
@@ -835,6 +836,12 @@ paths:
         `provider` is an optional override of `BackgroundRemoval:DefaultProvider`.
         Fallback to `BackgroundRemoval:FallbackProvider` happens only for
         availability failures; an input the provider cannot decode fails outright.
+
+        **Preflight always runs report-only after the cut-out.** The report is
+        written beside the output as `<output>.preflight.json`, and the job
+        metadata carries `preflightReportPath`, `preflightVerdict` and
+        `preflightFindingCount`. A preflight failure never fails the cut-out: the
+        version is already on disk.
       requestBody:
         required: false
         content:
@@ -959,6 +966,76 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+
+  /api/v1/preflight:
+    post:
+      tags: [Preflight]
+      operationId: runPreflight
+      summary: Check a PNG against the DTF print rules
+      description: |
+        Runs the preflight checks on an uploaded PNG without creating a version.
+        The response carries the same report document that a cut-out writes
+        beside its output (`<output>.preflight.json`), so the operator sees the
+        identical verdict whether the file came from a step or from a designer.
+
+        **Report only by default.** Set `fix=true` to apply the enabled safe
+        fixes and receive the repaired PNG as `fixedImageBase64`. The report is
+        always rebuilt from the final state, so a fix that did not help still
+        shows its finding.
+
+        Omit `targetWidthCm`/`targetHeightCm` to judge the file on its own canvas
+        at `dpi`: the report then echoes that derived print size.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PNG. Maximum size is configured by the API.
+                targetWidthCm:
+                  type: number
+                  nullable: true
+                  description: Printed width; provide together with targetHeightCm.
+                targetHeightCm:
+                  type: number
+                  nullable: true
+                dpi:
+                  type: integer
+                  default: 300
+                  minimum: 72
+                  maximum: 1200
+                garmentColorKind:
+                  $ref: '#/components/schemas/GarmentColorKind'
+                garmentColorHex:
+                  type: string
+                  nullable: true
+                  pattern: '^#[0-9A-Fa-f]{6}$'
+                profile:
+                  type: string
+                  nullable: true
+                  description: Preflight profile name; the configured profile when omitted.
+                fix:
+                  type: boolean
+                  default: false
+                  description: Apply the enabled safe fixes and return the repaired PNG.
+      responses:
+        '200':
+          description: Preflight report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PreflightResponse' }
+        '413':
+          description: Upload too large
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetails' }
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
 
   /api/v1/exports/{exportId}:
     parameters:
@@ -2060,3 +2137,101 @@ components:
       properties:
         leaseToken: { type: string }
         error: { $ref: '#/components/schemas/JobError' }
+
+    PreflightResponse:
+      type: object
+      required: [report]
+      properties:
+        report: { $ref: '#/components/schemas/PreflightReport' }
+        fixedImageBase64:
+          type: string
+          nullable: true
+          description: |
+            The repaired PNG, base64-encoded, present only when `fix=true` and at
+            least one fix applied. Base64 is acceptable here because the response
+            is one ad-hoc review file, not a service-to-service exchange.
+
+    PreflightReport:
+      type: object
+      description: |
+        Stable preflight document. Findings and fixes are sorted by code, metrics
+        keep their measurement order, and nothing time- or machine-dependent is
+        included, so the same input produces the same bytes.
+      required: [schemaVersion, profile, spec, verdict, findings, fixes, metrics]
+      properties:
+        schemaVersion: { type: string, enum: ['1.0'] }
+        profile: { type: string }
+        spec: { $ref: '#/components/schemas/PreflightSpecSummary' }
+        verdict:
+          type: string
+          enum: [pass, warn, fail]
+          description: fail when any finding is an error, warn when any is a warning.
+        findings:
+          type: array
+          items: { $ref: '#/components/schemas/PreflightFinding' }
+        fixes:
+          type: array
+          items: { $ref: '#/components/schemas/PreflightFixRecord' }
+        metrics:
+          type: array
+          items: { $ref: '#/components/schemas/PreflightMetric' }
+
+    PreflightSpecSummary:
+      type: object
+      required: [widthCm, heightCm, dpi, garmentColor]
+      properties:
+        widthCm: { type: number }
+        heightCm: { type: number }
+        dpi: { type: integer }
+        garmentColor:
+          type: string
+          enum: [light, dark, custom]
+
+    PreflightFinding:
+      type: object
+      required: [code, severity, title, message, metrics]
+      properties:
+        code:
+          type: string
+          description: |
+            One of `resolution`, `alpha`, `bit-depth`, `icc-profile`,
+            `dpi-metadata`, `soft-edge`, `soft-interior`, `coverage`,
+            `safe-margin`, `region-count`, `stroke-width`, `gap-width`,
+            `island-area`, `hole-area`, `contrast`, or `check-failed` when a
+            check itself threw.
+        severity: { type: string, enum: [info, warning, error] }
+        title: { type: string }
+        message: { type: string }
+        region:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/PreflightRegion' }]
+        metrics:
+          type: array
+          items: { $ref: '#/components/schemas/PreflightMetric' }
+
+    PreflightRegion:
+      type: object
+      required: [x, y, width, height]
+      properties:
+        x: { type: integer }
+        y: { type: integer }
+        width: { type: integer }
+        height: { type: integer }
+
+    PreflightMetric:
+      type: object
+      required: [name, value, unit]
+      properties:
+        name: { type: string }
+        value: { type: number }
+        unit: { type: string }
+        limit: { type: string, nullable: true }
+
+    PreflightFixRecord:
+      type: object
+      required: [code, description]
+      properties:
+        code:
+          type: string
+          enum: [remove-islands, fill-holes, set-dpi-metadata, embed-srgb, harden-soft-interior]
+        description: { type: string }

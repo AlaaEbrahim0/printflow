@@ -1,5 +1,28 @@
 # Contract Changelog
 
+## 3.2.0 — 2026-11-23
+
+Additive: DTF preflight. A cut-out now always produces a report next to its
+output, and the same report can be requested for any PNG before it becomes a
+version. No existing request or response changed shape.
+
+- New `POST /api/v1/preflight` (multipart, report-only by default, `fix=true`
+  returns the repaired PNG as `fixedImageBase64`). Omit the target size to judge
+  the file on its own canvas at `dpi`.
+- New schemas `PreflightResponse`, `PreflightReport`, `PreflightSpecSummary`,
+  `PreflightFinding`, `PreflightRegion`, `PreflightMetric` and
+  `PreflightFixRecord`. The report is byte-stable: findings and fixes are sorted
+  by code and nothing time- or machine-dependent is serialised.
+- `POST /api/v1/designs/{designId}/steps/background-removal` documents that
+  preflight always runs report-only after the cut-out and writes
+  `<output>.preflight.json`; job metadata gains `preflightReportPath`,
+  `preflightVerdict` and `preflightFindingCount`.
+- `BackgroundRemovalStepRequest.provider` also accepts `solid` and `auto`.
+- Thresholds live in `Preflight:Profile` (DTO-independent options), so a profile
+  change is configuration, not a contract change.
+- Tracks: API A only. Worker B, packer C and web D are unaffected; the web review
+  page adds the `solid` and `auto` provider buttons.
+
 ## 3.1.0 — 2026-11-21
 
 Additive: background removal returns as a first-class step, but on a different
