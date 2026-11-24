@@ -511,8 +511,8 @@ machine-dependent is serialised — a diff between two runs is a real difference
 | `bit-depth` | warning | Above 8 bits per channel: the RIP silently reduces it |
 | `icc-profile` | warning | No sRGB/ICC profile: the RIP guesses the colour space |
 | `dpi-metadata` | warning | Missing or mismatched pHYs: the print size is assumed, not declared |
-| `soft-edge` | warning | More than 12% of the edge band is semi-transparent: the outline will look feathered |
-| `soft-interior` | error | More than 0.5% of the foreground is semi-transparent away from the edge: the matte is incomplete |
+| `soft-edge` | warning | The semi-transparent ramp reaches more than 0.5 mm into the artwork: the outline will look feathered |
+| `soft-interior` | error | More than 0.5% of the foreground is semi-transparent and more than 0.3 mm from the nearest clear pixel: the matte is incomplete |
 | `coverage` | warning | Ink over 60% of the print area: stiff, heavy, slow to cure |
 | `safe-margin` | warning | Opaque ink within 1 mm of the trim edge |
 | `region-count` | warning | More than 10 islands above the minimum area: usually a fragmented cut-out |

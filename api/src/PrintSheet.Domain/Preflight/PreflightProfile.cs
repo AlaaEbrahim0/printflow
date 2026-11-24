@@ -18,8 +18,19 @@ public sealed record PreflightProfile
     /// <summary>At or above this the resolution check is silent.</summary>
     public int RecommendedDpi { get; init; } = 300;
 
-    /// <summary>Share of edge-band pixels allowed to be partially transparent.</summary>
-    public double MaximumSoftEdgeFraction { get; init; } = 0.12;
+    /// <summary>
+    /// How deep, in millimetres, the semi-transparent ramp may reach into the
+    /// artwork. This is the *width* of the soft edge, not its share of a band.
+    ///
+    /// Measured: a perfect anti-aliased edge is 2 px (0.17 mm at 300 DPI) and the
+    /// shipped cut-outs are 3 px (0.25 mm), while a genuinely feathered edge runs
+    /// 30-43 px (2.5-3.6 mm). A share-of-band rule cannot tell those apart — on a
+    /// 0.3 mm band a textbook 1 px ramp already scores 25% against a 12% limit,
+    /// so it failed every clean cut-out. Depth separates them by an order of
+    /// magnitude. 0.5 mm leaves room for a 2-3 px ramp at 300 DPI and still
+    /// catches a real feather.
+    /// </summary>
+    public double MaximumSoftEdgeDepthMm { get; init; } = 0.5;
 
     /// <summary>Share of interior foreground pixels allowed to be partially transparent.</summary>
     public double MaximumSoftInteriorFraction { get; init; } = 0.005;
@@ -125,7 +136,6 @@ public sealed record PreflightProfile
 
         foreach (var (name, value) in new (string, double)[]
         {
-            (nameof(MaximumSoftEdgeFraction), MaximumSoftEdgeFraction),
             (nameof(MaximumSoftInteriorFraction), MaximumSoftInteriorFraction),
             (nameof(MaximumCoverageFraction), MaximumCoverageFraction),
         })
@@ -134,6 +144,11 @@ public sealed record PreflightProfile
             {
                 errors.Add($"Preflight {name} must be a fraction in (0, 1].");
             }
+        }
+
+        if (MaximumSoftEdgeDepthMm <= 0)
+        {
+            errors.Add("Preflight MaximumSoftEdgeDepthMm must be positive.");
         }
 
         if (MaximumRegions <= 0)

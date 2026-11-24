@@ -5,9 +5,21 @@ using PrintSheet.Domain.Preflight;
 namespace PrintSheet.Infrastructure.Preflight.Checks;
 
 /// <summary>
-/// Soft edges are expected on an anti-aliased matte, but too many of them mean
-/// the cut-out is a gradient, not an edge. Measured as a share of the band that
-/// is allowed to be soft, so a small logo is judged the same as a large one.
+/// A soft edge is measured by how *deep* the semi-transparent ramp reaches into
+/// the artwork, not by what share of a fixed band is soft.
+///
+/// The share-of-band rule could not pass a clean cut-out. On the shipped 0.3 mm
+/// band (4 px at 300 DPI) a textbook one-pixel anti-aliased ramp already scores
+/// 25%, and the ceiling was 12% — so the rule required a ramp thinner than one
+/// pixel, which no anti-aliased edge has. Measured on a synthetic perfectly
+/// anti-aliased disc it reported 26%; on the real FCB cut-out, 42%. Depth
+/// separates the cases the operator cares about by an order of magnitude:
+/// 2 px for a perfect edge, 3 px for the shipped cut-outs, 30-43 px for a
+/// genuinely feathered matte.
+///
+/// Depth is <see cref="PreflightAnalysis.DistanceToClear"/>: distance to the
+/// nearest fully clear pixel, which is what "how far inside the artwork" means.
+/// The transparent map scores a soft pixel 0 because a soft pixel is not opaque.
 /// </summary>
 public sealed class SoftEdgeCheck : IPreflightCheck
 {
@@ -16,40 +28,42 @@ public sealed class SoftEdgeCheck : IPreflightCheck
     public PreflightCheckResult Run(PreflightContext context, CancellationToken cancellationToken)
     {
         var profile = context.Profile;
-        var bandPx = Math.Max(1, (int)Math.Round(profile.SoftEdgeBandMm * context.PixelsPerMm));
+        var limitPx = Math.Max(1, (int)Math.Round(profile.MaximumSoftEdgeDepthMm * context.PixelsPerMm));
         var pixels = context.Image.Pixels;
-        var distance = context.Analysis.DistanceToTransparent;
+        var distance = context.Analysis.DistanceToClear;
 
-        var band = 0;
         var soft = 0;
+        var deepest = 0;
         for (var index = 0; index < distance.Length; index++)
         {
             var alpha = pixels[(index * 4) + 3];
-            if (alpha == 0 || distance[index] > bandPx)
+            if (alpha is 0 or 255)
             {
                 continue;
             }
 
-            band++;
-            if (alpha < 255)
+            soft++;
+            var depth = distance[index];
+            if (depth > deepest)
             {
-                soft++;
+                deepest = depth;
             }
         }
 
-        if (band == 0)
+        if (soft == 0)
         {
             return PreflightCheckResult.None;
         }
 
-        var fraction = (double)soft / band;
+        var deepestMm = deepest / context.PixelsPerMm;
         var metrics = new[]
         {
-            PreflightSupport.Metric("soft-edge-fraction", fraction, "fraction", $"{profile.MaximumSoftEdgeFraction:F2}"),
-            PreflightSupport.Metric("edge-band-px", bandPx, "px"),
+            PreflightSupport.Metric("soft-edge-depth-px", deepest, "px", $"{limitPx}"),
+            PreflightSupport.Metric("soft-edge-depth-mm", deepestMm, "mm", $"{profile.MaximumSoftEdgeDepthMm:F2}"),
+            PreflightSupport.Metric("soft-edge-px", soft, "px"),
         };
 
-        if (fraction > profile.MaximumSoftEdgeFraction)
+        if (deepest > limitPx)
         {
             return PreflightCheckResult.Finding(
                 new PreflightFinding(
@@ -58,7 +72,7 @@ public sealed class SoftEdgeCheck : IPreflightCheck
                     "Soft edge too wide",
                     string.Create(
                         CultureInfo.InvariantCulture,
-                        $"{fraction:P1} of the edge band is semi-transparent; the limit is {profile.MaximumSoftEdgeFraction:P1}. The outline will look feathered on the garment."),
+                        $"The semi-transparent edge reaches {deepestMm:F2} mm into the artwork; the limit is {profile.MaximumSoftEdgeDepthMm:F2} mm. The outline will look feathered on the garment."),
                     null,
                     metrics),
                 metrics);

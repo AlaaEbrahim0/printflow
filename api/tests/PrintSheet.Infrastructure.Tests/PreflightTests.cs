@@ -171,6 +171,65 @@ public sealed class PreflightTests
         }
     }
 
+    [Fact]
+    public void AnAntiAliasedRimIsNotAMatteDefect()
+    {
+        // A 1 px anti-aliased rim on an opaque shape is what a correct cut-out
+        // looks like, so neither the soft-edge nor the soft-interior rule may
+        // fire on it. The old share-of-band rule failed exactly this: it required
+        // a ramp thinner than one pixel.
+        var pixels = new byte[Size * Size * 4];
+        for (var y = 100; y < 200; y++)
+        {
+            for (var x = 100; x < 200; x++)
+            {
+                var offset = (((y * Size) + x) * 4);
+                var rim = x is 100 or 199 || y is 100 or 199;
+                pixels[offset] = 255;
+                pixels[offset + 1] = 255;
+                pixels[offset + 2] = 255;
+                pixels[offset + 3] = rim ? (byte)128 : (byte)255;
+            }
+        }
+
+        var png = new SkiaPreflightImageCodec().Encode(
+            new PreflightImage(pixels, Size, Size, true, 8, true, 300, 300));
+        var outcome = Run(png, Spec());
+
+        Assert.DoesNotContain(outcome.Report.Findings, f => f.Code == "soft-edge");
+        Assert.DoesNotContain(outcome.Report.Findings, f => f.Code == "soft-interior");
+    }
+
+    [Fact]
+    public void AFeatheredRimIsReportedAsASoftEdge()
+    {
+        // The same shape with a ramp ten pixels deep: what a blurred or
+        // over-feathered matte looks like, and what the rule exists to catch.
+        var pixels = new byte[Size * Size * 4];
+        for (var y = 100; y < 200; y++)
+        {
+            for (var x = 100; x < 200; x++)
+            {
+                var offset = (((y * Size) + x) * 4);
+                var depth = Math.Min(
+                    Math.Min(x - 100, 199 - x),
+                    Math.Min(y - 100, 199 - y));
+                var alpha = depth < 10 ? (byte)(25 * (depth + 1)) : (byte)255;
+                pixels[offset] = 255;
+                pixels[offset + 1] = 255;
+                pixels[offset + 2] = 255;
+                pixels[offset + 3] = alpha;
+            }
+        }
+
+        var png = new SkiaPreflightImageCodec().Encode(
+            new PreflightImage(pixels, Size, Size, true, 8, true, 300, 300));
+        var finding = Assert.Single(Run(png, Spec()).Report.Findings, f => f.Code == "soft-edge");
+
+        Assert.Equal(PreflightSeverity.Warning, finding.Severity);
+        Assert.Contains("feathered", finding.Message, StringComparison.Ordinal);
+    }
+
     private static PreflightOutcome Run(byte[] png, PrintSpec spec, bool applyFixes = false)
     {
         var outcome = Service().Run(
