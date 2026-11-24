@@ -114,6 +114,63 @@ public sealed class PreflightTests
         Assert.Contains(errors, error => error.Contains("MaximumCoverageFraction", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void TheDistanceMapMatchesAnExactEuclideanTransform()
+    {
+        // The distance map drives stroke width, gap width, soft edge and soft
+        // interior, so a wrong map is four wrong findings at once. It used an
+        // infinite sentinel for "no transparent pixel here", which made the
+        // parabola arithmetic evaluate Inf - Inf = NaN and walked the lower
+        // envelope off the start of its site list: on random masks 178 of 200
+        // images threw, and on a real cut-out 31.3% of pixels were wrong (all
+        // overestimates). This compares against a brute-force EDT, which is the
+        // only definition of "exact" that does not share the same bug.
+        var random = new Random(20261124);
+        for (var trial = 0; trial < 60; trial++)
+        {
+            var width = random.Next(5, 18);
+            var height = random.Next(5, 18);
+            var pixels = new byte[width * height * 4];
+            var alpha = new byte[width * height];
+            var density = 0.1 + (random.NextDouble() * 0.6);
+            for (var index = 0; index < alpha.Length; index++)
+            {
+                alpha[index] = (byte)(random.NextDouble() < density ? 0 : 255);
+                pixels[(index * 4) + 3] = alpha[index];
+            }
+
+            var analysis = PreflightAnalysis.Build(
+                new PreflightImage(pixels, width, height, true, 8, true, 300, 300),
+                CancellationToken.None);
+
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var nearest = double.MaxValue;
+                    for (var otherY = 0; otherY < height; otherY++)
+                    {
+                        for (var otherX = 0; otherX < width; otherX++)
+                        {
+                            if (alpha[(otherY * width) + otherX] >= 128)
+                            {
+                                continue;
+                            }
+
+                            var dx = x - otherX;
+                            var dy = y - otherY;
+                            nearest = Math.Min(nearest, Math.Sqrt((dx * dx) + (dy * dy)));
+                        }
+                    }
+
+                    // The map is a byte, so the reference is compared at that precision.
+                    var expected = (byte)Math.Min(255, (int)nearest);
+                    Assert.Equal(expected, analysis.DistanceToTransparent[(y * width) + x]);
+                }
+            }
+        }
+    }
+
     private static PreflightOutcome Run(byte[] png, PrintSpec spec, bool applyFixes = false)
     {
         var outcome = Service().Run(

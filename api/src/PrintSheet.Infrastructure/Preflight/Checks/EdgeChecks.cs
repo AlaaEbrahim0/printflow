@@ -72,6 +72,11 @@ public sealed class SoftEdgeCheck : IPreflightCheck
 /// Semi-transparent pixels away from the edge are trapped background or a bad
 /// matte. Unlike a soft edge they cannot be justified by anti-aliasing, so this
 /// one is an error.
+///
+/// "Away from the edge" is measured with <see cref="PreflightAnalysis.DistanceToClear"/>,
+/// distance to the nearest fully clear pixel. The transparent map cannot answer
+/// this question: a semi-transparent pixel is itself not opaque, so it scores 0
+/// there and the rule could only ever fire by accident.
 /// </summary>
 public sealed class SoftInteriorCheck : IPreflightCheck
 {
@@ -82,7 +87,7 @@ public sealed class SoftInteriorCheck : IPreflightCheck
         var profile = context.Profile;
         var bandPx = Math.Max(1, (int)Math.Round(profile.SoftEdgeBandMm * context.PixelsPerMm));
         var pixels = context.Image.Pixels;
-        var distance = context.Analysis.DistanceToTransparent;
+        var distance = context.Analysis.DistanceToClear;
         var foreground = Math.Max(1, context.Analysis.ForegroundPixels);
 
         var soft = 0;

@@ -94,6 +94,10 @@ public sealed class FillHolesFix : IPreflightFix
 /// <summary>
 /// Snaps semi-transparent pixels away from the edge to fully clear or fully
 /// opaque. The edge band is left alone: that is where a soft ramp is correct.
+/// "Away from the edge" uses <see cref="PreflightAnalysis.DistanceToClear"/> for
+/// the same reason the check does — a soft pixel is not opaque, so the
+/// transparent map scores it 0 and this fix would otherwise only ever touch the
+/// wrong pixels.
 /// </summary>
 public sealed class HardenSoftInteriorFix : IPreflightFix
 {
@@ -109,7 +113,7 @@ public sealed class HardenSoftInteriorFix : IPreflightFix
         CancellationToken cancellationToken)
     {
         var bandPx = Math.Max(1, (int)Math.Round(context.Profile.SoftEdgeBandMm * context.PixelsPerMm));
-        var distance = context.Analysis.DistanceToTransparent;
+        var distance = context.Analysis.DistanceToClear;
         var pixels = (byte[])image.Pixels.Clone();
 
         for (var index = 0; index < distance.Length; index++)
