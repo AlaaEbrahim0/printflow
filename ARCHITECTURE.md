@@ -304,6 +304,38 @@ cut-out alpha is both slower and slightly destructive, so such uploads keep
 their own alpha and report `source-alpha-used`. Busy artwork with negative space
 is still cut in Photoshop/Photopea and imported through ready-to-pack.
 
+#### Cut-out stage order
+
+The API-side cut-out is one fixed sequence, and the order is load-bearing:
+
+```
+crop → remove background → upscale RGB → refine matte → composite
+     → clear enclosed background (opt-in) → decontaminate → preflight (report only)
+```
+
+`preserveSize` (decided when the job is queued, recorded on the job) removes the
+first and third stages when the parent is already at the print pixels. Providers
+only matte background reachable from the frame edge, so a letter counter — the
+inside of an `o`, the black stripes inside a badge — survives as an opaque island
+of exactly the background colour. `removeEnclosedBackground` (opt-in per job,
+default from `BackgroundRemoval:RemoveEnclosedBackgroundByDefault`) finds those
+islands *by colour, not by shape*: it marks every pixel that is transparent or
+still within tolerance of the key, floods that mask from the border, and treats
+what the flood cannot reach as enclosed. `CounterAnalyzer` keeps one flat member
+array and one background-like mask for the whole image, so two hundred letter
+counters cost four buffers rather than four per region, and the anti-aliased
+ramp is rebuilt on each region's padded box rather than a full-image pass.
+
+Two guards make it safe to offer: regions under `MinCounterAreaPx` (64 px) are
+left alone, and the whole pass is abandoned when any *single* region exceeds
+`MaxCounterAreaFraction` (0.10) — that is what an inverted logo looks like, whose
+ink *is* the background colour. The cap is deliberately per region, not on the
+total: a white "Bo8" on black is five legitimate counters adding up to 15% of the
+canvas, while an inverted logo is one region the size of the design. A refusal is
+a successful job with `enclosedBackgroundSkipped` recording the reason. It runs
+*before* decontamination because it creates a new soft ramp, and decontamination is
+the stage that removes the background colour from exactly those pixels.
+
 Vectorization was retired in contract v2.0.0. Its historical versions and SVGs
 remain readable and downloadable, but the API no longer queues new proposals and
 the worker rejects the job type with a structured `retired` reason.

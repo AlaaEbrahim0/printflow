@@ -287,6 +287,27 @@ by default, so a missing key never produces a surprise billed call). The
 simplest local setup is a gitignored `.env` (copy `.env.example`) holding
 `POOF_API_KEY=...`; Compose picks it up automatically.
 
+### Removing enclosed background (letter counters)
+
+Providers matte only the background they can reach from the frame edge, so the
+inside of an `o`, the bowls of a `B` and the black stripes inside a badge stay
+opaque. The cut-out step offers **Also remove enclosed background** (off by
+default) to clear them; `BACKGROUND_REMOVAL_REMOVE_ENCLOSED_BACKGROUND=true`
+makes it the deployment default. It is opt-in because the pass keys by colour,
+not by shape, so it cannot tell a counter from artwork that happens to be the
+background colour. Two guards run regardless: `BACKGROUND_REMOVAL_MIN_COUNTER_AREA_PX`
+(64) leaves small dark details alone, and
+`BACKGROUND_REMOVAL_MAX_COUNTER_AREA_FRACTION` (0.10) abandons the whole pass
+when any single region would take more than that share of the canvas — an
+inverted logo, for example. The cap is per region, not on the total, so an
+ordinary white "Bo8" on black (five counters, 15% combined) still clears.
+A refusal is a successful job: the reason is reported as
+`enclosedBackgroundSkipped` in the job metadata.
+
+Note that preflight legitimately reports `hole-area` on the cleared counters, and
+the `fill-holes` fix would put them back. Preflight inside the cut-out is
+report-only, so it never does.
+
 ### Running withoutBG
 
 Compose starts it automatically:
@@ -581,7 +602,7 @@ Key documents:
 
 ## Contracts
 
-Contract version: **3.2.0**. Canonical files:
+Contract version: **3.3.0**. Canonical files:
 
 ```text
 contracts/openapi/printsheet-api.yaml

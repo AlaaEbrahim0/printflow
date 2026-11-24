@@ -170,7 +170,7 @@ Phase 2 progress:
 │   └── spikes/psd-spike/        ← executable PSD/PSB reproducer
 ├── web/                         ← React 19 + TypeScript + Vite shell
 ├── contracts/
-│   ├── openapi/                 ← printsheet-api.yaml (3.0.3, v3.2.0)
+│   ├── openapi/                 ← printsheet-api.yaml (3.0.3, v3.3.0)
 │   ├── jsonschema/              ← 5 worker/packer/integrity contracts
 │   └── examples/                ← 14 validated examples
 ├── docs/
@@ -239,7 +239,7 @@ version or docs first.
   and exports.
 - EF Core persistence supports PostgreSQL in Compose and SQLite in Development;
   `/healthz` checks the configured database and `/api/v1/info` returns contract
-  version `3.2.0`.
+  version `3.3.0`.
 - Supported new steps are classify, trim/manual crop, upscale, resize and
   background removal. `vectorize` and `manual-edit` are retired step types that
   remain readable in historical records but cannot be proposed anew.
@@ -329,7 +329,7 @@ npm test
 
 ## 7. Frozen contracts
 
-Contract version: **3.2.0** (additive on top of the 3.0.0 breaking change; the
+Contract version: **3.3.0** (additive on top of the 3.0.0 breaking change; the
 frozen 1.0.0 was 2026-11-05).
 
 Canonical files:
@@ -609,9 +609,43 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 ## 15. Live status
 
-**Last updated:** 2026-11-24 (DTF preflight shipped, contracts 3.2.0)
+**Last updated:** 2026-11-24 (enclosed-background opt-in shipped, contracts 3.3.0)
 
 **Done and verified:**
+
+- **Enclosed background removal, opt-in (2026-11-24).** Providers only matte
+  background reachable from the frame edge, so a letter counter — the inside of
+  an `o`, the bowls of a `B`, the black stripes inside a badge — survives as an
+  opaque island of exactly the background colour. `removeEnclosedBackground` on
+  `BackgroundRemovalStepRequest` (default
+  `BackgroundRemoval:RemoveEnclosedBackgroundByDefault` = `false`, resolved at
+  queue time) runs a shared post-composite stage between
+  `_compositor.ApplyAlphaAsync` and `_decontaminator.DecontaminateAsync`, so
+  every provider benefits and the new ramp is decontaminated. It finds the
+  islands *by colour, not by shape*: `CounterAnalyzer` marks every pixel that is
+  transparent or within tolerance of the key, floods that mask from the border,
+  and labels what the flood cannot reach, using one flat member array and one
+  background-like mask for the whole image (200 letter counters cost four
+  buffers, not four per region). Two guards: regions under
+  `MinCounterAreaPx` (64) are left alone, and the whole pass aborts when any
+  **single** region exceeds `MaxCounterAreaFraction` (0.10). A refusal is a
+  successful job (`enclosedBackgroundSkipped` = `no-background-key` |
+  `region-too-large` | `no-enclosed-regions`); the four metadata keys are absent
+  entirely when the pass was not requested. Contracts 3.3.0 (additive),
+  `schema.d.ts` regenerated, web checkbox sends `true` only when ticked.
+  Live on a white "Bo8" on black (900×600 → 2572×1208): 5 regions / 495,275 px
+  cleared, **0 solid ink pixels touched** (the 19,092 changed pixels are all
+  anti-aliased edge and got the intended ramp). Live on the FCB badge: refused
+  with `region-too-large` (largest of 235 regions = 1,068,389 px = 13.2%),
+  output byte-identical to the input.
+  **A defect found by the live run, fixed:** the cap originally compared the
+  *total* enclosed area, which refused the Bo8 (15.3% total, largest only 4.5%)
+  for the same reason as the inverted badge. It is now per region, which is what
+  the decision actually meant; `TheCapIsPerRegionNotOnTheTotal` pins it.
+  Gates: `dotnet build` 0 warnings / 0 errors; API 26 domain / 59 application /
+  11 api / 120 infrastructure (2 live skipped); contracts valid (5 schemas, 15
+  examples, v3.3.0); web 263 tests / 20 files, build and lint green (same
+  pre-existing warnings). Compose API image rebuilt and serving 3.3.0.
 
 - **DTF preflight (2026-11-24).** Phase 2 preflight is implemented and green:
   domain (`PrintSpec`, `PreflightProfile`, `PreflightReport`), application
@@ -733,8 +767,8 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
   no errors.
 - PSD/PSB spike rerun from the committed reproducer; report and JSON results in
   `docs/spikes/psd-spike/`.
-- Frozen contracts complete at v3.1.0: 5 JSON Schemas, 14 examples, OpenAPI
-  3.0.3 with 39 paths / 67 schemas. `scripts/validate_contracts.py` derives the
+- Frozen contracts complete at v3.3.0: 5 JSON Schemas, 15 examples, OpenAPI
+  3.0.3 with 41 paths / 75 schemas. `scripts/validate_contracts.py` derives the
   newest version from `contracts/CHANGELOG.md` and fails if
   `ContractVersion.Current` disagrees with the OpenAPI doc.
 - `ARCHITECTURE.md`, `docs/domain-model.md`, ADRs 0001–0007 with index. ADR 0004
@@ -963,6 +997,69 @@ reference data, not immediate work.
 ---
 
 ## 16. Handoff log
+
+### 2026-11-24 — Enclosed background removal (letter counters), contracts 3.3.0
+
+- **The pass is opt-in and per job, because only the operator can judge it.** It
+  keys by colour, not by shape, so it cannot tell a counter from artwork that
+  happens to be the background colour. `removeEnclosedBackground` on the request
+  resolves against `BackgroundRemoval:RemoveEnclosedBackgroundByDefault` at
+  **queue time** and is recorded in `BackgroundRemovalJobParameters`, exactly
+  like `preserveSize` — the runner never re-derives it from state that may have
+  changed. The web sends the key only when the operator ticks the box, so an
+  untouched control cannot pin a job against a deployment default set to on.
+- **It is a shared post-composite stage, so every provider gets it.**
+  `IEnclosedBackgroundCleaner` runs between `_compositor.ApplyAlphaAsync` and
+  `_decontaminator.DecontaminateAsync`. The order is load-bearing: the pass
+  builds a *new* anti-aliased ramp, and decontamination is the stage that strips
+  the background colour out of exactly those pixels.
+- **Colour, not shape.** `CounterAnalyzer` marks every pixel that is transparent
+  or within `CounterBackgroundTolerance` of the key, floods that mask from the
+  frame border with a 4-connected queue, and labels what the flood could not
+  reach. One flat `Members` array plus one `BackgroundLike` mask serve the whole
+  image, and each region's ramp is rebuilt on its own padded box, so a design
+  with 235 enclosed regions costs four buffers and 235 small BFS runs instead of
+  235 full-image passes. When the remover reports no background colour (the
+  matte providers don't), `BackgroundKeyEstimator` recovers it as the median of
+  the alpha==0 border ring, gated on `MinCounterKeyUniformity` (0.90) — a
+  non-uniform border has no key worth trusting.
+- **The safety cap had the wrong denominator, and the live run found it.** The
+  first version compared the *total* enclosed area against
+  `MaxCounterAreaFraction`. Measured live: a white "Bo8" on black is five
+  legitimate counters at 15.3% of the canvas in total but only 4.5% for the
+  largest, so the pass refused a design it should have cleared — with the same
+  reason string it uses for an inverted logo. The cap is now per region, which
+  is what the decision meant ("all-or-nothing abort if any enclosed area exceeds
+  the cap"). `TheCapIsPerRegionNotOnTheTotal` (nine 20×20 counters, 15.6%
+  combined, 1.7% largest) fails if the total comparison comes back.
+- **Verified live, both directions.** White "Bo8" on black (900×600, provider
+  `solid`, upscaled to 2572×1208): `enclosedBackgroundApplied: true`, 5 regions,
+  495,275 px cleared; **zero solid white-ink pixels changed** — the 19,092
+  changed non-background pixels are all anti-aliased edge that received the
+  intended ramp. The FCB badge (2782×2912, the worst case where the stripes and
+  letters *are* the background colour): `region-too-large`, largest of 235
+  regions = 1,068,389 px = 13.2%, and the output is **byte-identical** to the
+  input. Both jobs `succeeded`: refusing is a correct outcome, not a failure.
+- **Metadata is tri-state.** `enclosedBackgroundApplied`,
+  `enclosedBackgroundRegionsCleared`, `enclosedBackgroundPixelsCleared` and
+  `enclosedBackgroundSkipped` are written only when the pass was requested, so
+  "never asked for" stays distinguishable from "asked, nothing enclosed".
+  `OmitsTheEnclosedMetadataWhenThePassWasNotRequested` pins it.
+- **Preflight interaction is documented, not suppressed.** The cut-out's
+  report-only preflight legitimately reports `hole-area` on the counters it just
+  cleared, and `fill-holes` via `POST /api/v1/preflight` with `fix=true` would
+  put them back. Preflight inside the cut-out never applies fixes.
+- Contracts 3.3.0 (additive): `removeEnclosedBackground` on
+  `BackgroundRemovalStepRequest` plus the four job metadata keys. API A and web D
+  affected; worker B and packer C untouched — the pass is API-side pixel work on
+  the composited PNG, and a cleared counter is just alpha in an immutable
+  version. Compose seams `BACKGROUND_REMOVAL_REMOVE_ENCLOSED_BACKGROUND`,
+  `BACKGROUND_REMOVAL_MIN_COUNTER_AREA_PX`,
+  `BACKGROUND_REMOVAL_MAX_COUNTER_AREA_FRACTION`.
+- Gates: `dotnet build` 0 warnings / 0 errors; API 26 domain / 59 application /
+  11 api / 120 infrastructure (2 live skipped); contracts valid (5 schemas, 15
+  examples, OpenAPI 3.0.3 v3.3.0); web 263 tests / 20 files, `npm run build` and
+  `npm run lint` green. Compose API image rebuilt; `/api/v1/info` reports 3.3.0.
 
 ### 2026-11-24 — DTF preflight: 15 checks, 5 opt-in fixes, contracts 3.2.0
 
@@ -1865,6 +1962,34 @@ breaking 2.0.0 change on 2026-11-08 after two additive clarifications on
 When a contract changes, add a dated entry here naming the schema/operation,
 the version bump, and which tracks must adapt (API A, worker B, packer C,
 web D). Also update `contracts/CHANGELOG.md` and the examples.
+
+### 2026-11-24 — Additive: enclosed background removal (contracts 3.3.0)
+
+Contract version is now `3.3.0`. Additive on top of 3.2.0: no existing request
+or response changed shape.
+
+- **API (track A):** `BackgroundRemovalStepRequest` gains
+  `removeEnclosedBackground` (boolean, nullable). Omitted/`null` takes
+  `BackgroundRemoval:RemoveEnclosedBackgroundByDefault` (`false` by default),
+  resolved when the job is queued and stored in the job's `parameters`, so a
+  queued job is never re-interpreted. A cut-out now runs the pass between
+  compositing and decontamination, and its job metadata gains
+  `enclosedBackgroundApplied`, `enclosedBackgroundRegionsCleared`,
+  `enclosedBackgroundPixelsCleared` and — when the pass declined —
+  `enclosedBackgroundSkipped` (`no-background-key` | `region-too-large` |
+  `no-enclosed-regions`). All four keys are absent when the pass was not
+  requested. A refusal is a `succeeded` job, not a failure.
+- **Web (track D):** `web/src/api/schema.d.ts` regenerated. The cutout step gains
+  an "Also remove enclosed background" checkbox (off by default, with a hint
+  explaining the risk), which sends `removeEnclosedBackground: true` **only**
+  when ticked — an untouched control must not pin a job against a deployment
+  default that is set to on.
+- **Worker (track B) / packer (track C):** no change. The pass is API-side pixel
+  work on the already-composited PNG; no new job type and no new file exchange.
+  A cleared counter is just alpha in an immutable version.
+- The two guards (`MinCounterAreaPx` 64, `MaxCounterAreaFraction` 0.10, measured
+  **per region**) are configuration, not contract surface, so tuning them needs
+  no version bump.
 
 ### 2026-11-24 — Additive: DTF preflight (contracts 3.2.0)
 
