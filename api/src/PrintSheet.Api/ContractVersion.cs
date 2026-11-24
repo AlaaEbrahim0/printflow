@@ -10,5 +10,5 @@ namespace PrintSheet.Api;
 /// </summary>
 public static class ContractVersion
 {
-    public const string Current = "3.2.0";
+    public const string Current = "3.3.0";
 }

@@ -1,5 +1,40 @@
 # Contract Changelog
 
+## 3.3.0 — 2026-11-24
+
+Additive: opt-in removal of enclosed background regions (letter counters). A
+cut-out can now clear the background colour that survives *inside* artwork — the
+inside of an `o`, the two bowls of a `B`, the black stripes inside a badge —
+because providers only matte background reachable from the frame edge. No
+existing request or response changed shape.
+
+- `BackgroundRemovalStepRequest.removeEnclosedBackground` (boolean, nullable).
+  Omit it, or send `null`, to take
+  `BackgroundRemoval:RemoveEnclosedBackgroundByDefault` (default `false`); the
+  resolved value is stored on the job, so a queued job is never re-interpreted
+  when configuration changes. The pass runs after the compositor and before
+  decontamination, so the anti-aliased ramp it rebuilds is decontaminated too.
+- Job metadata when the pass is requested: `enclosedBackgroundApplied`,
+  `enclosedBackgroundRegionsCleared`, `enclosedBackgroundPixelsCleared`, plus
+  `enclosedBackgroundSkipped` (`no-background-key` | `region-too-large` |
+  `no-enclosed-regions`) when it declined. Absent entirely when it was not
+  requested, so "not asked for" stays distinguishable from "asked, nothing
+  enclosed".
+- A refusal is a **successful job**: refusing is the correct outcome for a design
+  whose ink is the background colour. Safety is enforced by
+  `BackgroundRemoval:MinCounterAreaPx` (default 64 px) and
+  `BackgroundRemoval:MaxCounterAreaFraction` (default 0.10), both configuration,
+  so tuning them is not a contract change. The cap is **per region**, not on the
+  total enclosed area: a white "Bo8" on black is five legitimate counters adding
+  up to 15% of the canvas, while an inverted logo is one region the size of the
+  design.
+- Preflight legitimately reports `hole-area` on the cleared counters, and
+  `fill-holes` (`POST /api/v1/preflight` with `fix=true`) would put them back.
+  Preflight inside the cut-out is report-only and never applies fixes.
+- Tracks: API A and web D (a checkbox in the cutout step). Worker B and packer C
+  are unaffected: the pass is API-side pixel work on the composited PNG, and a
+  cleared counter is just alpha in an immutable version.
+
 ## 3.2.0 — 2026-11-23
 
 Additive: DTF preflight. A cut-out now always produces a report next to its

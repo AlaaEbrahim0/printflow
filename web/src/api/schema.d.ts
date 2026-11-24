@@ -1169,6 +1169,41 @@ export interface components {
              * @enum {string|null}
              */
             provider?: "withoutbg" | "poof" | "solid" | "auto" | null;
+            /**
+             * @description Clear background-coloured areas that the matte left opaque because
+             *     artwork encloses them — the inside of an `o`, the two bowls of a
+             *     `B`, the black stripes inside a badge. A provider only mattes
+             *     background it can reach from the frame edge, so those counters
+             *     survive as opaque islands of exactly the background colour.
+             *
+             *     **Opt-in, because only the operator can judge it.** The pass finds
+             *     those islands by colour, not by shape, so it cannot tell a counter
+             *     from artwork that happens to be the background colour. Omit the
+             *     field (or send `null`) to take
+             *     `BackgroundRemoval:RemoveEnclosedBackgroundByDefault`, which is
+             *     `false` unless the deployment changes it; the resolved value is
+             *     recorded on the job, so a queued job is never re-interpreted.
+             *
+             *     Two guards run regardless: regions smaller than
+             *     `BackgroundRemoval:MinCounterAreaPx` (64 px ≈ 0.5 mm² at 300 DPI)
+             *     are left alone, and the whole pass is abandoned when the enclosed
+             *     share would exceed `BackgroundRemoval:MaxCounterAreaFraction`
+             *     (0.10) — that is what an inverted logo looks like. A refusal is a
+             *     successful job, not a failure; the reason is reported in the job
+             *     metadata.
+             *
+             *     Job metadata when requested: `enclosedBackgroundApplied`,
+             *     `enclosedBackgroundRegionsCleared`, `enclosedBackgroundPixelsCleared`
+             *     and, when the pass declined, `enclosedBackgroundSkipped` with one of
+             *     `no-background-key`, `region-too-large`, `no-enclosed-regions`.
+             *     None of these keys are written when the pass was not requested.
+             *
+             *     Note that preflight legitimately reports `hole-area` on the cleared
+             *     counters, and `fill-holes` (via `POST /api/v1/preflight` with
+             *     `fix=true`) would put them back. Preflight never runs with fixes
+             *     inside the cut-out.
+             */
+            removeEnclosedBackground?: boolean | null;
         };
         /**
          * @description Mono refinement. Every field is optional: the preset supplies the

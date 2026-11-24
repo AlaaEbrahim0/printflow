@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PrintSheet Workbench API
-  version: 3.2.0
+  version: 3.3.0
   description: |
     Contract for the PrintSheet Workbench HTTP API.
 
@@ -837,6 +837,12 @@ paths:
         Fallback to `BackgroundRemoval:FallbackProvider` happens only for
         availability failures; an input the provider cannot decode fails outright.
 
+        `removeEnclosedBackground` optionally clears the background colour that
+        survives *inside* the artwork (letter counters, the gaps in a badge),
+        which a provider cannot matte because it is not reachable from the frame
+        edge. It is opt-in: see the request schema for the guards and the job
+        metadata it writes.
+
         **Preflight always runs report-only after the cut-out.** The report is
         written beside the output as `<output>.preflight.json`, and the job
         metadata carries `preflightReportPath`, `preflightVerdict` and
@@ -1624,6 +1630,45 @@ components:
             solid background; it fails loudly when the border analysis says the
             image is unsafe. `auto` probes Solid first, then withoutbg, then
             Poof.
+        removeEnclosedBackground:
+          type: boolean
+          nullable: true
+          description: |
+            Clear background-coloured areas that the matte left opaque because
+            artwork encloses them — the inside of an `o`, the two bowls of a
+            `B`, the black stripes inside a badge. A provider only mattes
+            background it can reach from the frame edge, so those counters
+            survive as opaque islands of exactly the background colour.
+
+            **Opt-in, because only the operator can judge it.** The pass finds
+            those islands by colour, not by shape, so it cannot tell a counter
+            from artwork that happens to be the background colour. Omit the
+            field (or send `null`) to take
+            `BackgroundRemoval:RemoveEnclosedBackgroundByDefault`, which is
+            `false` unless the deployment changes it; the resolved value is
+            recorded on the job, so a queued job is never re-interpreted.
+
+            Two guards run regardless: regions smaller than
+            `BackgroundRemoval:MinCounterAreaPx` (64 px ≈ 0.5 mm² at 300 DPI)
+            are left alone, and the whole pass is abandoned when any *single*
+            enclosed region exceeds
+            `BackgroundRemoval:MaxCounterAreaFraction` (0.10) — that is what an
+            inverted logo looks like. The cap is per region, not on the total:
+            a white "Bo8" on black is five legitimate counters adding up to 15%
+            of the canvas, while an inverted logo is one region the size of the
+            design. A refusal is a successful job, not a failure; the reason is
+            reported in the job metadata.
+
+            Job metadata when requested: `enclosedBackgroundApplied`,
+            `enclosedBackgroundRegionsCleared`, `enclosedBackgroundPixelsCleared`
+            and, when the pass declined, `enclosedBackgroundSkipped` with one of
+            `no-background-key`, `region-too-large`, `no-enclosed-regions`.
+            None of these keys are written when the pass was not requested.
+
+            Note that preflight legitimately reports `hole-area` on the cleared
+            counters, and `fill-holes` (via `POST /api/v1/preflight` with
+            `fix=true`) would put them back. Preflight never runs with fixes
+            inside the cut-out.
 
     RefineMonoStepRequest:
       type: object
