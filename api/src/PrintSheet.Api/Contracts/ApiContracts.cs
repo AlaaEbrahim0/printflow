@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace PrintSheet.Api.Contracts;
 
@@ -263,6 +264,16 @@ public sealed record ResizeStepRequest(
 /// refiner is configured, not per request.
 /// </summary>
 public sealed record BackgroundRemovalStepRequest(string? Provider);
+
+/// <summary>
+/// Ad-hoc preflight result. <paramref name="Report"/> is the same stable document
+/// written beside a cut-out; <paramref name="FixedImageBase64"/> is present only
+/// when the caller asked for fixes and at least one applied.
+/// </summary>
+public sealed record PreflightResponseDto(
+    JsonElement Report,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? FixedImageBase64);
 
 /// <summary>
 /// Mono refinement. Every field is optional: the preset supplies the defaults,

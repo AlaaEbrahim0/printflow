@@ -102,6 +102,7 @@ app.MapDesignEndpoints();
 app.MapSheetEndpoints();
 app.MapExportEndpoints();
 app.MapJobEndpoints();
+app.MapPreflightEndpoints();
 app.MapSystemEndpoints();
 
 app.Run();

@@ -6,6 +6,7 @@
     <Project Path="src/PrintSheet.Infrastructure/PrintSheet.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/PrintSheet.Api.Tests/PrintSheet.Api.Tests.csproj" />
     <Project Path="tests/PrintSheet.Application.Tests/PrintSheet.Application.Tests.csproj" />
     <Project Path="tests/PrintSheet.Domain.Tests/PrintSheet.Domain.Tests.csproj" />
     <Project Path="tests/PrintSheet.Infrastructure.Tests/PrintSheet.Infrastructure.Tests.csproj" />
