@@ -61,6 +61,9 @@ public sealed class SolidBackgroundRemover(
             rgba.Width,
             rgba.Height,
             _options.EdgeBandPixels,
+            _options.MaxEdgeBandPixels,
+            reference,
+            index => distances[index],
             cancellationToken);
 
         var alpha = new byte[rgba.Width * rgba.Height];

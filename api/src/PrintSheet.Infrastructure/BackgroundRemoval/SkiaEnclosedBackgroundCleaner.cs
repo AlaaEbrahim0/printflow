@@ -180,15 +180,16 @@ public sealed class SkiaEnclosedBackgroundCleaner(
         }
 
         var radius = _options.CounterEdgeBandPixels;
-        if (radius <= 0)
+        var maxRadius = _options.CounterMaxEdgeBandPixels;
+        if (maxRadius <= 0)
         {
             return changed;
         }
 
-        // The ramp reaches at most `radius` pixels past the region, so the band is
-        // built on the region's padded box. A design with 200 letter counters then
-        // costs 200 small BFS runs instead of 200 full-image ones.
-        var pad = radius + 1;
+        // The ramp reaches at most `maxRadius` pixels past the region, so the band
+        // is built on the region's padded box. A design with 200 letter counters
+        // then costs 200 small BFS runs instead of 200 full-image ones.
+        var pad = maxRadius + 1;
         var left = Math.Max(0, region.MinX - pad);
         var top = Math.Max(0, region.MinY - pad);
         var right = Math.Min(width - 1, region.MaxX + pad);
@@ -209,7 +210,17 @@ public sealed class SkiaEnclosedBackgroundCleaner(
             local[((y - top) * boxWidth) + (x - left)] = true;
         }
 
-        var band = SolidAnalyzer.EdgeBand(local, boxWidth, boxHeight, radius, cancellationToken);
+        var band = SolidAnalyzer.EdgeBand(
+            local,
+            boxWidth,
+            boxHeight,
+            radius,
+            maxRadius,
+            reference,
+            // The band is built in box coordinates, so map back to the image
+            // before reading the shared distance map.
+            local => distances[((top + (local / boxWidth)) * width) + left + (local % boxWidth)],
+            cancellationToken);
         for (var y = 0; y < boxHeight; y++)
         {
             var source = ((top + y) * width) + left;

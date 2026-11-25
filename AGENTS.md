@@ -609,9 +609,47 @@ The agent file viewer may strip characters such as `=`, `*`, and `=>` from displ
 
 ## 15. Live status
 
-**Last updated:** 2026-11-24 (the "blank cut-out" was white ink on a white preview)
+**Last updated:** 2026-11-25 (the edge ramp no longer stops at a fixed radius)
 
 **Done and verified:**
+
+- **A truncated edge ramp left a printable background ring on the outline
+  (2026-11-25).** The operator reported that after removing a solid background
+  the outline of the design still carried background pixels, and that enabling
+  enclosed-counter removal had the same residue on the counter edges. It is a
+  real defect and it is not alpha-threshold tuning: `SolidAnalyzer.EdgeBand`
+  marked a **fixed** radius (`EdgeBandPixels` = 3) of pixels next to the
+  background and everything beyond it was written **fully opaque**. On a source
+  whose transition is wider than that radius — a blurred or JPEG-compressed
+  upload, and *every* cut-out whose matte is upscaled — the first pixel past the
+  band was still carrying the background colour. Measured on a 3 px-blurred
+  white disc at JPEG q70: `alpha 74` immediately followed by
+  **`(107,107,107) alpha 255`**, and on a 6 px blur `(65,65,65) alpha 255`; 540
+  of 46,367 opaque pixels were that grey. On a dark garment that prints as a
+  dirty grey outline, which is exactly what the operator photographed.
+  The band now has a **floor and a ceiling**: `EdgeBandPixels` (3) is the
+  minimum, and past it the band keeps growing while pixels are still short of
+  the ramp's reference distance, bounded by `MaxEdgeBandPixels` (32). The same
+  change is applied to the counter ramp via `CounterMaxEdgeBandPixels` (32),
+  because the enclosed-background pass rebuilds its ramp with the same
+  helper and had the identical defect — measured there as 64 fully opaque
+  pixels at RGB 86–170 around the counter, versus 0 after the fix.
+  The ceiling is 32 rather than a small number because the ramp is upscaled
+  with the artwork: a 2.5 px source blur is a 12 px transition at 4x and a 24 px
+  one at 8x, and a first attempt at 12 stopped one pixel short and still left an
+  opaque `(115,115,115)` ring. A generous ceiling costs nothing on ordinary
+  artwork, because the band still terminates the moment a pixel reaches the
+  reference distance; it only bounds a design whose ink is close to the
+  background colour. Verified live through the rebuilt Compose API on a
+  2.5 px-blurred ring: **0 alpha cliffs and 0 opaque background-dark pixels**,
+  with the outer ramp completing over 32 px, counters cleared (3 regions /
+  551,078 px) and the counter edge ramping 13→80 instead of jumping to opaque.
+  Three new tests, two of them proven to fail against the old behaviour
+  (`540 of 46367 opaque pixels are visually dark` and `64 opaque pixels around
+  the counter are still background-dark`). Gates: `dotnet build` 0 warnings /
+  0 errors; API 26 domain / 59 application / 11 api / 127 infrastructure (2 live
+  skipped); contracts v3.3.0; worker 248; packer 161; web 284 / 23 files.
+  Configuration only, no contract change.
 
 - **The "blank cut-out" was white ink on a white preview, not a bad cut-out
   (2026-11-24).** The operator reported a cut-out that showed only thin rings.
@@ -1092,6 +1130,43 @@ reference data, not immediate work.
 ---
 
 ## 16. Handoff log
+
+### 2026-11-25 — A truncated edge ramp left a printable ring on the outline
+
+- **The report.** After removing a solid background the design's outline still
+  carried background pixels; enabling enclosed-counter removal had the same
+  residue on the counter edges. The operator described fixing it by hand in
+  Photoshop with Select > Modify > Contract.
+- **It was not a threshold problem.** `SolidAnalyzer.EdgeBand` marked a *fixed*
+  radius (`EdgeBandPixels` = 3) and wrote every pixel past it **fully opaque**.
+  A source transition wider than 3 px — blurred, JPEG-compressed, or upscaled
+  matte — therefore left its first post-band pixel at full opacity while still
+  carrying the background colour. Measured on a 3 px-blurred white disc at JPEG
+  q70: `alpha 74` then **`(107,107,107) alpha 255`**; on a 6 px blur
+  `(65,65,65) alpha 255`; 540 of 46,367 opaque pixels were that grey.
+- **The fix.** The band is now floor + ceiling: `EdgeBandPixels` (3) is the
+  floor, and past it the band grows while pixels are short of the reference
+  distance, bounded by `MaxEdgeBandPixels` (32). The counter ramp uses the same
+  helper and had the identical defect, so it gets `CounterMaxEdgeBandPixels`
+  (32); measured there as 64 fully opaque pixels at RGB 86–170 around the
+  counter versus 0 after.
+- **Why the ceiling is 32 and not something small.** The ramp is upscaled with
+  the artwork: a 2.5 px source blur is 12 px at 4x and 24 px at 8x. A first
+  attempt at 12 stopped one pixel short and still left an opaque
+  `(115,115,115)` ring on the live output. A generous ceiling is safe because
+  the band still terminates as soon as a pixel reaches the reference distance —
+  it only bounds a design whose ink is close to the background colour.
+- **Verified live** through the rebuilt Compose API on a 2.5 px-blurred ring:
+  **0 alpha cliffs, 0 opaque background-dark pixels**, outer ramp completing
+  over 32 px, counters cleared (3 regions / 551,078 px) and the counter edge
+  ramping 13→80 rather than jumping to opaque.
+- **Not the same defect as the FCB fringe.** That one is *opaque RGB* invented
+  by Real-ESRGAN inside the artwork, which no alpha-side change can reach. This
+  one was an alpha cliff on the silhouette, produced by our own ramp.
+- Three new tests, two proven to fail against the old behaviour. Gates:
+  `dotnet build` 0 warnings / 0 errors; API 26 / 59 / 11 / 127 (2 live skipped);
+  contracts v3.3.0; worker 248; packer 161; web 284 / 23 files. No contract
+  change — configuration only.
 
 ### 2026-11-24 — The "blank cut-out" was white ink on a white preview
 

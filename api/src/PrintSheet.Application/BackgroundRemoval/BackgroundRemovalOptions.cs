@@ -48,6 +48,25 @@ public sealed class SolidBackgroundRemovalOptions
     [Range(0, 32)]
     public int EdgeBandPixels { get; init; } = 3;
 
+    /// <summary>
+    /// Hard ceiling on how far the edge ramp may reach while it is still
+    /// incomplete. <see cref="EdgeBandPixels"/> is only the floor: a soft source
+    /// spreads the transition over more pixels, and cutting the ramp off at the
+    /// floor left a fully opaque near-background pixel immediately outside it,
+    /// which prints as a dirty outline.
+    ///
+    /// The default is deliberately generous. The ramp is upscaled with the
+    /// artwork, so a source with a 3 px transition becomes a 12 px one at 4x and
+    /// a 24 px one at 8x; measured on a 2.5 px-blurred ring upscaled 4x, the
+    /// transition spans exactly 12 px, so a ceiling of 12 stopped one pixel short
+    /// and still left an opaque <c>(115,115,115)</c> ring. This bound only stops a
+    /// design whose ink is close to the background colour from being flooded —
+    /// the ramp still terminates as soon as a pixel reaches the reference
+    /// distance, so a generous ceiling costs nothing on ordinary artwork.
+    /// </summary>
+    [Range(0, 64)]
+    public int MaxEdgeBandPixels { get; init; } = 32;
+
     /// <summary>Distance at or below which an edge pixel is fully transparent.</summary>
     [Range(0, 255)]
     public int EdgeLow { get; init; } = 10;
@@ -132,6 +151,15 @@ public sealed class BackgroundRemovalOptions
     /// <summary>How far the rebuilt soft ramp reaches into the artwork around a counter.</summary>
     [Range(0, 32)]
     public int CounterEdgeBandPixels { get; init; } = 3;
+
+    /// <summary>
+    /// Hard ceiling on the counter ramp's reach while it is still incomplete, for
+    /// the same reason <see cref="SolidBackgroundRemovalOptions.MaxEdgeBandPixels"/>
+    /// exists: a fixed floor truncates a soft transition and leaves an opaque
+    /// near-background ring around the counter.
+    /// </summary>
+    [Range(0, 64)]
+    public int CounterMaxEdgeBandPixels { get; init; } = 32;
 
     /// <summary>Distance at or below which a counter's edge pixel is fully transparent.</summary>
     [Range(0, 255)]

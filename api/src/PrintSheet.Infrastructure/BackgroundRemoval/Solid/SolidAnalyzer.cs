@@ -240,16 +240,36 @@ internal static class SolidAnalyzer
         return 255;
     }
 
-    /// <summary>Marks foreground pixels within <paramref name="radius"/> of background.</summary>
+    /// <summary>
+    /// Marks the pixels whose alpha must come from the edge ramp instead of being
+    /// set fully opaque.
+    ///
+    /// <paramref name="minimumRadius"/> is a floor, so a hard-edged source still
+    /// gets its anti-aliased ring. Past it the band keeps growing while the
+    /// pixels are still within <paramref name="reference"/> of the background
+    /// colour, because a soft source spreads that ramp over more pixels than any
+    /// fixed radius covers. Cutting the band off at a fixed radius is what left a
+    /// fully opaque near-background pixel one step outside it — measured at
+    /// <c>(65,65,65)</c> alpha 255 immediately next to a ramp pixel of alpha 74 —
+    /// which prints as a dirty outline on a garment.
+    ///
+    /// <paramref name="maximumRadius"/> bounds the growth so artwork whose ink
+    /// sits close to the background colour cannot be flooded.
+    /// </summary>
     public static bool[] EdgeBand(
         bool[] backgroundMask,
         int width,
         int height,
-        int radius,
+        int minimumRadius,
+        int maximumRadius,
+        int reference,
+        Func<int, int> distanceAt,
         CancellationToken cancellationToken)
     {
         var band = new bool[backgroundMask.Length];
-        if (radius <= 0)
+        var floor = Math.Max(0, minimumRadius);
+        var ceiling = Math.Max(floor, maximumRadius);
+        if (ceiling == 0)
         {
             return band;
         }
@@ -258,6 +278,7 @@ internal static class SolidAnalyzer
         var head = 0;
         var tail = 0;
 
+        // Ring 1: foreground pixels that touch the background.
         for (var index = 0; index < backgroundMask.Length; index++)
         {
             if (backgroundMask[index])
@@ -280,7 +301,7 @@ internal static class SolidAnalyzer
         // Breadth-first dilation: every further ring is one more pixel from the
         // background, so the loop is O(foreground) rather than O(foreground × r²).
         var depth = 1;
-        while (head < tail && depth < radius)
+        while (head < tail && depth < ceiling)
         {
             var ringEnd = tail;
             while (head < ringEnd)
@@ -303,6 +324,15 @@ internal static class SolidAnalyzer
         void Visit(int index, bool inside)
         {
             if (!inside || backgroundMask[index] || band[index])
+            {
+                return;
+            }
+
+            // Past the floor the band only continues while the ramp is still
+            // incomplete. Once a pixel has reached the reference distance the
+            // ramp would make it fully opaque anyway, so there is nothing left
+            // for a deeper ring to fix.
+            if (depth + 1 > floor && distanceAt(index) >= reference)
             {
                 return;
             }

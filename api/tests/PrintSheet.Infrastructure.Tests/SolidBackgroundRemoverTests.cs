@@ -233,6 +233,169 @@ public sealed class SolidBackgroundRemoverTests
         Assert.Equal([200, 100, 50, 255], pixels[4..]);
     }
 
+    [Fact]
+    public async Task ASoftSourceEdgeDoesNotLeaveAnOpaqueNearBackgroundRing()
+    {
+        // The defect this pins: the edge ramp used to stop at a fixed radius, so
+        // on a source whose transition is wider than that radius the first pixel
+        // past the band was forced fully opaque while still carrying the
+        // background colour. Measured on a 3 px-blurred disc at JPEG q70, that
+        // pixel came out at (107,107,107) with alpha 255 immediately next to a
+        // ramp pixel of alpha 74 — 25-40% grey that prints as a dirty outline on
+        // a garment. A blurred edge is exactly what a low-quality customer upload
+        // has, so this is the common case, not an exotic one.
+        var png = CreatePng(400, 400, canvas =>
+        {
+            canvas.Clear(SKColors.Black);
+            using var paint = new SKPaint { Color = SKColors.White, IsAntialias = true };
+            paint.ImageFilter = SKImageFilter.CreateBlur(3f, 3f);
+            canvas.DrawCircle(200, 200, 120, paint);
+        });
+        var jpeg = Reencode(png, SKEncodedImageFormat.Jpeg, 70);
+
+        var result = await Remover().RemoveAsync(Input(jpeg), CancellationToken.None);
+
+        var (rgb, alpha, width, height) = DecodeRgbaSplit(result.PngBytes);
+        var background = result.BackgroundColor!.Value;
+
+        // Any fully opaque pixel that is still visually dark is ink the operator
+        // did not ask for; on a white-on-black design it can only come from the
+        // background.
+        var darkOpaque = 0;
+        var opaque = 0;
+        for (var i = 0; i < width * height; i++)
+        {
+            if (alpha[i] != 255)
+            {
+                continue;
+            }
+
+            opaque++;
+            var sum = rgb[i * 3] + rgb[(i * 3) + 1] + rgb[(i * 3) + 2];
+            if (sum < 300)
+            {
+                darkOpaque++;
+            }
+        }
+
+        Assert.True(opaque > 1000, $"the fixture produced only {opaque} opaque pixels.");
+        Assert.True(
+            darkOpaque == 0,
+            $"{darkOpaque} of {opaque} opaque pixels are visually dark, i.e. a background ring survived.");
+
+        // And the ramp must actually be continuous: no opaque pixel may sit next
+        // to a near-transparent one, which is the signature of a truncated band.
+        var cliffs = 0;
+        for (var i = 0; i < width * height; i++)
+        {
+            if (alpha[i] != 255)
+            {
+                continue;
+            }
+
+            var x = i % width;
+            var y = i / width;
+            var lowest = 255;
+            if (x > 0) lowest = Math.Min(lowest, alpha[i - 1]);
+            if (x < width - 1) lowest = Math.Min(lowest, alpha[i + 1]);
+            if (y > 0) lowest = Math.Min(lowest, alpha[i - width]);
+            if (y < height - 1) lowest = Math.Min(lowest, alpha[i + width]);
+            if (lowest < 128)
+            {
+                cliffs++;
+            }
+        }
+
+        Assert.True(cliffs == 0, $"{cliffs} opaque pixels sit directly next to a near-transparent pixel.");
+
+        // The background itself must still be fully cleared.
+        Assert.Equal(0, alpha[2]);
+        Assert.Equal(0, AlphaAt(result.PngBytes, 2, 2));
+        _ = background;
+    }
+
+    [Fact]
+    public async Task TheRampStillStopsAtItsCeiling()
+    {
+        // The band grows past its floor only while the ramp is incomplete, and it
+        // must still stop: a design whose ink is close to the background colour
+        // would otherwise be flooded from the border inwards.
+        var png = CreatePng(200, 200, canvas =>
+        {
+            canvas.Clear(SKColors.Black);
+            // Ink only 40/255 from the background colour, so the ramp reference is
+            // low and every pixel of the shape is "incomplete" by distance.
+            using var paint = new SKPaint { Color = new SKColor(40, 40, 40), IsAntialias = true };
+            canvas.DrawRect(SKRect.Create(80, 80, 40, 40), paint);
+        });
+
+        var options = new SolidBackgroundRemovalOptions
+        {
+            MaxEdgeBandPixels = 4,
+        };
+        var remover = new SolidBackgroundRemover(
+            Options.Create(options),
+            NullLogger<SolidBackgroundRemover>.Instance);
+
+        var result = await remover.RemoveAsync(Input(png), CancellationToken.None);
+
+        // The centre of a 40x40 block is 20 px from the background: beyond the
+        // ceiling, so it must stay fully opaque.
+        Assert.Equal(255, AlphaAt(result.PngBytes, 100, 100));
+    }
+
+    [Fact]
+    public async Task AnUpscaledSoftEdgeRampIsFollowedToItsEnd()
+    {
+        // The ramp is upscaled with the artwork, so a source transition of a few
+        // pixels becomes a wide one at print size. Measured live on a 2.5 px
+        // blurred ring upscaled 4x: the transition spans exactly 12 px, and a
+        // ceiling of 12 stopped one pixel short, leaving a fully opaque
+        // (115,115,115) ring. The band must follow the ramp to its real end
+        // rather than stopping at a radius that happens to fit a hard edge.
+        var png = CreatePng(300, 300, canvas =>
+        {
+            canvas.Clear(SKColors.Black);
+            using var paint = new SKPaint { Color = SKColors.White, IsAntialias = true };
+            // ~12 px transition, the measured width of an upscaled soft source.
+            paint.ImageFilter = SKImageFilter.CreateBlur(6f, 6f);
+            canvas.DrawCircle(150, 150, 90, paint);
+        });
+
+        var result = await Remover().RemoveAsync(Input(png), CancellationToken.None);
+
+        var (rgb, alpha, width, height) = DecodeRgbaSplit(result.PngBytes);
+        var cliffs = 0;
+        var darkOpaque = 0;
+        for (var i = 0; i < width * height; i++)
+        {
+            if (alpha[i] != 255)
+            {
+                continue;
+            }
+
+            if (rgb[i * 3] + rgb[(i * 3) + 1] + rgb[(i * 3) + 2] < 300)
+            {
+                darkOpaque++;
+            }
+
+            var x = i % width;
+            var y = i / width;
+            var lowest = 255;
+            if (x > 0) lowest = Math.Min(lowest, alpha[i - 1]);
+            if (x < width - 1) lowest = Math.Min(lowest, alpha[i + 1]);
+            if (y > 0) lowest = Math.Min(lowest, alpha[i - width]);
+            if (y < height - 1) lowest = Math.Min(lowest, alpha[i + width]);
+            if (lowest < 128)
+            {
+                cliffs++;
+            }
+        }
+
+        Assert.True(darkOpaque == 0, $"{darkOpaque} opaque pixels are still background-dark.");
+        Assert.True(cliffs == 0, $"{cliffs} opaque pixels sit next to a near-transparent pixel.");
+    }
+
     private static SolidBackgroundRemover Remover()
         => new(
             Options.Create(new SolidBackgroundRemovalOptions()),
@@ -278,6 +441,25 @@ public sealed class SolidBackgroundRemoverTests
         using var image = SKImage.FromBitmap(bitmap);
         using var data = image.Encode(format, quality);
         return data.ToArray();
+    }
+
+    private static (byte[] Rgb, byte[] Alpha, int Width, int Height) DecodeRgbaSplit(byte[] png)
+    {
+        var pixels = DecodeRgba(png);
+        using var bitmap = SKBitmap.Decode(png);
+        var width = bitmap.Width;
+        var height = bitmap.Height;
+        var rgb = new byte[width * height * 3];
+        var alpha = new byte[width * height];
+        for (var i = 0; i < width * height; i++)
+        {
+            rgb[i * 3] = pixels[i * 4];
+            rgb[(i * 3) + 1] = pixels[(i * 4) + 1];
+            rgb[(i * 3) + 2] = pixels[(i * 4) + 2];
+            alpha[i] = pixels[(i * 4) + 3];
+        }
+
+        return (rgb, alpha, width, height);
     }
 
     private static byte AlphaAt(byte[] png, int x, int y)

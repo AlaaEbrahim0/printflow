@@ -157,6 +157,63 @@ public sealed class SkiaEnclosedBackgroundCleanerTests
     }
 
     [Fact]
+    public async Task ASoftCounterEdgeDoesNotLeaveAnOpaqueNearBackgroundRing()
+    {
+        // Same defect as the outer silhouette, on the counter side. The counter's
+        // rebuild used a fixed radius too, so a counter whose keyed colour bleeds
+        // a few pixels into the ink (a JPEG-compressed upload) kept a fully opaque
+        // near-background ring around the hole instead of a ramp.
+        var png = CreateRgbaPng(64, 64, (pixels, width) =>
+        {
+            FillRect(pixels, width, 0, 0, 64, 64, [0, 0, 0, 0]);
+            // Opaque ink page.
+            FillRect(pixels, width, 6, 6, 52, 52, [255, 255, 255, 255]);
+            // A keyed hole, surrounded by a 5 px gradient ring that is ink-coloured
+            // but still close to the key. Values climb 50 -> 170, so the first two
+            // rings are visually dark: if the ramp stops early they stay fully
+            // opaque and print as a dirty ring around the counter. Draw outermost
+            // first so each smaller ring overwrites the inside of the previous one.
+            for (var ring = 5; ring >= 1; ring--)
+            {
+                var value = (byte)(30 + (ring * 28));
+                FillRect(
+                    pixels,
+                    width,
+                    26 - ring,
+                    26 - ring,
+                    12 + (ring * 2),
+                    12 + (ring * 2),
+                    [value, value, value, 255]);
+            }
+
+            FillRect(pixels, width, 26, 26, 12, 12, [0, 0, 0, 255]);
+        });
+
+        var outcome = await Cleaner(new BackgroundRemovalOptions
+        {
+            CounterEdgeBandPixels = 1,
+            CounterMaxEdgeBandPixels = 12,
+        }).ClearAsync(png, new RgbColor(0, 0, 0), CancellationToken.None);
+
+        Assert.True(outcome.Applied);
+
+        // No pixel that is still visually dark may be fully opaque. Scan the whole
+        // page: the damage from a truncated ramp sits a few pixels out from the
+        // hole, so a narrow window is not evidence either way.
+        var (rgb, alpha, width2, height2) = DecodeSplit(outcome.PngBytes);
+        var darkOpaque = 0;
+        for (var i = 0; i < width2 * height2; i++)
+        {
+            if (alpha[i] == 255 && rgb[i * 3] + rgb[(i * 3) + 1] + rgb[(i * 3) + 2] < 300)
+            {
+                darkOpaque++;
+            }
+        }
+
+        Assert.True(darkOpaque == 0, $"{darkOpaque} opaque pixels around the counter are still background-dark.");
+    }
+
+    [Fact]
     public async Task HonoursCancellation()
     {
         var png = RingPng(hole: (26, 26, 12, 12));
@@ -231,6 +288,23 @@ public sealed class SkiaEnclosedBackgroundCleanerTests
         var pixels = new byte[source.Width * source.Height * 4];
         Marshal.Copy(source.GetPixels(), pixels, 0, pixels.Length);
         return (pixels, source.Width);
+    }
+
+    private static (byte[] Rgb, byte[] Alpha, int Width, int Height) DecodeSplit(byte[] png)
+    {
+        var (pixels, width) = DecodeRgba(png);
+        var height = pixels.Length / 4 / width;
+        var rgb = new byte[width * height * 3];
+        var alpha = new byte[width * height];
+        for (var i = 0; i < width * height; i++)
+        {
+            rgb[i * 3] = pixels[i * 4];
+            rgb[(i * 3) + 1] = pixels[(i * 4) + 1];
+            rgb[(i * 3) + 2] = pixels[(i * 4) + 2];
+            alpha[i] = pixels[(i * 4) + 3];
+        }
+
+        return (rgb, alpha, width, height);
     }
 
     private static byte AlphaAt(byte[] png, int x, int y)
